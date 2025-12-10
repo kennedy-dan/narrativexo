@@ -1,0 +1,56 @@
+{
+  "emotionMap": {
+    "Inspiring": {
+      "need": "Living Your Potential",
+      "archetype": "Quest",
+      "tone": "Uplifting"
+    },
+    "Tense": {
+      "need": "Security & Peace of Mind",
+      "archetype": "Confronting the Odds",
+      "tone": "Measured"
+    },
+    "Funny": {
+      "need": "Belonging & Connection",
+      "archetype": "Comedy",
+      "tone": "Wry"
+    },
+    "Sad": {
+      "need": "Belonging & Connection",
+      "archetype": "Tragedy",
+      "tone": "Poignant"
+    },
+    "Calm": {
+      "need": "Peace of Mind",
+      "archetype": "Reunion",
+      "tone": "Calm"
+    }
+  },
+  "fragments": {
+    "Uplifting": [
+      "soft daylight",
+      "optimistic cadence",
+      "clean lines"
+    ],
+    "Measured": [
+      "steady rhythm",
+      "muted palette",
+      "considered framing"
+    ],
+    "Wry": [
+      "smart cuts",
+      "understated humor",
+      "beat pauses"
+    ],
+    "Poignant": [
+      "strings bed",
+      "slow zooms",
+      "reflective silence"
+    ],
+    "Calm": [
+      "even pacing",
+      "natural ambience",
+      "long focal"
+    ]
+  }
+}

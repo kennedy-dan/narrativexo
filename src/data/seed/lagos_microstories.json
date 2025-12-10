@@ -1,0 +1,122 @@
+[
+  {
+    "title": "Overheard in Lagos",
+    "text": "I overheard two people at a Lagos caf\u00e9 talking about quitting their jobs.",
+    "suggestedEmotion": "Inspiring",
+    "scene": "Lagos Caf\u00e9",
+    "audience": "Urban Professionals",
+    "fragments": [
+      "warm dawn light",
+      "Lagos caf\u00e9 hum",
+      "quiet courage"
+    ]
+  },
+  {
+    "title": "Danfo Dawn",
+    "text": "A danfo driver handed a free ride to a student who\u2019d lost her wallet.",
+    "suggestedEmotion": "Tender",
+    "scene": "Ojuelegba Bus Stop",
+    "audience": "Everyday People",
+    "fragments": [
+      "morning traffic glow",
+      "soft gratitude",
+      "shared humanity"
+    ]
+  },
+  {
+    "title": "Suya Shift",
+    "text": "A suya vendor saved a late-night order for a security guard on duty.",
+    "suggestedEmotion": "Heartfelt",
+    "scene": "Lekki Late Night",
+    "audience": "Night Workers",
+    "fragments": [
+      "charcoal ember glow",
+      "quiet city pulse",
+      "small kindness"
+    ]
+  },
+  {
+    "title": "Hustle Break",
+    "text": "Two tailors stepped outside to watch the sunset and breathe.",
+    "suggestedEmotion": "Calm",
+    "scene": "Yaba Workshop",
+    "audience": "Artisans",
+    "fragments": [
+      "gold hour sky",
+      "scissors resting",
+      "earned exhale"
+    ]
+  },
+  {
+    "title": "Power Back",
+    "text": "When the lights returned, a whole street cheered like they won a match.",
+    "suggestedEmotion": "Playful",
+    "scene": "Surulere Street",
+    "audience": "Families",
+    "fragments": [
+      "neon flicker",
+      "collective laugh",
+      "joy in little things"
+    ]
+  },
+  {
+    "title": "Market Math",
+    "text": "A market woman taught a child quick mental math with a smile.",
+    "suggestedEmotion": "Uplifting",
+    "scene": "Balogun Market",
+    "audience": "Parents & Kids",
+    "fragments": [
+      "colorful fabrics",
+      "lively chatter",
+      "bright curiosity"
+    ]
+  },
+  {
+    "title": "Rain Pause",
+    "text": "Strangers huddled together under one awning when the rain broke.",
+    "suggestedEmotion": "Belonging",
+    "scene": "Obalende Junction",
+    "audience": "Commuters",
+    "fragments": [
+      "rain percussion",
+      "shared shelter",
+      "knowing nods"
+    ]
+  },
+  {
+    "title": "Phone Torch",
+    "text": "During an outage, a kiosk owner lit the street with his phone for others.",
+    "suggestedEmotion": "Grounded",
+    "scene": "Ikeja Side Street",
+    "audience": "Neighborhood",
+    "fragments": [
+      "phone glow",
+      "steady hands",
+      "practical care"
+    ]
+  },
+  {
+    "title": "Exam Whisper",
+    "text": "A teacher slipped a note: 'You\u2019ve done the work. Breathe.'",
+    "suggestedEmotion": "Serene",
+    "scene": "UNILAG Hall",
+    "audience": "Students",
+    "fragments": [
+      "quiet hall",
+      "soft footsteps",
+      "confidence spark"
+    ]
+  },
+  {
+    "title": "Taxi Trade",
+    "text": "A driver traded playlist control for directions\u2014and made a friend.",
+    "suggestedEmotion": "Playful",
+    "scene": "VI Roundabout",
+    "audience": "Young Professionals",
+    "fragments": [
+      "Afrobeat loop",
+      "easy banter",
+      "city rhythm"
+    ]
+  }
+]

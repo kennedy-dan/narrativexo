@@ -1,0 +1,56 @@
+{
+  "emotionMap": {
+    "Inspiring": {
+      "need": "Living Your Potential",
+      "archetype": "Against All Odds",
+      "tone": "Heartfelt"
+    },
+    "Tense": {
+      "need": "Security & Peace of Mind",
+      "archetype": "Confronting the Odds",
+      "tone": "Grounded"
+    },
+    "Funny": {
+      "need": "Belonging & Connection",
+      "archetype": "Comedy",
+      "tone": "Playful"
+    },
+    "Sad": {
+      "need": "Belonging & Connection",
+      "archetype": "Tragedy",
+      "tone": "Tender"
+    },
+    "Calm": {
+      "need": "Peace of Mind",
+      "archetype": "Reunion",
+      "tone": "Serene"
+    }
+  },
+  "fragments": {
+    "Heartfelt": [
+      "warm dawn light",
+      "Lagos caf\u00e9 hum",
+      "quiet courage"
+    ],
+    "Grounded": [
+      "street bustle",
+      "measured cadence",
+      "practical resolve"
+    ],
+    "Playful": [
+      "banter energy",
+      "quick cuts",
+      "wink to camera"
+    ],
+    "Tender": [
+      "soft piano",
+      "gentle pacing",
+      "close-up hands"
+    ],
+    "Serene": [
+      "slow breathing room",
+      "ambient textures",
+      "long takes"
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AudienceContext",
+  "type": "object",
+  "properties": {
+    "market": {
+      "type": "string"
+    },
+    "segment": {
+      "type": "string"
+    },
+    "ageRange": {
+      "type": "string"
+    },
+    "interests": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "brandAffinity": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "market",
+    "segment"
+  ]
+}

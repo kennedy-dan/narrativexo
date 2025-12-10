@@ -1,0 +1,1 @@
+export function deltaE00(){ return 2.1 }

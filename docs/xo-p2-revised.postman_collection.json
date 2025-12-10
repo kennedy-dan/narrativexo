@@ -1,0 +1,121 @@
+{
+  "info": {
+    "name": "XO P2 Revised API",
+    "_postman_id": "xo-p2-rev",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "clarifyEmotion",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"text\": \"I overheard two people at a Lagos caf\\u00e9\\u2026\"}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/clarifyEmotion",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "clarifyEmotion"
+          ]
+        }
+      }
+    },
+    {
+      "name": "mapStory",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"emotion\": \"Inspiring\", \"scene\": \"Lagos Caf\\u00e9\", \"audience\": \"Urban Professionals\", \"market\": \"ng\"}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/mapStory",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "mapStory"
+          ]
+        }
+      }
+    },
+    {
+      "name": "generateCaption",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"narrative\": {\"need\": \"Living Your Potential\", \"archetype\": \"Against All Odds\", \"tone\": \"Heartfelt\", \"locale\": \"ng\", \"brandApplied\": false, \"promptFragments\": [\"warm dawn light\", \"Lagos caf\\u00e9 hum\", \"quiet courage\"]}}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/generateCaption",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "generateCaption"
+          ]
+        }
+      }
+    },
+    {
+      "name": "exportAudit",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"narrative\": {\"need\": \"Living Your Potential\", \"archetype\": \"Against All Odds\", \"tone\": \"Heartfelt\", \"locale\": \"ng\", \"brandApplied\": false, \"promptFragments\": [\"warm dawn light\", \"Lagos caf\\u00e9 hum\", \"quiet courage\"]}, \"brand\": {\"name\": \"DemoBrand\"}, \"market\": \"ng\", \"mode\": \"Creator\"}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/exportAudit",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "exportAudit"
+          ]
+        }
+      }
+    }
+  ]
+}
