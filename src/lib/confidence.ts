@@ -1,4 +1,4 @@
-import { lexiconScore } from "./lexicon";
+// import { lexiconScore } from "./lexicon";
 
 export function calcConfidence({ text = "", scene, audience }:{text?:string;scene?:string;audience?:string;}){
   const s1 = lexiconScore(text);            // 0..1
