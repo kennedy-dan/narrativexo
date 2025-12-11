@@ -1,8 +1,7 @@
 node_modules/
-.pnp
-.pnp.js
-
 .next/
-out/
-build/
 dist/
+build/
+out/
+.vercel/
+.env
