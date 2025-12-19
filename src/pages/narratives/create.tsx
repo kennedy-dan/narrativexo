@@ -415,7 +415,7 @@ export default function Create() {
     if (!context.trim()) return;
     
     addMessage('user', 
-      <div className="bg-white border rounded-lg p-3">
+      <div className="border rounded-lg p-3">
         <p className="text-sm">{context}</p>
       </div>,
       'selection'

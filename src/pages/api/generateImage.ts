@@ -117,7 +117,7 @@ The image should feel authentic to ${market} culture and resonate emotionally wi
       n: 1,
       size: size,
       quality: "hd",  // ✅ CHANGED: Use HD for better quality
-      style: "vivid"  // ✅ ADDED: More vibrant, engaging images
+      style: "natural"  // ✅ ADDED: More vibrant, engaging images
     });
 
     const imageData = response.data[0];
