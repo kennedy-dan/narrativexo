@@ -828,7 +828,7 @@ export default function Create() {
                 🎙️ Voice Over
               </h4>
               <div className="space-y-2">
-                {data.videoScript.voiceOver.slice(0, 3).map((line: any, index: number) => (
+                {data.videoScript.voiceOver.map((line: any, index: number) => (
                   <div key={index} className="text-sm bg-white p-3 rounded border">
                     <div className="text-xs text-gray-500 mb-1">
                       {line.startTime}s - {line.endTime}s
@@ -844,7 +844,7 @@ export default function Create() {
                 🎥 Shot List
               </h4>
               <div className="space-y-2">
-                {data.videoScript.shots.slice(0, 3).map((shot: any, index: number) => (
+                {data.videoScript.shots.map((shot: any, index: number) => (
                   <div key={index} className="text-sm bg-white p-3 rounded border">
                     <div className="flex justify-between mb-1">
                       <span className="font-medium">Shot {index + 1}</span>
