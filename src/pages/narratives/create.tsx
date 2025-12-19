@@ -5,7 +5,6 @@ import ArchetypeSelector from '@/components/ArchetypeSelector';
 import ToneSelector from '@/components/ToneSelector';
 import BrandGuideUpload from '@/components/BrandGuideUpload';
 import TemplateSelector from '@/components/TemplateSelector';
-// import ContextInput from '@/components/ContextInput';
 import { 
   GeneratedStory, 
   VideoScript, 
@@ -29,8 +28,12 @@ import {
   Send,
   Check,
   X,
-  MoreHorizontal
+  ChevronLeft,
+  ChevronRight,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
+import Layout from '@/components/Layout';
 
 type Market = 'ng' | 'uk' | 'fr';
 
@@ -43,6 +46,180 @@ type Message = {
 };
 
 type Step = 'market' | 'need' | 'archetype' | 'tone' | 'context' | 'brand' | 'template' | 'generate' | 'images' | 'video' | 'complete';
+
+interface ImageModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  images: { url: string; title: string; description: string }[];
+  initialIndex: number;
+}
+
+const ImageModal = ({ isOpen, onClose, images, initialIndex }: ImageModalProps) => {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+
+  useEffect(() => {
+    if (isOpen) {
+      setCurrentIndex(initialIndex);
+    }
+  }, [isOpen, initialIndex]);
+
+  const handlePrevious = () => {
+    setCurrentIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1));
+  };
+
+  const handleNext = () => {
+    setCurrentIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1));
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
+      <div className="relative w-full max-w-6xl h-full max-h-[90vh]">
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-10 p-2 bg-gray-900/80 text-white rounded-full hover:bg-gray-800 transition-colors"
+        >
+          <X size={24} />
+        </button>
+
+        {/* Previous button */}
+        <button
+          onClick={handlePrevious}
+          className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10 p-3 bg-gray-900/80 text-white rounded-full hover:bg-gray-800 transition-colors"
+        >
+          <ChevronLeft size={24} />
+        </button>
+
+        {/* Next button */}
+        <button
+          onClick={handleNext}
+          className="absolute right-4 top-1/2 transform -translate-y-1/2 z-10 p-3 bg-gray-900/80 text-white rounded-full hover:bg-gray-800 transition-colors"
+        >
+          <ChevronRight size={24} />
+        </button>
+
+        {/* Image and details */}
+        <div className="flex flex-col md:flex-row h-full gap-6">
+          {/* Image container */}
+          <div className="flex-1 flex items-center justify-center">
+            <img
+              src={images[currentIndex].url}
+              alt={images[currentIndex].title}
+              className="max-w-full max-h-[70vh] object-contain rounded-lg"
+            />
+          </div>
+
+          {/* Info panel */}
+          <div className="md:w-80 bg-gray-900/80 rounded-lg p-6 text-white overflow-y-auto">
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xl font-bold">{images[currentIndex].title}</h3>
+                <div className="text-sm bg-purple-600 px-3 py-1 rounded-full">
+                  {currentIndex + 1} / {images.length}
+                </div>
+              </div>
+              <p className="text-gray-300">{images[currentIndex].description}</p>
+            </div>
+
+            {/* Navigation thumbnails */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold mb-3 text-gray-400">All Images</h4>
+              <div className="grid grid-cols-4 gap-2">
+                {images.map((image, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentIndex(index)}
+                    className={`relative rounded overflow-hidden border-2 transition-all ${
+                      currentIndex === index
+                        ? 'border-purple-500'
+                        : 'border-transparent hover:border-gray-600'
+                    }`}
+                  >
+                    <img
+                      src={image.url}
+                      alt={`Thumbnail ${index + 1}`}
+                      className="w-full h-16 object-cover"
+                    />
+                    {currentIndex === index && (
+                      <div className="absolute inset-0 bg-purple-500/20"></div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="space-y-3">
+<button
+  onClick={() => {
+    const currentImage = images[currentIndex];
+
+    // Create a small HTML page as a blob
+    const htmlContent = `
+      <html>
+        <body style="margin:0;display:flex;justify-content:center;align-items:center;height:100vh;">
+          <a id="downloadLink" href="${currentImage.url}" download="scene-${currentIndex + 1}-${currentImage.title
+            .toLowerCase()
+            .replace(/\s+/g, '-')}.png"></a>
+          <script>
+            document.getElementById('downloadLink').click();
+          </script>
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+
+    // Open the blob URL in a new tab
+    window.open(url, '_blank');
+  }}
+  className="w-full px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+>
+  <Download size={18} />
+  Download This Image
+</button>
+
+{/* 
+              <button
+                onClick={() => {
+                  const link = document.createElement('a');
+                      window.open(images[currentIndex].url, '_blank');
+
+                  link.href = images[currentIndex].url;
+                  link.download = `scene-${currentIndex + 1}-${images[currentIndex].title.toLowerCase().replace(/\s+/g, '-')}.png`;
+                  link.click();
+                }}
+                className="w-full px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <Download size={18} />
+                Download This Image
+              </button> */}
+              
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(images[currentIndex].url);
+                  alert('Image URL copied to clipboard!');
+                }}
+                className="w-full px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2"
+              >
+                <Copy size={18} />
+                Copy Image URL
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Keyboard shortcuts info */}
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-sm text-gray-400">
+          Use ← → arrow keys or click arrows to navigate • ESC to close
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function Create() {
   // State
@@ -70,6 +247,14 @@ export default function Create() {
       type: 'question'
     }
   ]);
+  const [imageModal, setImageModal] = useState<{
+    isOpen: boolean;
+    currentIndex: number;
+  }>({
+    isOpen: false,
+    currentIndex: 0
+  });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -79,6 +264,33 @@ export default function Create() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!imageModal.isOpen) return;
+      
+      if (e.key === 'Escape') {
+        setImageModal({ isOpen: false, currentIndex: 0 });
+      } else if (e.key === 'ArrowLeft') {
+        setImageModal(prev => ({
+          ...prev,
+          currentIndex: prev.currentIndex === 0 
+            ? Object.keys(generatedImages).length - 1 
+            : prev.currentIndex - 1
+        }));
+      } else if (e.key === 'ArrowRight') {
+        setImageModal(prev => ({
+          ...prev,
+          currentIndex: prev.currentIndex === Object.keys(generatedImages).length - 1 
+            ? 0 
+            : prev.currentIndex + 1
+        }));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [imageModal.isOpen, generatedImages]);
 
   const addMessage = (sender: 'system' | 'user', content: React.ReactNode, type?: 'selection' | 'response' | 'generated' | 'question') => {
     const newMessage: Message = {
@@ -93,6 +305,13 @@ export default function Create() {
 
   const simulateTyping = (duration = 1000) => {
     return new Promise(resolve => setTimeout(resolve, duration));
+  };
+
+  const openImageModal = (index: number) => {
+    setImageModal({
+      isOpen: true,
+      currentIndex: index
+    });
   };
 
   // Step 1: Market Selection
@@ -196,7 +415,7 @@ export default function Create() {
     if (!context.trim()) return;
     
     addMessage('user', 
-      <div className=" border rounded-lg p-3">
+      <div className="bg-white border rounded-lg p-3">
         <p className="text-sm">{context}</p>
       </div>,
       'selection'
@@ -427,51 +646,100 @@ export default function Create() {
       // Remove loading and add images
       setMessages(prev => prev.filter(msg => msg.id !== loadingId));
       
-     // In the handleGenerateImages function, update the success message:
-addMessage('system', 
-  <div className="space-y-4">
-    <div className="flex items-center gap-2 text-green-600">
-      <Check size={20} />
-      <span className="font-medium">Generated {Object.keys(imageMap).length} images!</span>
-    </div>
-    <div className="space-y-4">
-      {story.beatSheet.map((scene, index) => (
-        imageMap[index] && (
-          <div key={index} className="space-y-3 p-4 bg-white rounded-xl border">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-white text-sm font-bold">
-                {index + 1}
-              </div>
-              <div>
-                <div className="font-semibold text-gray-900">{scene.beat}</div>
-                <div className="text-xs text-gray-500">{scene.description}</div>
-              </div>
-            </div>
-            <img 
-              src={imageMap[index]} 
-              alt={`Scene ${index + 1}: ${scene.beat}`}
-              className="w-full h-64 object-cover rounded-lg border-2 border-purple-200"
-            />
-            <div className="flex flex-wrap gap-1">
-              {scene.visualCues.map((cue, i) => (
-                <span 
-                  key={i}
-                  className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded"
-                >
-                  {cue}
-                </span>
-              ))}
-            </div>
+      const imageItems = story.beatSheet.map((scene, index) => {
+        if (imageMap[index]) {
+          return {
+            url: imageMap[index],
+            title: `Scene ${index + 1}: ${scene.beat}`,
+            description: scene.description
+          };
+        }
+        return null;
+      }).filter(Boolean);
+
+      addMessage('system', 
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 text-green-600">
+            <Check size={20} />
+            <span className="font-medium">Generated {Object.keys(imageMap).length} images!</span>
           </div>
-        )
-      ))}
-    </div>
-    <p className="text-sm text-gray-600">
-      Ready to create a video script from these visuals?
-    </p>
-  </div>,
-  'generated'
-);
+          
+          <div className="space-y-6">
+            {story.beatSheet.map((scene, index) => (
+              imageMap[index] && (
+                <div 
+                  key={index} 
+                  className="space-y-4 p-4 bg-white rounded-xl border hover:border-purple-300 transition-colors cursor-pointer"
+                  onClick={() => openImageModal(index)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-gray-900">{scene.beat}</div>
+                        <div className="text-sm text-gray-500">{scene.description}</div>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openImageModal(index);
+                      }}
+                      className="p-2 hover:bg-gray-100 rounded-full"
+                      title="View full size"
+                    >
+                      <Maximize2 size={16} className="text-gray-500" />
+                    </button>
+                  </div>
+                  
+                  <div className="relative group">
+                    <img 
+                      src={imageMap[index]} 
+                      alt={`Scene ${index + 1}: ${scene.beat}`}
+                      className="w-full h-80 object-cover rounded-lg border-2 border-purple-200 group-hover:border-purple-400 transition-colors"
+                    />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <div className="text-white text-sm bg-black/60 px-3 py-2 rounded-full">
+                        Click to enlarge • {index + 1} of {story.beatSheet.length}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {scene.visualCues.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {scene.visualCues.map((cue, i) => (
+                        <span 
+                          key={i}
+                          className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full"
+                        >
+                          {cue}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            ))}
+          </div>
+          
+          <div className="flex gap-3">
+            <button
+              onClick={() => openImageModal(0)}
+              className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center gap-2"
+            >
+              <Maximize2 size={16} />
+              View All Images in Gallery
+            </button>
+          </div>
+          
+          <p className="text-sm text-gray-600">
+            Ready to create a video script?
+          </p>
+        </div>,
+        'generated'
+      );
       
       setCurrentStep('video');
 
@@ -595,7 +863,7 @@ addMessage('system',
               className="flex-1 px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
             >
               <Download size={18} />
-              Export Complete Package
+              Download Script
             </button>
             <button 
               onClick={() => {
@@ -860,30 +1128,19 @@ addMessage('system',
     }
   };
 
+  const imageGalleryData = story?.beatSheet
+    .map((scene, index) => ({
+      url: generatedImages[index] || '',
+      title: `Scene ${index + 1}: ${scene.beat}`,
+      description: scene.description
+    }))
+    .filter(item => item.url) || [];
+
   return (
+     <Layout>
+
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
-              <Bot size={24} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-gray-800">Narratives.XO</h1>
-              <p className="text-xs text-gray-500">AI Story Generator</p>
-            </div>
-          </div>
-          <div className="text-sm text-gray-600">
-            {Object.keys(generatedImages).length > 0 
-              ? `${Object.keys(generatedImages).length} images generated`
-              : story 
-                ? 'Story ready'
-                : 'Creating story...'
-            }
-          </div>
-        </div>
-      </div>
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-4">
@@ -944,6 +1201,17 @@ addMessage('system',
 
       {/* Input Section */}
       {renderInputSection()}
+
+      {/* Image Modal */}
+      {imageModal.isOpen && (
+        <ImageModal
+          isOpen={imageModal.isOpen}
+          onClose={() => setImageModal({ isOpen: false, currentIndex: 0 })}
+          images={imageGalleryData}
+          initialIndex={imageModal.currentIndex}
+        />
+      )}
     </div>
+    </Layout>
   );
 }

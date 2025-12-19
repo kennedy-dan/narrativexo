@@ -75,7 +75,7 @@ export default function MaslowSelection({ onNeedChange }: MaslowSelectionProps) 
             `}
           >
             <div className="space-y-3">
-              <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+              {/* <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
                 selectedNeed === option.id 
                   ? 'bg-white/20' 
                   : `bg-gradient-to-br ${option.color}`
@@ -83,7 +83,7 @@ export default function MaslowSelection({ onNeedChange }: MaslowSelectionProps) 
                 <div className={selectedNeed === option.id ? 'text-white' : 'text-white'}>
                   {option.icon}
                 </div>
-              </div>
+              </div> */}
               <div>
                 <div className="font-semibold">{option.label}</div>
                 <div className={`text-sm mt-1 ${selectedNeed === option.id ? 'text-white/90' : 'text-gray-500'}`}>
