@@ -7,12 +7,8 @@ const Sidebar = ({ isOpen, onClose }) => {
   const [activeNarrative, setActiveNarrative] = useState(true)
   
    const menuItems = [
-    { name: 'Dashboard', icon: '/images/menu.png', href: '/' },
-    { name: 'Narratives', icon: '/images/narr.png', href: '/narratives', active: true, hasSubmenu: true },
-    { name: 'Collections', icon: '/images/coll.png', href: '/collections' },
-    { name: 'Messaging', icon:'/images/message.png' , href: '/messaging' },
-    { name: 'Payment', icon: '/images/pay.png', href: '/payment' },
-    { name: 'Campaigns', icon: '/images/camp.png', href: '/campaigns', hasSubmenu: true },
+    { name: 'Narratives', icon: '/images/narr.png', href: '/narratives', active: true },
+
     { name: 'Subscriptions', icon: '/images/subs.png', href: '/subscriptions' },
     { name: 'Settings', icon: '/images/set.png', href: '/settings' },
   ]
@@ -81,20 +77,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                 <span className="font-medium text-sm">{item.name}</span>
               </button>
               
-              {/* Submenu for Narratives */}
-              {item.name === 'Narratives' && activeNarrative && (
-                <div className="ml-6 mt-1 space-y-1">
-                  {narrativeSubmenu.map((subItem) => (
-                    <button
-                      key={subItem.name}
-                      className="w-full flex items-center space-x-2 px-3 py-2 text-sm rounded-lg transition-colors text-left text-gray-500 hover:bg-gray-50"
-                    >
-                      <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
-                      <span>{subItem.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+   
 
               {/* Submenu for Campaigns */}
               {item.name === 'Campaigns' && (
