@@ -8,7 +8,8 @@ import TemplateSelector from '@/components/TemplateSelector';
 import { 
   GeneratedStory, 
   VideoScript, 
-  BrandAssets 
+  BrandAssets, 
+  CCNInterpretation
 } from '@/types';
 import {
   Sparkles,
@@ -31,9 +32,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Brain,
+  HelpCircle
 } from 'lucide-react';
 import Layout from '@/components/Layout';
+import CCNClarifier from '@/components/CCNClarification';
 
 type Market = 'ng' | 'uk' | 'fr';
 
@@ -236,6 +240,10 @@ export default function Create() {
   const [generatedImages, setGeneratedImages] = useState<{[key: string]: string}>({});
   
   // UI State
+  const [ccnInterpretation, setCcnInterpretation] = useState<CCNInterpretation | null>(null);
+const [showCCN, setShowCCN] = useState(false);
+const [entryPathway, setEntryPathway] = useState<'emotion' | 'audience' | 'scene' | 'seed'>('scene');
+const [userInput, setUserInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentStep, setCurrentStep] = useState<Step>('market');
   const [messages, setMessages] = useState<Message[]>([
@@ -585,6 +593,159 @@ export default function Create() {
       setIsGenerating(false);
     }
   };
+
+  const handleCCNInference = async (input: string, pathway: 'emotion' | 'audience' | 'scene' | 'seed') => {
+  setIsGenerating(true);
+  setUserInput(input);
+  setEntryPathway(pathway);
+  
+  addMessage('user', 
+    <div className="border rounded-lg p-3 bg-gradient-to-r from-blue-50 to-purple-50">
+      <div className="text-xs text-blue-600 mb-1">{pathway.replace('-', ' ').toUpperCase()} INPUT</div>
+      <p className="text-sm">{input}</p>
+    </div>,
+    'selection'
+  );
+
+  try {
+    const res = await fetch('/api/clarify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userInput: input,
+        entryPathway: pathway,
+        market
+      })
+    });
+    
+    const data = await res.json();
+    
+    if (data.success) {
+      setCcnInterpretation(data.interpretation);
+      
+      // Show interpretation
+      addMessage('system',
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-purple-600">
+            <Brain size={20} />
+            <span className="font-medium">Analyzed your input</span>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="bg-white p-3 rounded-lg border">
+              <div className="text-xs text-gray-500 mb-1">Need</div>
+              <div className="font-medium">{data.interpretation.inferredNeed}</div>
+            </div>
+            <div className="bg-white p-3 rounded-lg border">
+              <div className="text-xs text-gray-500 mb-1">Confidence</div>
+              <div className="font-medium">
+                {Math.round(data.interpretation.confidence * 100)}%
+              </div>
+            </div>
+            <div className="bg-white p-3 rounded-lg border">
+              <div className="text-xs text-gray-500 mb-1">Archetype</div>
+              <div className="font-medium">{data.interpretation.inferredArchetype}</div>
+            </div>
+            <div className="bg-white p-3 rounded-lg border">
+              <div className="text-xs text-gray-500 mb-1">Tone</div>
+              <div className="font-medium">{data.interpretation.inferredTone}</div>
+            </div>
+          </div>
+          
+          {data.requiresClarification ? (
+            <div>
+              <p className="text-sm text-gray-600 mb-3">
+                Just need to clarify a few details...
+              </p>
+              <button
+                onClick={() => setShowCCN(true)}
+                className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center gap-2"
+              >
+                <HelpCircle size={16} />
+                Review Clarifications
+              </button>
+            </div>
+          ) : (
+            <div>
+              <p className="text-sm text-gray-600 mb-3">
+                Ready to generate your story?
+              </p>
+              <button
+                onClick={() => {
+                  // Auto-fill the form with CCN inferences
+                  setNeed(data.interpretation.inferredNeed);
+                  setArchetype(data.interpretation.inferredArchetype);
+                  setTone(data.interpretation.inferredTone);
+                  setContext(data.interpretation.inferredContext);
+                  
+                  addMessage('system',
+                    <div>
+                      <p>Great! I'll use these settings. Ready for brand guidance? (Optional)</p>
+                    </div>,
+                    'question'
+                  );
+                  setCurrentStep('brand');
+                }}
+                className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg"
+              >
+                Continue with These Settings →
+              </button>
+            </div>
+          )}
+        </div>,
+        'response'
+      );
+      
+      if (data.requiresClarification) {
+        setShowCCN(true);
+      }
+    }
+  } catch (error) {
+    console.error('CCN inference error:', error);
+    addMessage('system',
+      <div className="text-red-600">
+        Sorry, I couldn't analyze your input. Let's proceed manually.
+      </div>,
+      'response'
+    );
+    setCurrentStep('need');
+  } finally {
+    setIsGenerating(false);
+  }
+};
+
+const handleCCNClarify = (answers: { [key: string]: string }) => {
+  if (!ccnInterpretation) return;
+  
+  // Update interpretation with user answers
+  const updatedInterpretation = {
+    ...ccnInterpretation,
+    inferredNeed: answers.need || ccnInterpretation.inferredNeed,
+    inferredArchetype: answers.archetype || ccnInterpretation.inferredArchetype,
+    inferredTone: answers.tone || ccnInterpretation.inferredTone,
+    inferredContext: answers.context || ccnInterpretation.inferredContext,
+    confidence: 0.9 // High confidence after clarification
+  };
+  
+  setCcnInterpretation(updatedInterpretation);
+  setShowCCN(false);
+  
+  // Auto-fill the form
+  setNeed(updatedInterpretation.inferredNeed);
+  setArchetype(updatedInterpretation.inferredArchetype);
+  setTone(updatedInterpretation.inferredTone);
+  setContext(updatedInterpretation.inferredContext);
+  
+  addMessage('system',
+    <div>
+      <div className="text-green-600 mb-2">✓ Clarifications saved!</div>
+      <p>Perfect! Ready to add brand guidance? (Optional)</p>
+    </div>,
+    'question'
+  );
+  
+  setCurrentStep('brand');
+};
 
   // Step 9: Generate Images
   const handleGenerateImages = async () => {
@@ -988,30 +1149,73 @@ export default function Create() {
           </div>
         );
       
-      case 'context':
-        return (
-          <div className="p-4 border-t bg-white">
-            <form onSubmit={(e) => { e.preventDefault(); handleContextSubmit(); }}>
-              <textarea
-                value={context}
-                onChange={(e) => setContext(e.target.value)}
-                placeholder="Describe your story scene... (characters, setting, situation)"
-                className="w-full h-32 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent mb-3"
-              />
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  disabled={!context.trim()}
-                  className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center gap-2"
-                >
-                  <Send size={16} />
-                  Submit Context
-                </button>
+  case 'context':
+  return (
+    <div className="p-4 border-t bg-white">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          {(['scene', 'emotion', 'audience', 'seed'] as const).map((pathway) => (
+            <button
+              key={pathway}
+              onClick={() => {
+                setEntryPathway(pathway);
+                // You could show different input prompts here
+              }}
+              className={`p-3 rounded-lg border text-center ${
+                entryPathway === pathway
+                  ? 'border-purple-500 bg-purple-50'
+                  : 'border-gray-200 hover:border-purple-300'
+              }`}
+            >
+              <div className="text-sm font-medium capitalize">
+                {pathway.replace('-', ' ')}
               </div>
-            </form>
-          </div>
-        );
-      
+            </button>
+          ))}
+        </div>
+        
+        <textarea
+          value={context}
+          onChange={(e) => setContext(e.target.value)}
+          placeholder={
+            entryPathway === 'scene' ? "Describe your scene (setting, characters, situation)..." :
+            entryPathway === 'emotion' ? "What emotion or feeling inspires this story?..." :
+            entryPathway === 'audience' ? "Who is this story for? Describe your audience..." :
+            "What's the seed of your story? An idea, overheard conversation, memory..."
+          }
+          className="w-full h-32 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+        />
+        
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              if (context.trim().length > 2) {
+                handleCCNInference(context, entryPathway);
+              } else {
+                handleContextSubmit();
+              }
+            }}
+            disabled={!context.trim()}
+            className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <Brain size={16} />
+            Analyze & Infer Story Elements
+          </button>
+          <button
+            onClick={handleContextSubmit}
+            disabled={!context.trim()}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          >
+            Skip Analysis
+          </button>
+        </div>
+        
+        <p className="text-xs text-gray-500 text-center">
+          Using CCN will infer needs, archetypes, and tone from your input
+        </p>
+      </div>
+    </div>
+  );
       case 'brand':
         return (
           <div className="p-4 border-t bg-white">
@@ -1211,6 +1415,31 @@ export default function Create() {
           initialIndex={imageModal.currentIndex}
         />
       )}
+      {showCCN && ccnInterpretation && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
+    <div className="relative w-full max-w-2xl">
+      <button
+        onClick={() => setShowCCN(false)}
+        className="absolute top-4 right-4 z-10 p-2 bg-gray-900/80 text-white rounded-full hover:bg-gray-800"
+      >
+        <X size={24} />
+      </button>
+      <CCNClarifier
+        questions={ccnInterpretation.clarifications}
+        onClarify={handleCCNClarify}
+        onSkip={() => {
+          setShowCCN(false);
+          // Use original inferences
+          setNeed(ccnInterpretation.inferredNeed);
+          setArchetype(ccnInterpretation.inferredArchetype);
+          setTone(ccnInterpretation.inferredTone);
+          setContext(ccnInterpretation.inferredContext);
+          setCurrentStep('brand');
+        }}
+      />
+    </div>
+  </div>
+)}
     </div>
     </Layout>
   );

@@ -3,6 +3,48 @@
 // Updated to match P2 documentation structure
 // ============================================================================
 
+// Market Types
+export type Market = 'ng' | 'uk' | 'fr';
+
+// Entry Pathways
+export type EntryPathway = 'emotion' | 'audience' | 'scene' | 'seed';
+
+// CCN Types
+export interface CCNInput {
+  userInput: string;
+  entryPathway?: EntryPathway;
+  market?: Market;
+}
+
+export interface CCNInterpretation {
+  inferredNeed: string;
+  inferredArchetype: string;
+  inferredTone: string;
+  inferredContext: string;
+  confidence: number; // 0-1
+  clarifications: ClarificationQuestion[];
+  market: Market;
+  rawAnalysis: string;
+}
+
+export interface ClarificationQuestion {
+  question: string;
+  options: string[];
+  field: 'need' | 'archetype' | 'tone' | 'context';
+}
+
+export interface CCNResponse {
+  success: boolean;
+  interpretation: CCNInterpretation;
+  requiresClarification: boolean;
+}
+
+export interface ClarificationResponse {
+  clarificationType: 'need' | 'archetype' | 'tone' | 'context';
+  selectedOption: string;
+  previousInterpretation: CCNInterpretation;
+}
+
 // Market & Tone Configuration
 export interface MarketTone {
   name: string;
@@ -42,7 +84,7 @@ export interface GeneratedStory {
   beatSheet: Scene[];        // Structured scene breakdown (3-6 beats)
   metadata: {
     title: string;           // Story title
-    market: string;          // "ng" | "uk" | "fr"
+    market: Market;          // "ng" | "uk" | "fr"
     archetype: string;       // Story archetype
     tone: string;            // Tone name
     totalBeats: number;      // Number of scenes
@@ -75,7 +117,7 @@ export interface GenerateImageRequest {
   sceneDescription: string;
   visualCues?: string[];     // NEW: From beat.visualCues
   tone: string;
-  market: string;
+  market: Market;
   brandSafe?: boolean;
   brandPalette?: string[];
   template?: string;
@@ -99,7 +141,7 @@ export interface ImageGenerationOptions {
 
 // Story Generation Request/Response
 export interface GenerateStoryRequest {
-  market: string;
+  market: Market;
   need: string;
   archetype: string;
   tone: string;
@@ -117,7 +159,7 @@ export interface GenerateStoryResponse {
   beatSheet: Scene[];        // Structured beats
   metadata: {
     title: string;
-    market: string;
+    market: Market;
     archetype: string;
     tone: string;
     totalBeats: number;
@@ -129,7 +171,7 @@ export interface GenerateStoryResponse {
 // Video Script Generation
 export interface GenerateVideoScriptRequest {
   story: GeneratedStory;
-  market: string;
+  market: Market;
   tone: string;
   template: string;
 }
@@ -142,7 +184,7 @@ export interface GenerateVideoScriptResponse {
 // Export Audit Data
 export interface ExportAuditData {
   narrative: {
-    market: string;
+    market: Market;
     need: string;
     archetype: string;
     tone: string;
@@ -160,6 +202,9 @@ export interface ExportAuditData {
     timestamp: string;
   };
 }
+
+// Mode Types (Creator, Agency, Brand)
+export type UserMode = 'creator' | 'agency' | 'brand';
 
 // Legacy/Compatibility Types (can be removed if not used elsewhere)
 export interface NarrativeMap {
