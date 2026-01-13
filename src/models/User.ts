@@ -41,20 +41,20 @@ const UserSchema = new mongoose.Schema<IUser>(
 );
 
 // Hash password before saving
-UserSchema.pre('save', async function (next: mongoose.CallbackWithoutResultAndOptionalError) {
+// Hash password before saving
+UserSchema.pre('save', async function () {
   // Cast 'this' to mongoose.Document for TypeScript
   const user = this as unknown as IUser;
   
   if (!user.isModified('password')) {
-    return next();
+    return;
   }
 
   try {
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(user.password, salt);
-    next();
   } catch (error: any) {
-    next(error);
+    throw error;
   }
 });
 

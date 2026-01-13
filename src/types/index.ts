@@ -15,6 +15,46 @@ export interface CCNInput {
   entryPathway?: EntryPathway;
   market?: Market;
 }
+export interface CCNInterpretationRevised {
+  pathway: "emotion-first" | "scene-first" | "story-seed" | "audience-led";
+  emotion: string;
+  scene: string;
+  seedMoment: string;
+  audience: string;
+  intentSummary: string;
+  confidence: number; // 0-1
+  confidenceScores: {
+    pathway: number;
+    emotion: number;
+    scene: number;
+    audience: number;
+  };
+  clarificationQuestion?: {
+    question: string;
+    field: 'emotion' | 'scene' | 'audience' | 'intent';
+  };
+  market: Market;
+  understandingPreview: string;
+  rawAnalysis: string;
+  // Legacy fields for backward compatibility
+  inferredNeed?: string;
+  inferredArchetype?: string;
+  inferredTone?: string;
+  inferredContext?: string;
+  clarifications?: ClarificationQuestion[];
+}
+
+export interface CCNResponseRevised {
+  success: boolean;
+  interpretation: CCNInterpretationRevised;
+  requiresClarification: boolean;
+  clarificationQuestion?: {
+    question: string;
+    field: string;
+  } | null;
+  understandingPreview?: string;
+}
+
 
 export interface CCNInterpretation {
   inferredNeed: string;
@@ -222,3 +262,4 @@ export interface StoryScene {
   description: string;
   visualCues: string[];
 }
+
