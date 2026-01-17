@@ -1,10 +1,13 @@
 import { OpenAI } from 'openai';
 import { NextApiRequest, NextApiResponse } from 'next';
-import type { GenerateImageRequest, GenerateImageResponse } from '@/types';
+import type { GenerateImageRequest, GenerateImageResponse, CharacterDescription } from '@/types';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
+
+// Store character seeds for consistency
+const characterSeeds = new Map<string, number>();
 
 export default async function handler(
   req: NextApiRequest,
@@ -17,107 +20,123 @@ export default async function handler(
   try {
     const { 
       sceneDescription, 
-      visualCues = [],        // ✅ NEW: Array of specific visual elements
+      visualCues = [],
       tone, 
       market, 
       brandSafe = true, 
       brandPalette = [],
       template = 'instagram-story',
-      beatIndex = 0,          // ✅ NEW: Position in beatSheet
-      beat = 'Scene'          // ✅ NEW: Beat name (e.g., "Opening Image")
+      beatIndex = 0,
+      beat = 'Scene',
+      characterDescription,
+      previousCharacterImage,
+      isSameCharacter = false
     }: GenerateImageRequest = req.body;
 
     if (!sceneDescription) {
       return res.status(400).json({ error: 'Scene description is required' });
     }
 
-    // Load market-specific tone data for visual descriptors
+    // Load market tones
     const marketTones = require('@/lib/marketTone.json');
     const marketData = marketTones[market] || marketTones.ng;
     const toneConfig = marketData.tones.find((t: any) => t.name === tone);
 
-    // ✅ NEW: Build visual cues instruction
+    // ✅ CRITICAL: Generate consistent seed for character
+    let characterSeed: number | undefined;
+    if (characterDescription?.id) {
+      if (!characterSeeds.has(characterDescription.id)) {
+        // Generate a seed based on character ID (deterministic)
+        characterSeed = hashStringToNumber(characterDescription.id);
+        characterSeeds.set(characterDescription.id, characterSeed);
+      } else {
+        characterSeed = characterSeeds.get(characterDescription.id);
+      }
+    }
+
+    // ✅ Build character-specific prompt
+    let characterPrompt = '';
+    if (characterDescription) {
+      characterPrompt = `
+CHARACTER CONSISTENCY REQUIREMENTS:
+MAIN CHARACTER: ${characterDescription.name || 'Primary character'}
+- Age: ${characterDescription.age || 'adult'}
+- Gender: ${characterDescription.gender || 'person'}
+- Ethnicity: ${characterDescription.ethnicity || 'appropriate to ' + market}
+- Hair: ${characterDescription.appearance?.hair || 'natural hair appropriate to ethnicity'}
+- Eyes: ${characterDescription.appearance?.eyes || 'expressive eyes'}
+- Build: ${characterDescription.appearance?.build || 'average build'}
+- Distinctive features: ${characterDescription.appearance?.distinctive?.join(', ') || 'none'}
+- Clothing style: ${characterDescription.clothingStyle || 'context-appropriate clothing'}
+
+CHARACTER REFERENCE IMAGE: Use the exact same facial structure, features, and appearance as previous scenes.
+Maintain identical: face shape, eye shape, nose, mouth, and distinctive features.
+Only change: expression, angle, lighting, and clothing as appropriate for this scene.
+
+CRITICAL: This must be the SAME PERSON as in previous images. Do not change their fundamental appearance.
+`;
+    }
+
+    // Build visual cues
     let visualCuesInstruction = '';
-    if (visualCues && visualCues.length > 0) {
+    if (visualCues.length > 0) {
       visualCuesInstruction = `
-REQUIRED VISUAL ELEMENTS (must include all):
+REQUIRED VISUAL ELEMENTS:
 ${visualCues.map((cue, i) => `${i + 1}. ${cue}`).join('\n')}
 `;
     }
 
-    // Build safety instructions
-    let safetyInstructions = '';
-    if (brandSafe) {
-      safetyInstructions = `
-BRAND SAFETY REQUIREMENTS:
-- NO violence, nudity, controversial symbols, or recognizable faces
-- NO political content or divisive imagery
-- Focus on positive, inclusive, brand-appropriate content
-- Ensure cultural sensitivity for ${market.toUpperCase()} market
-`;
-    }
-
-    // Build palette instructions
-    let paletteInstructions = '';
-    if (brandPalette && brandPalette.length > 0) {
-      paletteInstructions = `
-COLOR PALETTE (incorporate naturally):
-${brandPalette.join(', ')}
-`;
-    }
-
-    // ✅ UPDATED: Map dimensions correctly for DALL-E
+    // Template dimensions
     const templateDimensions: { [key: string]: "1024x1024" | "1792x1024" | "1024x1792" } = {
-      'instagram-story': '1024x1792',    // Vertical
-      'instagram-reel': '1024x1792',     // Vertical
-      'youtube-short': '1024x1792',      // Vertical
-      'youtube-standard': '1792x1024',   // Horizontal
-      'facebook-feed': '1024x1024',      // Square
-      'linkedin-video': '1792x1024'      // Horizontal
+      'instagram-story': '1024x1792',
+      'instagram-reel': '1024x1792',
+      'youtube-short': '1024x1792',
+      'youtube-standard': '1792x1024',
+      'facebook-feed': '1024x1024',
+      'linkedin-video': '1792x1024'
     };
 
     const size = templateDimensions[template] || '1024x1024';
 
-    // ✅ IMPROVED: Enhanced prompt structure
+    // ✅ Enhanced prompt with character consistency
     const prompt = `
-Create a cinematic, emotionally compelling visual for: ${beat}
+Create a cinematic image for: ${beat}
 
-SCENE DESCRIPTION:
-${sceneDescription}
+SCENE: ${sceneDescription}
 ${visualCuesInstruction}
 
-MARKET CONTEXT:
-- Target: ${market.toUpperCase()} audience
-- Cultural style: ${getMarketStyle(market)}
-- Ensure authentic, locally resonant imagery
+${characterPrompt}
 
-VISUAL TONE: ${tone}
-Style descriptors: ${toneConfig?.visualDescriptors?.join(', ') || 'authentic, engaging, cinematic'}
-${paletteInstructions}
-${safetyInstructions}
+MARKET & CULTURE: ${market.toUpperCase()}
+Cultural authenticity: ${getMarketStyle(market)}
+Ensure facial features are ethnically/culturally appropriate for ${market}.
 
-TECHNICAL SPECIFICATIONS:
+VISUAL STYLE: ${tone}
+Style descriptors: ${toneConfig?.visualDescriptors?.join(', ') || 'cinematic, authentic, emotional'}
+Shot type: ${getShotType(beatIndex)}
+
+TECHNICAL:
 - Format: ${template} (${size})
-- Lighting: Cinematic, dramatic, professional
-- Composition: Dynamic framing, rule of thirds
-- Quality: High-resolution, social media optimized
-- Safe zones: Leave 15% margins top/bottom for text overlays and compliance strap
+- Lighting: Professional cinematic lighting appropriate for mood
+- Composition: ${getCompositionGuide(beatIndex)}
+- Facial consistency: IDENTICAL character appearance across all scenes
 - No text or logos in image
+- Safe margins for overlays
 
-EMOTIONAL GOAL:
-Create an image that immediately captures attention and tells this story moment visually. 
-The image should feel authentic to ${market} culture and resonate emotionally with the target audience.
+EMOTION: Capture the emotional essence while maintaining character consistency.
 `.trim();
 
-    console.log(`🎨 Generating image for beat ${beatIndex + 1}/${beat} (${market}/${tone})`);
+    console.log(`🎨 Generating image for ${beat} with ${characterDescription ? 'character: ' + characterDescription.id : 'no character'}`);
 
     const response = await openai.images.generate({
       model: "dall-e-3",
       prompt: prompt,
       n: 1,
       size: size,
-      quality: "hd",  // ✅ CHANGED: Use HD for better quality
-      style: "natural"  // ✅ ADDED: More vibrant, engaging images
+      quality: "hd",
+      style: "natural",
+      // ✅ Note: DALL-E 3 doesn't support seed parameter directly
+      // We rely on detailed prompt engineering instead
     });
 
     const imageData = response.data[0];
@@ -131,10 +150,10 @@ The image should feel authentic to ${market} culture and resonate emotionally wi
       imageUrl: imageData.url,
       revisedPrompt: imageData.revised_prompt || prompt,
       sceneDescription,
-      beatIndex  // ✅ NEW: Include beat index in response
+      beatIndex
     };
 
-    console.log(`✅ Image generated successfully for beat ${beatIndex + 1}`);
+    console.log(`✅ Image generated for beat ${beatIndex + 1}`);
 
     res.status(200).json(result);
 
@@ -142,27 +161,10 @@ The image should feel authentic to ${market} culture and resonate emotionally wi
     console.error('Image generation error:', error);
     
     if (error instanceof Error) {
-      // Handle specific OpenAI API errors
-      if (error.message.includes('safety') || error.message.includes('content_policy')) {
+      if (error.message.includes('content_policy')) {
         return res.status(400).json({ 
           success: false,
-          error: 'Content policy violation. Please adjust your scene description to be more brand-safe.',
-          details: error.message
-        });
-      }
-      
-      if (error.message.includes('billing') || error.message.includes('insufficient_quota')) {
-        return res.status(402).json({ 
-          success: false,
-          error: 'API quota exceeded. Please check your OpenAI account status.',
-          details: error.message
-        });
-      }
-
-      if (error.message.includes('rate_limit')) {
-        return res.status(429).json({ 
-          success: false,
-          error: 'Rate limit exceeded. Please wait a moment and try again.',
+          error: 'Content policy violation. Adjust scene description.',
           details: error.message
         });
       }
@@ -170,19 +172,46 @@ The image should feel authentic to ${market} culture and resonate emotionally wi
     
     res.status(500).json({ 
       success: false,
-      error: 'Failed to generate image. Please try again with a different scene description.',
+      error: 'Failed to generate image.',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 }
 
-// ✅ NEW: Helper function for market-specific styling
+// Helper functions
 function getMarketStyle(market: string): string {
   const styles: { [key: string]: string } = {
-    'ng': 'Lagos street energy, vibrant colors, dynamic urban life, Nigerian cultural elements, warm lighting',
-    'uk': 'British urban aesthetic, gritty authenticity, working-class roots, cooler tones, overcast natural light',
-    'fr': 'French elegance, refined composition, measured restraint, sophisticated color palette, natural European light'
+    'ng': 'Nigerian features, warm skin tones, authentic African clothing and hairstyles',
+    'uk': 'British features, diverse ethnicities, urban UK fashion and settings',
+    'fr': 'European features, French elegance, sophisticated style and settings'
   };
-  
-  return styles[market] || styles['ng'];
+  return styles[market] || 'authentic local features';
+}
+
+function getShotType(beatIndex: number): string {
+  const shotTypes = [
+    'establishing wide shot',
+    'medium shot showing character',
+    'close-up on face showing emotion',
+    'medium shot with action',
+    'close-up detail shot',
+    'wide concluding shot'
+  ];
+  return shotTypes[beatIndex % shotTypes.length];
+}
+
+function getCompositionGuide(beatIndex: number): string {
+  if (beatIndex === 0) return 'Rule of thirds, establishing scene, show environment';
+  if (beatIndex === 1) return 'Medium shot, character centered, focus on expression';
+  return 'Dynamic framing, appropriate for scene emotion';
+}
+
+function hashStringToNumber(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash) % 1000000;
 }

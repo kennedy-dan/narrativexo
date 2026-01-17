@@ -14,6 +14,22 @@ export interface CCNInput {
   userInput: string;
   entryPathway?: EntryPathway;
   market?: Market;
+}export interface CharacterDescription {
+  id: string; // e.g., "main_character_1", "supporting_1"
+  name?: string;
+  age?: string; // e.g., "mid-20s", "30s", "elderly"
+  gender?: string;
+  ethnicity?: string;
+  keyFeatures: string[]; // Distinctive features
+  appearance: {
+    hair: string; // "curly black hair", "blonde braids", "bald"
+    eyes: string; // "brown eyes", "blue eyes", "glasses"
+    build: string; // "slender", "athletic", "average build"
+    distinctive: string[]; // ["mole on left cheek", "scar on eyebrow", "tattoo on neck"]
+  };
+  clothingStyle?: string;
+  expressions?: string[]; // Common expressions
+  referenceDescription: string; // Generated descriptive string
 }
 export interface CCNInterpretationRevised {
   pathway: "emotion-first" | "scene-first" | "story-seed" | "audience-led";
@@ -116,6 +132,11 @@ export interface Scene {
   visualCues: string[];      // Specific visual elements for image generation
   emotion?: string;          // Primary emotion of this beat
   duration?: string;         // Estimated duration (e.g., "5s")
+    characterId?: string; // Reference to which character
+  characterEmotion?: string; // Emotion in this scene
+  characterAction?: string; // What character is doing
+    shotType?: "close-up" | "medium-shot" | "wide-shot" | "extreme-close-up";
+
 }
 
 // Story Structure (P2 Format)
@@ -124,12 +145,16 @@ export interface GeneratedStory {
   beatSheet: Scene[];        // Structured scene breakdown (3-6 beats)
   metadata: {
     title: string;           // Story title
-    market: Market;          // "ng" | "uk" | "fr"
     archetype: string;       // Story archetype
     tone: string;            // Tone name
     totalBeats: number;      // Number of scenes
-    estimatedDuration: string; // Total duration (e.g., "30s")
+    estimatedDuration: string;
+    market: string // Total duration (e.g., "30s")
+       mainCharacters?: CharacterDescription[];
+    characterRelationships?: string[];
+    settings?: string[];
   };
+  
 }
 
 // Video Script Structure
@@ -163,6 +188,10 @@ export interface GenerateImageRequest {
   template?: string;
   beatIndex?: number;        // NEW: Position in beatSheet
   beat?: string;             // NEW: Beat name (e.g., "Opening Image")
+    characterDescription?: CharacterDescription;
+  previousCharacterImage?: string; // URL of previous generated image
+  characterConsistencySeed?: number; // Seed for stable generation
+  isSameCharacter?: boolean; // Is this the same character as previous scene?
 }
 
 export interface GenerateImageResponse {

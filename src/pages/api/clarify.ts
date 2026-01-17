@@ -6,94 +6,65 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<CCNResponseRevised | { error: string }>
-) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+// Market detection function
+async function detectMarketFromText(text: string): Promise<Market> {
+  const prompt = `
+Analyze this text and determine if there's a clear cultural or geographical market context.
+
+TEXT TO ANALYZE:
+"${text}"
+
+INSTRUCTIONS:
+1. Look for clear cultural markers: language patterns, slang, local references, place names, cultural context
+2. If there are NO clear cultural markers, return "ng" (default)
+3. If there are ambiguous or mixed signals, return "ng" (default)
+4. Only return a specific market code if the text clearly belongs to one of these cultures:
+
+MARKET CODES:
+- "ng": Nigerian culture (Nigerian Pidgin, Yoruba/Igbo words, Naija slang, Lagos/Abuja references, jollof, suya, "wetin", "abi", "chai", "wahala")
+- "uk": British culture (British slang, UK place names, British cultural references, "mate", "bloody", "pub", "queue", "football")
+- "fr": French culture (French language, French cultural references, "bonjour", "merci", "paris", "baguette", "café", "voilà")
+
+EXAMPLES:
+- "Wetin dey happen for Lagos this morning?" → "ng"
+- "I was at the pub in London yesterday" → "uk"
+- "Le café était délicieux à Paris" → "fr"
+- "I woke up feeling inspired today" → "ng" (default)
+- "Everything is changing in my life" → "ng" (default)
+
+RETURN ONLY ONE OF: "ng", "uk", OR "fr"
+`;
 
   try {
-    const { 
-      userInput, 
-      market = 'ng',
-      isClarificationResponse = false, // NEW: Whether this is a response to a clarification question
-      previousClarification,
-      previousAnswer 
-    } = req.body;
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini", // Using mini for cost efficiency
+      messages: [
+        { 
+          role: "system", 
+          content: "You are a cultural analyzer. You detect clear cultural markers in text. Return only the market code." 
+        },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 5,
+    });
 
-    if (!userInput || userInput.trim().length < 3) {
-      return res.status(400).json({
-        success: false,
-        interpretation: createFallbackInterpretation(market as Market, "Input too short"),
-        requiresClarification: false, // Don't ask for clarification on short input
-        understandingPreview: "Please describe your moment with more detail."
-      });
+    const marketCode = completion.choices[0].message.content?.trim().toLowerCase() as Market;
+    
+    // Validate the response
+    const validMarkets: Market[] = ['ng', 'uk', 'fr'];
+    if (validMarkets.includes(marketCode)) {
+      return marketCode;
     }
-
-    // Combine input with clarification answer if provided
-    const combinedInput = previousClarification && previousAnswer 
-      ? `${userInput} (Regarding ${previousClarification}: ${previousAnswer})`
-      : userInput;
-
-    // Perform semantic extraction
-    const interpretation = await performSemanticExtraction(combinedInput, market as Market);
     
-    // Calculate overall confidence
-    const confidenceScores = Object.values(interpretation.confidenceScores || {}) as number[];
-    const overallConfidence = confidenceScores.length > 0 
-      ? confidenceScores.reduce((a, b) => a + b, 0) / confidenceScores.length
-      : 0.5;
-    
-    interpretation.confidence = overallConfidence;
-    
-    // KEY LOGIC: Only ask for clarification ONCE, and only on the initial input
-    // If this is a clarification response (user answered our question), we MUST show understanding preview
-    const requiresClarification = !isClarificationResponse && overallConfidence < 0.7;
-    
-    // ALWAYS generate understanding preview
-    let understandingPreview = generateUnderstandingPreview(interpretation, overallConfidence);
-    
-    const response: CCNResponseRevised = {
-      success: true,
-      interpretation: {
-        ...interpretation,
-        confidence: overallConfidence,
-        market: market as Market,
-        understandingPreview,
-        // Backward compatibility
-        inferredNeed: interpretation.emotion || "Personal Experience",
-        inferredArchetype: determineArchetypeFromPathway(interpretation.pathway),
-        inferredTone: determineToneFromEmotion(interpretation.emotion),
-        inferredContext: interpretation.intentSummary,
-        clarifications: requiresClarification ? [{
-          question: interpretation.clarificationQuestion?.question || "Could you tell me more?",
-          options: getOptionsForField(interpretation.clarificationQuestion?.field || "emotion"),
-          field: mapFieldToLegacy(interpretation.clarificationQuestion?.field || "emotion")
-        }] : []
-      },
-      requiresClarification,
-      clarificationQuestion: requiresClarification ? interpretation.clarificationQuestion || {
-        question: "Could you tell me more about what you're feeling or experiencing?",
-        field: "emotion"
-      } : null,
-      understandingPreview
-    };
-
-    console.log(`✅ CCN analysis: Confidence=${overallConfidence.toFixed(2)}, Clarification=${requiresClarification}, IsClarificationResponse=${isClarificationResponse}`);
-
-    res.status(200).json(response);
-
+    return 'ng'; // Default fallback
   } catch (error) {
-    console.error('CCN analysis error:', error);
-    
-    const requestMarket: Market = req.body?.market as Market || 'ng';
-    res.status(200).json(createFallbackResponse(requestMarket));
+    console.error('Market detection error:', error);
+    return 'ng'; // Default fallback on error
   }
 }
 
-// Helper function for semantic extraction
+// Semantic extraction function
 async function performSemanticExtraction(userInput: string, market: Market) {
   const marketTemplates = {
     ng: { archetypes: ['Against All Odds', 'Heritage Hero', 'Community Builder'] },
@@ -104,84 +75,187 @@ async function performSemanticExtraction(userInput: string, market: Market) {
   const marketTemplate = marketTemplates[market] || marketTemplates.ng;
 
   const prompt = `
-Analyze this user input and extract semantic understanding:
+You are the Cognitive Clarifier Node (CCN) for Narratives.XO. Analyze this user input with empathy and intuition.
+
+USER INPUT:
 "${userInput}"
 
-Extract:
-1. pathway (emotion-first, scene-first, story-seed, or audience-led)
-2. emotion (primary emotion(s))
-3. scene (setting or implied scene)
-4. seedMoment (core story seed/fragment)
-5. audience (explicit or inferred audience)
-6. intentSummary (1-2 sentence summary)
+TASK:
+1. Analyze the emotional tone and pathway
+2. Extract key semantic elements
+3. Write a brief raw analysis in first-person conversational tone
 
-For each, provide a confidence score 0-1.
-If any confidence < 0.7, suggest ONE clarifying question.
+SEMANTIC EXTRACTION:
+- pathway: emotion-first, scene-first, story-seed, or audience-led
+- emotion: primary emotion(s)
+- scene: setting or implied scene  
+- seedMoment: core story seed/fragment
+- audience: explicit or inferred audience
+- intentSummary: 1-2 sentence summary
 
-Return JSON with this structure:
+For each extraction, provide a confidence score 0-1 based on clarity.
+If ANY confidence score is below 0.7, suggest ONE clarifying question.
+
+RAW ANALYSIS (in first person, conversational):
+Write a brief analysis starting with phrases like:
+- "This feels like it's about..."
+- "It sounds like..."
+- "I'm hearing..."
+- "This gives me the sense of..."
+- "What I'm picking up is..."
+
+Keep it conversational, empathetic, and human-like.
+
+Return ONLY valid JSON in this structure:
 {
-  "pathway": "...",
-  "emotion": "...",
-  "scene": "...", 
-  "seedMoment": "...",
-  "audience": "...",
-  "intentSummary": "...",
+  "pathway": "emotion-first | scene-first | story-seed | audience-led",
+  "emotion": "extracted emotion(s)",
+  "scene": "extracted setting/scene",
+  "seedMoment": "core story seed/fragment",
+  "audience": "explicit or inferred audience",
+  "intentSummary": "1-2 sentence summary",
   "confidenceScores": {
-    "pathway": 0.x,
-    "emotion": 0.x,
-    "scene": 0.x,
-    "audience": 0.x
+    "pathway": 0.85,
+    "emotion": 0.85,
+    "scene": 0.85,
+    "audience": 0.85
   },
   "clarificationQuestion": {
-    "question": "... (if any confidence < 0.7)",
+    "question": "Clarifying question (if any confidence < 0.7)",
     "field": "emotion | scene | audience | intent"
   },
-  "rawAnalysis": "brief reasoning"
+  "rawAnalysis": "Your conversational first-person analysis here..."
 }
 `;
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { 
-        role: "system", 
-        content: "Extract semantic meaning from user input. Return only valid JSON." 
-      },
-      { role: "user", content: prompt }
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.3,
-  });
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { 
+          role: "system", 
+          content: "You are an empathetic, intuitive story analyst. You understand human emotions and moments. Write in a warm, conversational, first-person tone. Return only valid JSON." 
+        },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+    });
 
-  const content = completion.choices[0].message.content;
-  if (!content) throw new Error('No content returned');
-  
-  return JSON.parse(content);
+    const content = completion.choices[0].message.content;
+    if (!content) throw new Error('No content returned from OpenAI');
+    
+    const parsed = JSON.parse(content);
+    
+    // Ensure pathway is valid
+    const validPathways = ["emotion-first", "scene-first", "story-seed", "audience-led"] as const;
+    if (!validPathways.includes(parsed.pathway as any)) {
+      parsed.pathway = "emotion-first";
+    }
+    
+    return parsed;
+  } catch (error) {
+    console.error('Semantic extraction error:', error);
+    throw error;
+  }
 }
 
-// Generate understanding preview regardless of confidence
-function generateUnderstandingPreview(interpretation: any, overallConfidence: number): string {
-  const emotion = interpretation.emotion?.toLowerCase() || 
-    (overallConfidence < 0.5 ? "a meaningful" : "an emotional");
-  const scene = interpretation.scene?.toLowerCase() || 
-    (overallConfidence < 0.5 ? "a situation" : "a moment");
-  const seed = interpretation.seedMoment?.toLowerCase() || "personal experience";
-  const audience = interpretation.audience?.toLowerCase() || "those who need to hear it";
-  
-  // Adjust language based on confidence
-  if (overallConfidence < 0.5) {
-    return `This seems to be ${emotion} ${scene} about ${seed}.`;
-  } else if (overallConfidence < 0.7) {
-    return `A ${emotion} moment in ${scene} about ${seed} for ${audience}.`;
-  } else {
-    return `A ${emotion} moment in ${scene} about ${seed} for ${audience}.`;
+// Validate pathway
+function validatePathway(pathway: string): "emotion-first" | "scene-first" | "story-seed" | "audience-led" {
+  const validPathways = ["emotion-first", "scene-first", "story-seed", "audience-led"] as const;
+  if (validPathways.includes(pathway as any)) {
+    return pathway as "emotion-first" | "scene-first" | "story-seed" | "audience-led";
   }
+  return "emotion-first";
+}
+
+// Generate conversational understanding preview
+function generateConversationalPreview(interpretation: any, overallConfidence: number, isClarificationResponse: boolean): string {
+  const emotion = interpretation.emotion?.toLowerCase() || "something meaningful";
+  const scene = interpretation.scene?.toLowerCase() || "a moment";
+  const seed = interpretation.seedMoment?.toLowerCase() || "personal experience";
+  const audience = interpretation.audience?.toLowerCase() || "those who need to hear this";
+  
+  const startingPhrases = [
+    "I feel like...",
+    "It sounds like...",
+    "I'm hearing...",
+    "What I'm picking up is...",
+    "This gives me the sense that...",
+    "From what you're saying...",
+    "What stands out to me is...",
+    "I sense that..."
+  ];
+  
+  const phrase = startingPhrases[Math.floor(Math.random() * startingPhrases.length)];
+  
+  if (overallConfidence < 0.5) {
+    return `${phrase} this might be about ${emotion} in ${scene}.`;
+  } else if (overallConfidence < 0.7) {
+    return `${phrase} a ${emotion} moment in ${scene} about ${seed}.`;
+  } else {
+    if (isClarificationResponse) {
+      return `${phrase} ${emotion} is at the heart of this moment in ${scene}. It's about ${seed} for ${audience}.`;
+    } else {
+      return `${phrase} this is a ${emotion} moment in ${scene}, centered around ${seed} for ${audience}.`;
+    }
+  }
+}
+
+// Helper functions
+function determineArchetypeFromPathway(pathway: string): string {
+  const archetypeMap: Record<string, string> = {
+    'emotion-first': 'Against All Odds',
+    'scene-first': 'Community Builder',
+    'story-seed': 'Heritage Hero',
+    'audience-led': 'Modern Pioneer'
+  };
+  return archetypeMap[pathway] || 'Against All Odds';
+}
+
+function determineToneFromEmotion(emotion: string): string {
+  const emotionLower = emotion.toLowerCase();
+  
+  if (emotionLower.includes('hopeful') || emotionLower.includes('inspired') || emotionLower.includes('uplifting')) 
+    return 'Cinematic';
+  if (emotionLower.includes('uncertain') || emotionLower.includes('vulnerable') || emotionLower.includes('tender')) 
+    return 'Heartfelt';
+  if (emotionLower.includes('joyful') || emotionLower.includes('playful') || emotionLower.includes('lighthearted')) 
+    return 'Playful';
+  if (emotionLower.includes('anxious') || emotionLower.includes('defiant') || emotionLower.includes('intense')) 
+    return 'Defiant';
+  if (emotionLower.includes('melancholy') || emotionLower.includes('nostalgic') || emotionLower.includes('reflective')) 
+    return 'Heartfelt';
+  if (emotionLower.includes('energetic') || emotionLower.includes('dynamic') || emotionLower.includes('vibrant')) 
+    return 'Cinematic';
+  
+  return 'Cinematic';
+}
+
+function getOptionsForField(field: string): string[] {
+  const optionsMap: Record<string, string[]> = {
+    'emotion': ['hopeful', 'uncertain', 'inspired', 'anxious', 'joyful', 'melancholy', 'vulnerable', 'defiant'],
+    'scene': ['urban setting', 'natural environment', 'indoor space', 'public place', 'private moment', 'transitional space'],
+    'audience': ['individuals facing change', 'community members', 'young professionals', 'creative thinkers', 'people at crossroads'],
+    'intent': ['to inspire', 'to comfort', 'to challenge', 'to connect', 'to celebrate', 'to reflect']
+  };
+  return optionsMap[field] || ['Please clarify'];
+}
+
+function mapFieldToLegacy(field: string): 'need' | 'archetype' | 'tone' | 'context' {
+  const mapping: Record<string, 'need' | 'archetype' | 'tone' | 'context'> = {
+    'emotion': 'need',
+    'scene': 'context',
+    'audience': 'context',
+    'intent': 'context'
+  };
+  return mapping[field] || 'context';
 }
 
 // Create fallback response
 function createFallbackResponse(market: Market): CCNResponseRevised {
   return {
-    success: false,
+    success: true,
     interpretation: {
       pathway: "emotion-first",
       emotion: "meaningful",
@@ -197,82 +271,110 @@ function createFallbackResponse(market: Market): CCNResponseRevised {
         audience: 0.5
       },
       market,
-      understandingPreview: "A meaningful moment about personal experience.",
-      rawAnalysis: "Fallback response due to error"
+      understandingPreview: "I feel you're describing something meaningful that matters to you.",
+      rawAnalysis: "I sense there's something important here, but I need to understand it better.",
+      inferredNeed: "Personal Experience",
+      inferredArchetype: determineArchetypeFromPathway("emotion-first"),
+      inferredTone: "Cinematic",
+      inferredContext: "A personal moment to be shared",
+      clarifications: []
     },
-    requiresClarification: false, // Never ask for clarification on fallback
-    understandingPreview: "A meaningful moment about personal experience."
+    requiresClarification: false,
+    clarificationQuestion: null,
+    understandingPreview: "I feel you're describing something meaningful that matters to you."
   };
 }
 
-// Create fallback interpretation
-function createFallbackInterpretation(market: Market, reason: string): any {
-  return {
-    pathway: "emotion-first" as "emotion-first" | "scene-first" | "story-seed" | "audience-led",
-    emotion: "uncertain",
-    scene: "unclear setting",
-    seedMoment: "ambiguous moment",
-    audience: "general audience",
-    intentSummary: reason,
-    confidence: 0.1,
-    confidenceScores: {
-      pathway: 0.1,
-      emotion: 0.1,
-      scene: 0.1,
-      audience: 0.1
-    },
-    market,
-    understandingPreview: "",
-    rawAnalysis: reason
-  };
-}
-
-// Existing helper functions (keep these as before):
-function determineArchetypeFromPathway(pathway: string): string {
-  const archetypeMap: Record<string, string> = {
-    'emotion-first': 'Against All Odds',
-    'scene-first': 'Community Builder',
-    'story-seed': 'Heritage Hero',
-    'audience-led': 'Modern Pioneer'
-  };
-  return archetypeMap[pathway] || 'Against All Odds';
-}
-
-function determineToneFromEmotion(emotion: string): string {
-  const emotionToneMap: Record<string, string> = {
-    'hopeful': 'Cinematic',
-    'uncertain': 'Heartfelt',
-    'inspired': 'Playful',
-    'anxious': 'Defiant',
-    'joyful': 'Playful',
-    'melancholy': 'Heartfelt'
-  };
-  
-  const emotionLower = emotion.toLowerCase();
-  for (const [key, tone] of Object.entries(emotionToneMap)) {
-    if (emotionLower.includes(key)) {
-      return tone;
-    }
+// Main handler
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<CCNResponseRevised | { error: string }>
+) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
-  return 'Cinematic';
-}
 
-function getOptionsForField(field: string): string[] {
-  const optionsMap: Record<string, string[]> = {
-    'emotion': ['hopeful', 'uncertain', 'inspired', 'anxious', 'joyful', 'melancholy'],
-    'scene': ['urban setting', 'natural environment', 'indoor space', 'public place', 'private moment'],
-    'audience': ['individuals facing change', 'community members', 'young professionals', 'creative thinkers'],
-    'intent': ['to inspire', 'to comfort', 'to challenge', 'to connect', 'to celebrate']
-  };
-  return optionsMap[field] || ['Please clarify'];
-}
+  try {
+    const { 
+      userInput, 
+      isClarificationResponse = false,
+      previousClarification,
+      previousAnswer 
+    } = req.body;
 
-function mapFieldToLegacy(field: string): 'need' | 'archetype' | 'tone' | 'context' {
-  const mapping: Record<string, 'need' | 'archetype' | 'tone' | 'context'> = {
-    'emotion': 'need',
-    'scene': 'context',
-    'audience': 'context',
-    'intent': 'context'
-  };
-  return mapping[field] || 'context';
+    if (!userInput || typeof userInput !== 'string') {
+      return res.status(400).json({ 
+        error: 'Valid user input is required' 
+      });
+    }
+
+    const trimmedInput = userInput.trim();
+    if (trimmedInput.length < 3) {
+      return res.status(200).json(createFallbackResponse('ng'));
+    }
+
+    // Detect market from user input
+    const detectedMarket = await detectMarketFromText(trimmedInput);
+    console.log(`Detected market from text: ${detectedMarket}`);
+
+    // Combine input with clarification answer if provided
+    const combinedInput = previousClarification && previousAnswer 
+      ? `${trimmedInput} (Regarding ${previousClarification}: ${previousAnswer})`
+      : trimmedInput;
+
+    // Perform semantic extraction
+    const interpretation = await performSemanticExtraction(combinedInput, detectedMarket);
+    
+    // Calculate overall confidence
+    const confidenceScores = Object.values(interpretation.confidenceScores || {}) as number[];
+    const overallConfidence = confidenceScores.length > 0 
+      ? confidenceScores.reduce((a, b) => a + b, 0) / confidenceScores.length
+      : 0.5;
+    
+    interpretation.confidence = overallConfidence;
+    
+    // Determine if clarification is needed
+    const requiresClarification = !isClarificationResponse && overallConfidence < 0.7;
+    
+    // Generate conversational understanding preview
+    const understandingPreview = generateConversationalPreview(interpretation, overallConfidence, isClarificationResponse);
+    
+    // Prepare response
+    const response: CCNResponseRevised = {
+      success: true,
+      interpretation: {
+        ...interpretation,
+        confidence: overallConfidence,
+        market: detectedMarket,
+        understandingPreview,
+        inferredNeed: interpretation.emotion || "Personal Experience",
+        inferredArchetype: determineArchetypeFromPathway(interpretation.pathway),
+        inferredTone: determineToneFromEmotion(interpretation.emotion),
+        inferredContext: interpretation.intentSummary,
+        clarifications: requiresClarification ? [{
+          question: interpretation.clarificationQuestion?.question || "Could you tell me more about what you're feeling?",
+          options: getOptionsForField(interpretation.clarificationQuestion?.field || "emotion"),
+          field: mapFieldToLegacy(interpretation.clarificationQuestion?.field || "emotion")
+        }] : []
+      },
+      requiresClarification,
+      clarificationQuestion: requiresClarification ? interpretation.clarificationQuestion || {
+        question: "Could you tell me more about what you're feeling or experiencing?",
+        field: "emotion"
+      } : null,
+      understandingPreview
+    };
+
+    console.log(`✅ CCN analysis complete: Market=${detectedMarket}, Confidence=${overallConfidence.toFixed(2)}, Clarification=${requiresClarification}`);
+
+    return res.status(200).json(response);
+
+  } catch (error) {
+    console.error('CCN analysis error:', error);
+    
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    // Return a fallback response instead of error
+    return res.status(200).json(createFallbackResponse('ng'));
+  }
 }
