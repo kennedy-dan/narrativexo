@@ -56,7 +56,8 @@ type Step =
   | "clarification"
   | "brand-upload"
   | "story-generated"
-  | "story-purpose"  // ADDED
+  | "story-purpose"
+  | "brand-details"  // NEW: For collecting brand info
   | "images"
   | "images-complete"
   | "video-option"
@@ -235,22 +236,6 @@ type CCNData = {
   market: string;
 };
 
-// Market config for display
-const marketConfig = {
-  ng: { 
-    name: 'Nigeria', 
-    icon: '🇳🇬'
-  },
-  uk: { 
-    name: 'United Kingdom', 
-    icon: '🇬🇧'
-  },
-  fr: { 
-    name: 'France', 
-    icon: '🇫🇷'
-  }
-};
-
 export default function Create() {
   // State
   const [market, setMarket] = useState<Market>("ng");
@@ -265,22 +250,15 @@ export default function Create() {
   const [generatedImages, setGeneratedImages] = useState<{
     [key: string]: string;
   }>({});
-  const [userPurpose, setUserPurpose] = useState<string>(""); // ADDED
+  const [userPurpose, setUserPurpose] = useState<string>("");
   const [mainCharacters, setMainCharacters] = useState<CharacterDescription[]>([]);
-const [characterSceneMap, setCharacterSceneMap] = useState<{[key: string]: number[]}>({});
-const [generatedCharacterImages, setGeneratedCharacterImages] = useState<{[key: string]: {[sceneIndex: number]: string}}>({});
-
-  console.log(story);
+  const [characterSceneMap, setCharacterSceneMap] = useState<{[key: string]: number[]}>({});
+  const [generatedCharacterImages, setGeneratedCharacterImages] = useState<{[key: string]: {[sceneIndex: number]: string}}>({});
 
   // UI State
-  const [ccnInterpretation, setCcnInterpretation] =
-    useState<CCNInterpretationRevised | null>(null);
-  const [confirmedCCNData, setConfirmedCCNData] = useState<CCNData | null>(
-    null
-  );
-  const [ccnUnderstandingMessageId, setCcnUnderstandingMessageId] = useState<
-    number | null
-  >(null);
+  const [ccnInterpretation, setCcnInterpretation] = useState<CCNInterpretationRevised | null>(null);
+  const [confirmedCCNData, setConfirmedCCNData] = useState<CCNData | null>(null);
+  const [ccnUnderstandingMessageId, setCcnUnderstandingMessageId] = useState<number | null>(null);
   const [clarificationQuestion, setClarificationQuestion] = useState<{
     question: string;
     field: string;
@@ -471,7 +449,6 @@ const [generatedCharacterImages, setGeneratedCharacterImages] = useState<{[key: 
       return;
     }
 
-
     // Show user message with detected market info if any
     const messageContent = !clarificationAnswer ? (
       <div className="border rounded-lg p-3 bg-gradient-to-r from-blue-700 to-purple-800">
@@ -510,8 +487,8 @@ const [generatedCharacterImages, setGeneratedCharacterImages] = useState<{[key: 
       const data = await res.json();
 
       if (data.success) {
-              const detectedMarket = data.interpretation.market || 'ng';
-      setMarket(detectedMarket as Market);
+        const detectedMarket = data.interpretation.market || 'ng';
+        setMarket(detectedMarket as Market);
 
         setCcnInterpretation(data.interpretation);
 
@@ -690,21 +667,227 @@ const [generatedCharacterImages, setGeneratedCharacterImages] = useState<{[key: 
       setIsGenerating(false);
     }
   };
-  console.log(ccnInterpretation);
 
-  // NEW FUNCTION: Handle story purpose input
-  const handleStoryPurpose = async (purpose: string) => {
+  // Helper function to adapt story with brand
+  const adaptStoryWithBrand = async (purpose: string) => {
+    setIsGenerating(true);
+
+    try {
+      // Get CCN data
+      const ccnData = confirmedCCNData || {
+        emotion: story?.metadata?.tone?.toLowerCase() || "meaningful",
+        scene: "a moment",
+        seedMoment: originalUserInput || "personal experience",
+        audience: "those who need to hear it",
+        intentSummary: story?.metadata?.title || "A meaningful moment to share",
+        pathway: "emotion-first",
+        rawAnalysis: story?.story,
+        market: story?.metadata.market,
+      };
+
+      const res = await fetch("/api/generateStory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          market: ccnData.market,
+          semanticExtraction: {
+            emotion: ccnData.emotion,
+            scene: ccnData.scene,
+            seedMoment: ccnData.seedMoment,
+            audience: ccnData.audience,
+            intentSummary: ccnData.intentSummary,
+            pathway: ccnData.pathway,
+            rawAnalysis: ccnData.rawAnalysis || story?.story,
+          },
+          brand: brandGuide ? { 
+            name: brandName, 
+            palette: brandGuide.palette,
+            fonts: brandGuide.fonts,
+            brandSafe: brandGuide.brandSafe 
+          } : undefined,
+          requestType: "purpose-adaptation",
+          purpose: purpose,
+          currentStory: story?.story,
+          originalContext: originalUserInput,
+          isBrand: true,
+          brandName: brandName || undefined
+        }),
+      });
+
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      
+      const data = await res.json();
+
+      if (!data.success) throw new Error(data.error || "Unknown error");
+
+      const adaptedStory: GeneratedStory = {
+        story: data.adaptedStory || data.story || story?.story || "",
+        beatSheet: data.beatSheet || story?.beatSheet || [],
+        metadata: data.metadata || {
+          ...story?.metadata,
+          title: `${story?.metadata.title} (Brand: ${brandName || 'Unnamed'})`,
+          purpose: purpose,
+          brandName: brandName || undefined,
+          brandApplied: !!brandGuide
+        },
+      };
+
+      setStory(adaptedStory);
+
+      // Show adapted story with brand info
+      addMessage(
+        "system",
+        <div className="space-y-6">
+          {/* Brand Applied Badge */}
+          {brandGuide && (
+            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Palette size={16} className="text-purple-600" />
+                  <span className="font-semibold text-purple-800">Brand Applied</span>
+                </div>
+                {brandName && (
+                  <span className="text-sm bg-purple-100 text-purple-700 px-3 py-1 rounded-full">
+                    {brandName}
+                  </span>
+                )}
+              </div>
+              
+              {brandGuide.palette && brandGuide.palette.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-sm text-gray-700 mb-2">Using brand colors:</p>
+                  <div className="flex gap-1.5">
+                    {brandGuide.palette.slice(0, 6).map((color, idx) => (
+                      <div
+                        key={idx}
+                        className="w-6 h-6 rounded border-2 border-white shadow-sm"
+                        style={{ backgroundColor: color }}
+                        title={color}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Adapted Story Display */}
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 p-6 rounded-r-lg">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-lg text-green-800">
+                  {adaptedStory.metadata.title}
+                </h3>
+                <div className="text-sm text-green-600 mt-1">
+                  Adapted for: <span className="font-medium">{purpose}</span>
+                </div>
+              </div>
+              <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                Brand Adapted
+              </div>
+            </div>
+            <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
+              {adaptedStory.story}
+            </div>
+          </div>
+
+          {/* Continue options */}
+          <div className="space-y-4">
+            <p className="font-medium text-gray-700">
+              Your brand-adapted story is ready!
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <button
+                onClick={() => setCurrentStep("images")}
+                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <ImageIcon size={18} />
+                Generate Images
+              </button>
+              <button
+                onClick={() => handleVideoOption()}
+                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <VideoIcon size={18} />
+                Generate Video Script
+              </button>
+            </div>
+
+            <button
+              onClick={() => {
+                // Export with brand info
+                const exportData = {
+                  story: adaptedStory,
+                  brandInfo: {
+                    name: brandName,
+                    palette: brandGuide?.palette,
+                    fonts: brandGuide?.fonts
+                  },
+                  purpose: purpose,
+                  timestamp: new Date().toISOString()
+                };
+                
+                const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+                  type: "application/json",
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `brand-story-${brandName || 'unnamed'}-${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                addMessage(
+                  "system",
+                  <div className="text-green-600">
+                    ✓ Brand story exported as JSON.
+                  </div>,
+                  "response"
+                );
+              }}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Export Brand Story
+            </button>
+          </div>
+        </div>,
+        "generated"
+      );
+
+      setCurrentStep("story-generated");
+
+    } catch (error) {
+      console.error("Brand adaptation error:", error);
+      
+      addMessage(
+        "system",
+        <div className="space-y-4">
+          <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
+            <p>I'll continue with a generic brand adaptation.</p>
+            <p className="text-sm mt-2">
+              Error: {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+          </div>
+          
+          {/* Fallback to non-brand adaptation */}
+          <button
+            onClick={() => adaptStoryWithoutBrand(purpose)}
+            className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
+          >
+            Continue Without Brand Customization
+          </button>
+        </div>,
+        "response"
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Helper function to adapt story without brand
+  const adaptStoryWithoutBrand = async (purpose: string) => {
     if (!purpose.trim() || !story) return;
-
-    setUserPurpose(purpose);
-    
-    addMessage(
-      "user",
-      <div className="border rounded-lg p-3 bg-gradient-to-r from-blue-700 to-purple-800">
-        <p className="text-sm">{purpose}</p>
-      </div>,
-      "selection"
-    );
 
     setIsGenerating(true);
 
@@ -970,10 +1153,59 @@ const [generatedCharacterImages, setGeneratedCharacterImages] = useState<{[key: 
     }
   };
 
+  // NEW FUNCTION: Handle story purpose input
+ // First, update the handleStoryPurpose function to set up brand collection:
+const handleStoryPurpose = async (purpose: string) => {
+  if (!purpose.trim() || !story) return;
+
+  setUserPurpose(purpose);
+  
+  addMessage(
+    "user",
+    <div className="border rounded-lg p-3 bg-gradient-to-r from-blue-700 to-purple-800">
+      <p className="text-sm">{purpose}</p>
+    </div>,
+    "selection"
+  );
+
+  // Check if purpose mentions brand
+  const isBrandPurpose = purpose.toLowerCase().includes('brand') || 
+                         purpose.toLowerCase().includes('company') ||
+                         purpose.toLowerCase().includes('organization') ||
+                         purpose.toLowerCase().includes('business');
+
+  if (isBrandPurpose) {
+    // Show brand details collection UI
+    setCurrentStep("brand-details");
+    
+    // Show message about brand customization
+    addMessage(
+      "system",
+      <div className="space-y-4">
+        <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
+          <h3 className="font-semibold text-lg text-purple-800 mb-2">
+            🎨 Brand Customization (Optional)
+          </h3>
+          <p className="text-gray-700">
+            To make this story perfectly match your brand, you can upload your brand guide or logo.
+            This is <span className="font-medium">optional</span> - you can skip and continue without it.
+          </p>
+          <p className="text-sm text-gray-500 mt-2">
+            Please enter your brand details below...
+          </p>
+        </div>
+      </div>,
+      "response"
+    );
+  } else {
+    // Non-brand purpose - adapt normally
+    await adaptStoryWithoutBrand(purpose);
+  }
+};
+
   // Trigger Story Generation - MODIFIED to ask for purpose
   const triggerStoryGeneration = async (ccnData: CCNData) => {
     setIsGenerating(true);
-
 
     // Log what we're actually receiving
     console.log("triggerStoryGeneration received ccnData:", ccnData);
@@ -1084,7 +1316,7 @@ const [generatedCharacterImages, setGeneratedCharacterImages] = useState<{[key: 
                     ✨ Story Generated!
                   </h3>
                   <div className="text-gray-700 whitespace-pre-line text-sm">
-                    {generatedStory.story}...
+                    {generatedStory.story.substring(0, 150)}...
                   </div>
                 </div>
                 
@@ -1192,40 +1424,42 @@ const [generatedCharacterImages, setGeneratedCharacterImages] = useState<{[key: 
       setIsGenerating(false);
     }
   };
-// Character detection function
-const detectCharacters = async (storyData: GeneratedStory) => {
-  try {
-    const res = await fetch("/api/detectCharacters", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        story: storyData.story,
-        beatSheet: storyData.beatSheet
-      }),
-    });
 
-    const data = await res.json();
-    
-    if (data.success) {
-      setMainCharacters(data.characters || []);
-      setCharacterSceneMap(data.characterSceneMap || {});
+  // Character detection function
+  const detectCharacters = async (storyData: GeneratedStory) => {
+    try {
+      const res = await fetch("/api/detectCharacters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          story: storyData.story,
+          beatSheet: storyData.beatSheet
+        }),
+      });
+
+      const data = await res.json();
       
-      // Update story with character-enriched beatSheet
-      const updatedStory = {
-        ...storyData,
-        beatSheet: data.updatedBeatSheet || storyData.beatSheet,
-        metadata: {
-          ...storyData.metadata,
-          mainCharacters: data.characters || []
-        }
-      };
-      
-      setStory(updatedStory);
+      if (data.success) {
+        setMainCharacters(data.characters || []);
+        setCharacterSceneMap(data.characterSceneMap || {});
+        
+        // Update story with character-enriched beatSheet
+        const updatedStory = {
+          ...storyData,
+          beatSheet: data.updatedBeatSheet || storyData.beatSheet,
+          metadata: {
+            ...storyData.metadata,
+            mainCharacters: data.characters || []
+          }
+        };
+        
+        setStory(updatedStory);
+      }
+    } catch (error) {
+      console.error("Character detection error:", error);
     }
-  } catch (error) {
-    console.error("Character detection error:", error);
-  }
-};
+  };
+
   // Step 2: Understanding Confirmation (triggers story)
   const handleUnderstandingConfirm = async (ccnData?: CCNData) => {
     console.log("handleUnderstandingConfirm called with:", ccnData);
@@ -1462,7 +1696,7 @@ const detectCharacters = async (storyData: GeneratedStory) => {
     }
   };
 
-  // Step 3a: Brand Asset Upload
+  // Step 3a: Brand Asset Upload (legacy - not used in new flow)
   const handleBrandUpload = async (assets: BrandAssets | null) => {
     setBrandGuide(assets);
 
@@ -1493,56 +1727,6 @@ const detectCharacters = async (storyData: GeneratedStory) => {
         </div>,
         "question"
       );
-    }
-  };
-
-  // Step 3: Brand Check (not used in current flow)
-  const handleBrandCheck = async (withBrand: boolean) => {
-    addMessage(
-      "user",
-      <div className="flex items-center gap-2">
-        <Palette
-          size={16}
-          className={withBrand ? "text-purple-600" : "text-gray-600"}
-        />
-        <span className="font-medium">
-          {withBrand ? "Yes, for a brand" : "No, personal use"}
-        </span>
-      </div>,
-      "selection"
-    );
-
-    await simulateTyping(800);
-
-    if (withBrand) {
-      addMessage(
-        "system",
-        <div className="space-y-4">
-          <p>Please upload your brand assets:</p>
-          <p className="text-xs text-amber-600">
-            ⚠️ Disclaimer: Your selected brand may not be displayed accurately
-            due to copyright considerations.
-          </p>
-        </div>,
-        "question"
-      );
-      setCurrentStep("brand-upload");
-    } else {
-      // Get the latest CCN data
-      const ccnData = confirmedCCNData;
-      if (ccnData) {
-        triggerStoryGeneration(ccnData);
-      } else {
-        // If no CCN data, ask user to confirm understanding again
-        setCurrentStep("entry");
-        addMessage(
-          "system",
-          <div>
-            <p>Please describe your moment again:</p>
-          </div>,
-          "question"
-        );
-      }
     }
   };
 
@@ -1577,538 +1761,563 @@ const detectCharacters = async (storyData: GeneratedStory) => {
   };
 
   // Step: Generate Images
- const handleGenerateImages = async () => {
-  if (!story) return;
+  const handleGenerateImages = async () => {
+    if (!story) return;
 
-  setIsGenerating(true);
+    setIsGenerating(true);
 
-  // Add user message
-  addMessage(
-    "user",
-    <div className="flex items-center gap-2">
-      <ImageIcon size={16} />
-      <span className="font-medium">
-        Generate Images {mainCharacters.length > 0 ? "with Character Consistency" : ""}
-      </span>
-    </div>,
-    "selection"
-  );
-
-  // Show character analysis first if we haven't done it yet
-  if (mainCharacters.length === 0 && story) {
-    const analysisId = addMessage(
-      "system",
+    // Add user message
+    addMessage(
+      "user",
       <div className="flex items-center gap-2">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-        <span>Analyzing characters for consistency...</span>
+        <ImageIcon size={16} />
+        <span className="font-medium">
+          Generate Images {mainCharacters.length > 0 ? "with Character Consistency" : ""}
+        </span>
+      </div>,
+      "selection"
+    );
+
+    // Show character analysis first if we haven't done it yet
+    if (mainCharacters.length === 0 && story) {
+      const analysisId = addMessage(
+        "system",
+        <div className="flex items-center gap-2">
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+          <span>Analyzing characters for consistency...</span>
+        </div>,
+        "response"
+      );
+
+      try {
+        // Detect characters in the story
+        const charRes = await fetch("/api/detectCharacters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            story: story.story,
+            beatSheet: story.beatSheet,
+            market
+          }),
+        });
+
+        const charData = await charRes.json();
+        
+        if (charData.success) {
+          setMainCharacters(charData.characters || []);
+          setCharacterSceneMap(charData.characterSceneMap || {});
+          
+          // Update story with character-enriched beatSheet
+          const updatedStory: GeneratedStory = {
+            ...story,
+            beatSheet: charData.updatedBeatSheet || story.beatSheet,
+            metadata: {
+              ...story.metadata,
+              mainCharacters: charData.characters || []
+            }
+          };
+          
+          setStory(updatedStory);
+          
+          // Remove analysis message
+          setMessages(prev => prev.filter(msg => msg.id !== analysisId));
+          
+          // Show character summary
+          addMessage(
+            "system",
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-green-600">
+                <Check size={20} />
+                <span className="font-medium">
+                  Character Analysis Complete
+                </span>
+              </div>
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
+                <h4 className="font-semibold text-blue-800 mb-2">📝 Character Details</h4>
+                <div className="space-y-3">
+                  {charData.characters?.map((char: CharacterDescription, idx: number) => (
+                    <div key={char.id} className="text-sm">
+                      <div className="font-medium text-gray-800">
+                        {idx + 1}. {char.name || `Character ${idx + 1}`}
+                      </div>
+                      <div className="text-gray-600 ml-4">
+                        <div>• Age: {char.age || 'Not specified'}</div>
+                        <div>• Features: {char.appearance?.hair || 'Various'}</div>
+                        <div>• Appears in: {charData.characterSceneMap?.[char.id]?.length || 0} scenes</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>,
+            "response"
+          );
+        } else {
+          // Remove analysis message on error
+          setMessages(prev => prev.filter(msg => msg.id !== analysisId));
+          addMessage(
+            "system",
+            <div className="text-amber-600">
+              Proceeding without character analysis. Images will be generated normally.
+            </div>,
+            "response"
+          );
+        }
+      } catch (error) {
+        console.error("Character analysis error:", error);
+        setMessages(prev => prev.filter(msg => msg.id !== analysisId));
+        addMessage(
+          "system",
+          <div className="text-amber-600">
+            Character analysis failed. Generating images normally...
+          </div>,
+          "response"
+        );
+      }
+    }
+
+    // Now start image generation
+    const loadingId = addMessage(
+      "system",
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+          <span className="font-medium">Creating consistent visuals for all scenes...</span>
+        </div>
+        <div className="text-sm text-gray-500">
+          {mainCharacters.length > 0 
+            ? `Maintaining ${mainCharacters.length} character${mainCharacters.length > 1 ? 's' : ''} across ${story.beatSheet.length} scenes`
+            : `Generating ${story.beatSheet.length} scenes`
+          }
+        </div>
       </div>,
       "response"
     );
 
     try {
-      // Detect characters in the story
-      const charRes = await fetch("/api/detectCharacters", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          story: story.story,
-          beatSheet: story.beatSheet,
-          market
-        }),
+      const imagePromises = story.beatSheet.map(async (scene, index) => {
+        // Find character for this scene
+        const characterId = scene.characterId;
+        const character = mainCharacters.find(c => c.id === characterId);
+        
+        // Check if we have previous image of this character
+        let previousImageUrl: string | undefined;
+        if (characterId && generatedCharacterImages[characterId]) {
+          const previousScenes = Object.keys(generatedCharacterImages[characterId])
+            .map(Number)
+            .filter(sceneIdx => sceneIdx < index)
+            .sort((a, b) => b - a); // Get most recent
+          
+          if (previousScenes.length > 0) {
+            previousImageUrl = generatedCharacterImages[characterId][previousScenes[0]];
+            console.log(`Using previous image for ${characterId} in scene ${index}`);
+          }
+        }
+
+        // Build request with character data if available
+        const requestData: any = {
+          sceneDescription: scene.description,
+          visualCues: scene.visualCues,
+          tone: story.metadata.tone,
+          market,
+          brandSafe: true,
+          brandPalette: brandGuide?.palette || [], // Use brand palette if available
+          // template,
+          beatIndex: index,
+          beat: scene.beat,
+          characterEmotion: scene.characterEmotion,
+          characterAction: scene.characterAction,
+          shotType: scene.shotType
+        };
+
+        // Add character data if we have it
+        if (character) {
+          requestData.characterDescription = character;
+          requestData.previousCharacterImage = previousImageUrl;
+          requestData.isSameCharacter = !!previousImageUrl;
+        }
+
+        console.log(`Generating image ${index + 1}/${story.beatSheet.length}`, {
+          beat: scene.beat,
+          characterId,
+          hasPreviousImage: !!previousImageUrl
+        });
+
+        const response = await fetch("/api/generateImage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestData),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        // Track character images for consistency in future scenes
+        if (result.success && characterId) {
+          setGeneratedCharacterImages(prev => ({
+            ...prev,
+            [characterId]: {
+              ...(prev[characterId] || {}),
+              [index]: result.imageUrl
+            }
+          }));
+        }
+        
+        return { 
+          index, 
+          result,
+          characterId,
+          scene
+        };
       });
 
-      const charData = await charRes.json();
+      const results = await Promise.all(imagePromises);
+      const imageMap: { [key: string]: string } = {};
+      const failedScenes: number[] = [];
       
-      if (charData.success) {
-        setMainCharacters(charData.characters || []);
-        setCharacterSceneMap(charData.characterSceneMap || {});
-        
-        // Update story with character-enriched beatSheet
-        const updatedStory: GeneratedStory = {
-          ...story,
-          beatSheet: charData.updatedBeatSheet || story.beatSheet,
-          metadata: {
-            ...story.metadata,
-            mainCharacters: charData.characters || []
-          }
-        };
-        
-        setStory(updatedStory);
-        
-        // Remove analysis message
-        setMessages(prev => prev.filter(msg => msg.id !== analysisId));
-        
-        // Show character summary
-        addMessage(
-          "system",
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-green-600">
-              <Check size={20} />
-              <span className="font-medium">
-                Character Analysis Complete
-              </span>
-            </div>
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
-              <h4 className="font-semibold text-blue-800 mb-2">📝 Character Details</h4>
-              <div className="space-y-3">
-                {charData.characters?.map((char: CharacterDescription, idx: number) => (
-                  <div key={char.id} className="text-sm">
-                    <div className="font-medium text-gray-800">
-                      {idx + 1}. {char.name || `Character ${idx + 1}`}
-                    </div>
-                    <div className="text-gray-600 ml-4">
-                      <div>• Age: {char.age || 'Not specified'}</div>
-                      <div>• Features: {char.appearance?.hair || 'Various'}</div>
-                      <div>• Appears in: {charData.characterSceneMap?.[char.id]?.length || 0} scenes</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>,
-          "response"
-        );
-      } else {
-        // Remove analysis message on error
-        setMessages(prev => prev.filter(msg => msg.id !== analysisId));
-        addMessage(
-          "system",
-          <div className="text-amber-600">
-            Proceeding without character analysis. Images will be generated normally.
-          </div>,
-          "response"
-        );
-      }
-    } catch (error) {
-      console.error("Character analysis error:", error);
-      setMessages(prev => prev.filter(msg => msg.id !== analysisId));
+      results.forEach(({ index, result, characterId, scene }) => {
+        if (result.success) {
+          imageMap[index] = result.imageUrl;
+        } else {
+          failedScenes.push(index);
+          console.error(`Failed to generate image for scene ${index}:`, scene.beat);
+        }
+      });
+
+      setGeneratedImages(imageMap);
+
+      // Remove loading message
+      setMessages(prev => prev.filter(msg => msg.id !== loadingId));
+
+      // Calculate success rate
+      const successCount = Object.keys(imageMap).length;
+      const totalCount = story.beatSheet.length;
+      const successRate = Math.round((successCount / totalCount) * 100);
+
+      // Build success message
       addMessage(
         "system",
-        <div className="text-amber-600">
-          Character analysis failed. Generating images normally...
-        </div>,
-        "response"
-      );
-    }
-  }
-
-  // Now start image generation
-  const loadingId = addMessage(
-    "system",
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-        <span className="font-medium">Creating consistent visuals for all scenes...</span>
-      </div>
-      <div className="text-sm text-gray-500">
-        {mainCharacters.length > 0 
-          ? `Maintaining ${mainCharacters.length} character${mainCharacters.length > 1 ? 's' : ''} across ${story.beatSheet.length} scenes`
-          : `Generating ${story.beatSheet.length} scenes`
-        }
-      </div>
-    </div>,
-    "response"
-  );
-
-  try {
-    const imagePromises = story.beatSheet.map(async (scene, index) => {
-      // Find character for this scene
-      const characterId = scene.characterId;
-      const character = mainCharacters.find(c => c.id === characterId);
-      
-      // Check if we have previous image of this character
-      let previousImageUrl: string | undefined;
-      if (characterId && generatedCharacterImages[characterId]) {
-        const previousScenes = Object.keys(generatedCharacterImages[characterId])
-          .map(Number)
-          .filter(sceneIdx => sceneIdx < index)
-          .sort((a, b) => b - a); // Get most recent
-        
-        if (previousScenes.length > 0) {
-          previousImageUrl = generatedCharacterImages[characterId][previousScenes[0]];
-          console.log(`Using previous image for ${characterId} in scene ${index}`);
-        }
-      }
-
-      // Build request with character data if available
-      const requestData: any = {
-        sceneDescription: scene.description,
-        visualCues: scene.visualCues,
-        tone: story.metadata.tone,
-        market,
-        brandSafe: true,
-        brandPalette: brandGuide?.palette || [],
-        template,
-        beatIndex: index,
-        beat: scene.beat,
-        characterEmotion: scene.characterEmotion,
-        characterAction: scene.characterAction,
-        shotType: scene.shotType
-      };
-
-      // Add character data if we have it
-      if (character) {
-        requestData.characterDescription = character;
-        requestData.previousCharacterImage = previousImageUrl;
-        requestData.isSameCharacter = !!previousImageUrl;
-      }
-
-      console.log(`Generating image ${index + 1}/${story.beatSheet.length}`, {
-        beat: scene.beat,
-        characterId,
-        hasPreviousImage: !!previousImageUrl
-      });
-
-      const response = await fetch("/api/generateImage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestData),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      
-      // Track character images for consistency in future scenes
-      if (result.success && characterId) {
-        setGeneratedCharacterImages(prev => ({
-          ...prev,
-          [characterId]: {
-            ...(prev[characterId] || {}),
-            [index]: result.imageUrl
-          }
-        }));
-      }
-      
-      return { 
-        index, 
-        result,
-        characterId,
-        scene
-      };
-    });
-
-    const results = await Promise.all(imagePromises);
-    const imageMap: { [key: string]: string } = {};
-    const failedScenes: number[] = [];
-    
-    results.forEach(({ index, result, characterId, scene }) => {
-      if (result.success) {
-        imageMap[index] = result.imageUrl;
-      } else {
-        failedScenes.push(index);
-        console.error(`Failed to generate image for scene ${index}:`, scene.beat);
-      }
-    });
-
-    setGeneratedImages(imageMap);
-
-    // Remove loading message
-    setMessages(prev => prev.filter(msg => msg.id !== loadingId));
-
-    // Calculate success rate
-    const successCount = Object.keys(imageMap).length;
-    const totalCount = story.beatSheet.length;
-    const successRate = Math.round((successCount / totalCount) * 100);
-
-    // Build success message
-    addMessage(
-      "system",
-      <div className="space-y-6">
-        <div className={`flex items-center gap-2 ${successRate === 100 ? 'text-green-600' : 'text-amber-600'}`}>
-          {successRate === 100 ? <Check size={20} /> : <HelpCircle size={20} />}
-          <span className="font-medium">
-            Generated {successCount} of {totalCount} images ({successRate}%)
-          </span>
-        </div>
-
-        {mainCharacters.length > 0 && successCount > 0 && (
-          <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Brain size={16} className="text-blue-600" />
-                <span className="font-semibold text-blue-800">Character Consistency Applied</span>
-              </div>
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                {mainCharacters.length} character{mainCharacters.length > 1 ? 's' : ''}
-              </span>
-            </div>
-            <div className="text-sm text-gray-700 space-y-2">
-              <p>✓ Facial features maintained across scenes</p>
-              <p>✓ Cultural authenticity for {market.toUpperCase()} market</p>
-              <p>✓ Consistent lighting and style throughout</p>
-            </div>
-          </div>
-        )}
-
-        {/* Show failed scenes if any */}
-        {failedScenes.length > 0 && (
-          <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg">
-            <div className="flex items-center gap-2 text-amber-700 mb-2">
-              <X size={16} />
-              <span className="font-medium">Some images failed to generate:</span>
-            </div>
-            <div className="text-sm text-amber-600">
-              <ul className="list-disc pl-5 space-y-1">
-                {failedScenes.map(sceneIndex => (
-                  <li key={sceneIndex}>
-                    Scene {sceneIndex + 1}: {story.beatSheet[sceneIndex].beat}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
-
-        {/* Image Gallery Preview */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="font-semibold text-gray-800">Generated Scenes</h4>
-            <span className="text-sm text-gray-500">
-              Click any image to enlarge
+        <div className="space-y-6">
+          <div className={`flex items-center gap-2 ${successRate === 100 ? 'text-green-600' : 'text-amber-600'}`}>
+            {successRate === 100 ? <Check size={20} /> : <HelpCircle size={20} />}
+            <span className="font-medium">
+              Generated {successCount} of {totalCount} images ({successRate}%)
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {story.beatSheet.map(
-              (scene, index) =>
-                imageMap[index] && (
-                  <div
-                    key={index}
-                    className="space-y-3 p-4 bg-white rounded-xl border hover:border-purple-300 transition-colors cursor-pointer group"
-                    onClick={() => openImageModal(index)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
-                          {index + 1}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-900">
-                            {scene.beat}
-                          </div>
-                          <div className="text-sm text-gray-500 flex items-center gap-2">
-                            {scene.characterId && (
-                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                                {scene.characterId.replace('_', ' ')}
-                              </span>
-                            )}
-                            {scene.characterEmotion && (
-                              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                                {scene.characterEmotion}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openImageModal(index);
-                        }}
-                        className="p-2 hover:bg-gray-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="View full size"
-                      >
-                        <Maximize2 size={16} className="text-gray-500" />
-                      </button>
-                    </div>
-
-                    <div className="relative group">
-                      <img
-                        src={imageMap[index]}
-                        alt={`Scene ${index + 1}: ${scene.beat}`}
-                        className="w-full h-48 object-cover rounded-lg border-2 border-gray-200 group-hover:border-purple-300 transition-colors"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://placehold.co/600x400/F3F4F6/9CA3AF?text=Image+Failed+to+Load';
-                        }}
-                      />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <div className="text-white text-sm bg-black/60 px-3 py-2 rounded-full flex items-center gap-2">
-                          <Maximize2 size={14} />
-                          Click to enlarge • Scene {index + 1}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Scene Info */}
-                    <div className="space-y-2">
-                      <p className="text-sm text-gray-600 line-clamp-2">
-                        {scene.description}
-                      </p>
-                      
-                      {scene.visualCues.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {scene.visualCues.slice(0, 3).map((cue, i) => (
-                            <span
-                              key={i}
-                              className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full"
-                            >
-                              {cue}
-                            </span>
-                          ))}
-                          {scene.visualCues.length > 3 && (
-                            <span className="text-xs text-gray-400 px-1">
-                              +{scene.visualCues.length - 3} more
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-            )}
-          </div>
-
-          {/* Show message if no images were generated */}
-          {successCount === 0 && (
-            <div className="text-center py-8">
-              <ImageIcon size={48} className="mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-600">No images were generated successfully.</p>
-              <p className="text-sm text-gray-500 mt-1">
-                Please check your API configuration and try again.
-              </p>
+          {mainCharacters.length > 0 && successCount > 0 && (
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Brain size={16} className="text-blue-600" />
+                  <span className="font-semibold text-blue-800">Character Consistency Applied</span>
+                </div>
+                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                  {mainCharacters.length} character{mainCharacters.length > 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="text-sm text-gray-700 space-y-2">
+                <p>✓ Facial features maintained across scenes</p>
+                <p>✓ Cultural authenticity for {market.toUpperCase()} market</p>
+                <p>✓ Consistent lighting and style throughout</p>
+              </div>
             </div>
           )}
-        </div>
 
-        {/* Action Buttons */}
-        {successCount > 0 && (
-          <div className="space-y-4 pt-4 border-t">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <button
-                onClick={() => openImageModal(0)}
-                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <Maximize2 size={16} />
-                View Full Gallery
-              </button>
-              <button
-                onClick={() => setCurrentStep("video-option")}
-                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <VideoIcon size={16} />
-                Create Video Script
-              </button>
-              <button
-                onClick={() => setCurrentStep("export")}
-                className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <Download size={16} />
-                Export Package
-              </button>
+          {/* Show brand palette usage if applicable */}
+          {brandGuide?.palette && brandGuide.palette.length > 0 && (
+            <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Palette size={16} className="text-purple-600" />
+                  <span className="font-semibold text-purple-800">Brand Colors Applied</span>
+                </div>
+                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                  {brandGuide.palette.length} colors
+                </span>
+              </div>
+              <div className="flex gap-1.5">
+                {brandGuide.palette.slice(0, 6).map((color, idx) => (
+                  <div
+                    key={idx}
+                    className="w-6 h-6 rounded border-2 border-white shadow-sm"
+                    style={{ backgroundColor: color }}
+                    title={color}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Show failed scenes if any */}
+          {failedScenes.length > 0 && (
+            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg">
+              <div className="flex items-center gap-2 text-amber-700 mb-2">
+                <X size={16} />
+                <span className="font-medium">Some images failed to generate:</span>
+              </div>
+              <div className="text-sm text-amber-600">
+                <ul className="list-disc pl-5 space-y-1">
+                  {failedScenes.map(sceneIndex => (
+                    <li key={sceneIndex}>
+                      Scene {sceneIndex + 1}: {story.beatSheet[sceneIndex].beat}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Image Gallery Preview */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold text-gray-800">Generated Scenes</h4>
+              <span className="text-sm text-gray-500">
+                Click any image to enlarge
+              </span>
             </div>
 
-            {/* Retry failed scenes */}
-            {failedScenes.length > 0 && (
-              <button
-                onClick={async () => {
-                  // Retry only failed scenes
-                  const retryPromises = failedScenes.map(async (index) => {
-                    const scene = story.beatSheet[index];
-                    const characterId = scene.characterId;
-                    const character = mainCharacters.find(c => c.id === characterId);
-                    
-                    const response = await fetch("/api/generateImage", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        sceneDescription: scene.description,
-                        visualCues: scene.visualCues,
-                        tone: story.metadata.tone,
-                        market,
-                        brandSafe: true,
-                        brandPalette: brandGuide?.palette || [],
-                        template,
-                        beatIndex: index,
-                        beat: scene.beat,
-                        characterDescription: character,
-                        characterEmotion: scene.characterEmotion,
-                        characterAction: scene.characterAction
-                      }),
-                    });
-                    
-                    const result = await response.json();
-                    return { index, result, characterId };
-                  });
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {story.beatSheet.map(
+                (scene, index) =>
+                  imageMap[index] && (
+                    <div
+                      key={index}
+                      className="space-y-3 p-4 bg-white rounded-xl border hover:border-purple-300 transition-colors cursor-pointer group"
+                      onClick={() => openImageModal(index)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-gray-900">
+                              {scene.beat}
+                            </div>
+                            <div className="text-sm text-gray-500 flex items-center gap-2">
+                              {scene.characterId && (
+                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                                  {scene.characterId.replace('_', ' ')}
+                                </span>
+                              )}
+                              {scene.characterEmotion && (
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                                  {scene.characterEmotion}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openImageModal(index);
+                          }}
+                          className="p-2 hover:bg-gray-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="View full size"
+                        >
+                          <Maximize2 size={16} className="text-gray-500" />
+                        </button>
+                      </div>
 
-                  addMessage(
-                    "system",
-                    <div className="flex items-center gap-2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-                      <span>Retrying {failedScenes.length} failed scenes...</span>
-                    </div>,
-                    "response"
-                  );
+                      <div className="relative group">
+                        <img
+                          src={imageMap[index]}
+                          alt={`Scene ${index + 1}: ${scene.beat}`}
+                          className="w-full h-48 object-cover rounded-lg border-2 border-gray-200 group-hover:border-purple-300 transition-colors"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = 'https://placehold.co/600x400/F3F4F6/9CA3AF?text=Image+Failed+to+Load';
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <div className="text-white text-sm bg-black/60 px-3 py-2 rounded-full flex items-center gap-2">
+                            <Maximize2 size={14} />
+                            Click to enlarge • Scene {index + 1}
+                          </div>
+                        </div>
+                      </div>
 
-                  const retryResults = await Promise.all(retryPromises);
-                  
-                  retryResults.forEach(({ index, result, characterId }) => {
-                    if (result.success) {
-                      setGeneratedImages(prev => ({ ...prev, [index]: result.imageUrl }));
-                      if (characterId) {
-                        setGeneratedCharacterImages(prev => ({
-                          ...prev,
-                          [characterId]: {
-                            ...(prev[characterId] || {}),
-                            [index]: result.imageUrl
-                          }
-                        }));
-                      }
-                    }
-                  });
-                }}
-                className="w-full px-4 py-2 border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50"
-              >
-                Retry Failed Scenes ({failedScenes.length})
-              </button>
+                      {/* Scene Info */}
+                      <div className="space-y-2">
+                        <p className="text-sm text-gray-600 line-clamp-2">
+                          {scene.description}
+                        </p>
+                        
+                        {scene.visualCues.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {scene.visualCues.slice(0, 3).map((cue, i) => (
+                              <span
+                                key={i}
+                                className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full"
+                              >
+                                {cue}
+                              </span>
+                            ))}
+                            {scene.visualCues.length > 3 && (
+                              <span className="text-xs text-gray-400 px-1">
+                                +{scene.visualCues.length - 3} more
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+              )}
+            </div>
+
+            {/* Show message if no images were generated */}
+            {successCount === 0 && (
+              <div className="text-center py-8">
+                <ImageIcon size={48} className="mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-600">No images were generated successfully.</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Please check your API configuration and try again.
+                </p>
+              </div>
             )}
           </div>
-        )}
-      </div>,
-      "generated"
-    );
 
-    setCurrentStep("images-complete");
-  } catch (error) {
-    console.error("Image generation failed:", error);
-    
-    // Remove loading message
-    setMessages(prev => prev.filter(msg => msg.id !== loadingId));
-    
-    // Show error message
-    addMessage(
-      "system",
-      <div className="space-y-4">
-        <div className="text-red-600 p-4 bg-red-50 rounded-lg">
-          <p className="font-medium">Failed to generate images</p>
-          <p className="text-sm mt-1">
-            {error instanceof Error ? error.message : "Unknown error occurred"}
-          </p>
-        </div>
-        
-        <div className="flex gap-3">
-          <button
-            onClick={handleGenerateImages}
-            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
-          >
-            Try Again
-          </button>
-          <button
-            onClick={() => setCurrentStep("story-generated")}
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Back to Story
-          </button>
-        </div>
-      </div>,
-      "response"
-    );
-  } finally {
-    setIsGenerating(false);
-  }
-};
+          {/* Action Buttons */}
+          {successCount > 0 && (
+            <div className="space-y-4 pt-4 border-t">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <button
+                  onClick={() => openImageModal(0)}
+                  className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Maximize2 size={16} />
+                  View Full Gallery
+                </button>
+                <button
+                  onClick={() => setCurrentStep("video-option")}
+                  className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                  <VideoIcon size={16} />
+                  Create Video Script
+                </button>
+                <button
+                  onClick={() => setCurrentStep("export")}
+                  className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Download size={16} />
+                  Export Package
+                </button>
+              </div>
+
+              {/* Retry failed scenes */}
+              {failedScenes.length > 0 && (
+                <button
+                  onClick={async () => {
+                    // Retry only failed scenes
+                    const retryPromises = failedScenes.map(async (index) => {
+                      const scene = story.beatSheet[index];
+                      const characterId = scene.characterId;
+                      const character = mainCharacters.find(c => c.id === characterId);
+                      
+                      const response = await fetch("/api/generateImage", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          sceneDescription: scene.description,
+                          visualCues: scene.visualCues,
+                          tone: story.metadata.tone,
+                          market,
+                          brandSafe: true,
+                          brandPalette: brandGuide?.palette || [],
+                          // template,
+                          beatIndex: index,
+                          beat: scene.beat,
+                          characterDescription: character,
+                          characterEmotion: scene.characterEmotion,
+                          characterAction: scene.characterAction
+                        }),
+                      });
+                      
+                      const result = await response.json();
+                      return { index, result, characterId };
+                    });
+
+                    addMessage(
+                      "system",
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+                        <span>Retrying {failedScenes.length} failed scenes...</span>
+                      </div>,
+                      "response"
+                    );
+
+                    const retryResults = await Promise.all(retryPromises);
+                    
+                    retryResults.forEach(({ index, result, characterId }) => {
+                      if (result.success) {
+                        setGeneratedImages(prev => ({ ...prev, [index]: result.imageUrl }));
+                        if (characterId) {
+                          setGeneratedCharacterImages(prev => ({
+                            ...prev,
+                            [characterId]: {
+                              ...(prev[characterId] || {}),
+                              [index]: result.imageUrl
+                            }
+                          }));
+                        }
+                      }
+                    });
+                  }}
+                  className="w-full px-4 py-2 border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50"
+                >
+                  Retry Failed Scenes ({failedScenes.length})
+                </button>
+              )}
+            </div>
+          )}
+        </div>,
+        "generated"
+      );
+
+      setCurrentStep("images-complete");
+    } catch (error) {
+      console.error("Image generation failed:", error);
+      
+      // Remove loading message
+      setMessages(prev => prev.filter(msg => msg.id !== loadingId));
+      
+      // Show error message
+      addMessage(
+        "system",
+        <div className="space-y-4">
+          <div className="text-red-600 p-4 bg-red-50 rounded-lg">
+            <p className="font-medium">Failed to generate images</p>
+            <p className="text-sm mt-1">
+              {error instanceof Error ? error.message : "Unknown error occurred"}
+            </p>
+          </div>
+          
+          <div className="flex gap-3">
+            <button
+              onClick={handleGenerateImages}
+              className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={() => setCurrentStep("story-generated")}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Back to Story
+            </button>
+          </div>
+        </div>,
+        "response"
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   // Step 6c: Video Script Generation
   const handleGenerateVideoScript = async () => {
@@ -2312,6 +2521,8 @@ const detectCharacters = async (storyData: GeneratedStory) => {
             mode: userMode,
             brandApplied: !!brandGuide,
             brand: brandName || null,
+            brandPalette: brandGuide?.palette || null,
+            brandFonts: brandGuide?.fonts || null,
             narrative: {
               story,
               videoScript,
@@ -2348,6 +2559,8 @@ const detectCharacters = async (storyData: GeneratedStory) => {
             ["Pathway", ccnData.pathway],
             ["Template", template],
             ["Generated Images", Object.keys(generatedImages).length],
+            ["Brand Name", brandName || "None"],
+            ["Brand Colors", brandGuide?.palette?.join("; ") || "None"],
             ["Created", new Date().toISOString()],
           ]
             .map((row) => row.join(","))
@@ -2409,7 +2622,10 @@ const detectCharacters = async (storyData: GeneratedStory) => {
               setConfirmedCCNData(null);
               setCcnUnderstandingMessageId(null);
               setClarificationQuestion(null);
-              setUserPurpose(""); // Reset purpose
+              setUserPurpose("");
+              setMainCharacters([]);
+              setCharacterSceneMap({});
+              setGeneratedCharacterImages({});
               setCurrentStep("entry");
               setMessages([
                 {
@@ -2456,327 +2672,374 @@ const detectCharacters = async (storyData: GeneratedStory) => {
     }
   };
 
-  const renderInputSection = () => {
-    if (isGenerating) return null;
+ const renderInputSection = () => {
+  if (isGenerating) return null;
 
-    switch (currentStep) {
-      case "entry":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="space-y-4">
-              <textarea
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                placeholder="Describe your moment in your own words... (e.g., 'I felt inspired when...', 'A café in Lagos at dawn...', 'Everything is changing...')"
-                className="w-full h-32 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              />
+  switch (currentStep) {
+    case "entry":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-4">
+            <textarea
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              placeholder="Describe your moment in your own words... (e.g., 'I felt inspired when...', 'A café in Lagos at dawn...', 'Everything is changing...')"
+              className="w-full h-32 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
 
-              <div className="flex gap-3">
-                <button
-                  onClick={() => handleEntrySubmit()}
-                  disabled={!userInput.trim() || userInput.trim().length < 3}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
-                >
-                  <Send size={16} />
-                  Share My Moment
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "clarification":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="space-y-4">
-              <div className="mb-3">
-                <p className="text-sm text-gray-600 mb-2">
-                  {clarificationQuestion?.question}
-                </p>
-              </div>
-
-              <textarea
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                placeholder="Type your answer here..."
-                className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              />
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => handleEntrySubmit(userInput)}
-                  disabled={!userInput.trim()}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
-                >
-                  <Send size={16} />
-                  Submit Answer
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "brand-upload":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Brand Name (Optional)
-              </label>
-              <input
-                type="text"
-                value={brandName}
-                onChange={(e) => setBrandName(e.target.value)}
-                placeholder="Enter brand name..."
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              />
-            </div>
-            <BrandGuideUpload onParseComplete={handleBrandUpload} />
-            <div className="mt-4 flex justify-end">
+            <div className="flex gap-3">
               <button
-                onClick={() => handleBrandUpload(null)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                onClick={() => handleEntrySubmit()}
+                disabled={!userInput.trim() || userInput.trim().length < 3}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
               >
-                Skip Brand Guide
+                <Send size={16} />
+                Share My Moment
               </button>
             </div>
           </div>
-        );
+        </div>
+      );
 
-      case "story-purpose":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="space-y-4">
-              <div className="mb-3">
-                <p className="text-sm text-gray-600 mb-2">
-                  How do you want to use this story?
-                </p>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  <button
-                    onClick={() => setUserPurpose("Turn this into a brand post")}
-                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                  >
-                    Brand post
-                  </button>
-                  <button
-                    onClick={() => setUserPurpose("This is for Instagram")}
-                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                  >
-                    Instagram
-                  </button>
-                  <button
-                    onClick={() => setUserPurpose("Make it more formal for LinkedIn")}
-                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                  >
-                    LinkedIn
-                  </button>
-                  <button
-                    onClick={() => setUserPurpose("For a video script")}
-                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                  >
-                    Video script
-                  </button>
-                </div>
-              </div>
-
-              <textarea
-                value={userPurpose}
-                onChange={(e) => setUserPurpose(e.target.value)}
-                placeholder="Describe your purpose... (e.g., 'Turn this into a brand post', 'This is for Instagram', 'Make it more formal for LinkedIn', etc.)"
-                className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              />
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => handleStoryPurpose(userPurpose)}
-                  disabled={!userPurpose.trim() || userPurpose.trim().length < 3}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
-                >
-                  <Sparkles size={16} />
-                  Adapt Story
-                </button>
-                <button
-                  onClick={() => {
-                    // Skip adaptation and go directly to story options
-                    setCurrentStep("story-generated");
-                    addMessage(
-                      "system",
-                      <div className="text-gray-600">
-                        You can continue with the story as is.
-                      </div>,
-                      "response"
-                    );
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Skip & Use As Is
-                </button>
-              </div>
-
-              <p className="text-xs text-gray-500">
-                I'll adapt the same story based on your specific use case.
+    case "clarification":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-4">
+            <div className="mb-3">
+              <p className="text-sm text-gray-600 mb-2">
+                {clarificationQuestion?.question}
               </p>
             </div>
-          </div>
-        );
 
-      case "story-generated":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600">
-                Your story is ready! What would you like to do next?
+            <textarea
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              placeholder="Type your answer here..."
+              className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleEntrySubmit(userInput)}
+                disabled={!userInput.trim()}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
+              >
+                <Send size={16} />
+                Submit Answer
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+
+    case "story-purpose":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-4">
+            <div className="mb-3">
+              <p className="text-sm text-gray-600 mb-2">
+                How do you want to use this story?
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex flex-wrap gap-2 mb-3">
                 <button
-                  onClick={() => setCurrentStep("images")}
-                  className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                  onClick={() => setUserPurpose("Turn this into a brand post")}
+                  className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
                 >
-                  <ImageIcon size={18} />
-                  Generate Images
+                  Brand post
                 </button>
                 <button
-                  onClick={() => handleVideoOption()}
-                  className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                  onClick={() => setUserPurpose("This is for Instagram")}
+                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
                 >
-                  <VideoIcon size={18} />
-                  Generate Video Script
+                  Instagram
+                </button>
+                <button
+                  onClick={() => setUserPurpose("Make it more formal for LinkedIn")}
+                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                >
+                  LinkedIn
+                </button>
+                <button
+                  onClick={() => setUserPurpose("For a video script")}
+                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                >
+                  Video script
+                </button>
+                <button
+                  onClick={() => setUserPurpose("Personal journal entry")}
+                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                >
+                  Personal
+                </button>
+                <button
+                  onClick={() => setUserPurpose("Educational content")}
+                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                >
+                  Educational
                 </button>
               </div>
+            </div>
+
+            <textarea
+              value={userPurpose}
+              onChange={(e) => setUserPurpose(e.target.value)}
+              placeholder="Describe your purpose... (e.g., 'Turn this into a brand post', 'This is for Instagram', 'Make it more formal for LinkedIn', etc.)"
+              className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleStoryPurpose(userPurpose)}
+                disabled={!userPurpose.trim() || userPurpose.trim().length < 3}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
+              >
+                <Sparkles size={16} />
+                Adapt Story
+              </button>
               <button
                 onClick={() => {
-                  const blob = new Blob([story?.story || ""], {
-                    type: "text/plain",
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `story-${Date.now()}.txt`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-
+                  // Skip adaptation and go directly to story options
+                  setCurrentStep("story-generated");
                   addMessage(
                     "system",
-                    <div className="text-green-600">
-                      ✓ Story exported as text file.
+                    <div className="text-gray-600">
+                      You can continue with the story as is.
                     </div>,
                     "response"
                   );
                 }}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
-                Export Story as Text
+                Skip & Use As Is
               </button>
             </div>
-          </div>
-        );
 
-      case "images":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="space-y-4">
-              {currentStep === "images" && (
-                <>
-                  <p className="text-sm text-gray-600">
-                    Choose output format for images:
-                  </p>
-                  <TemplateSelector
-                    value={template}
-                    onChange={(selectedTemplate) =>
-                      setTemplate(selectedTemplate)
-                    }
+            <p className="text-xs text-gray-500">
+              I'll adapt the same story based on your specific use case.
+            </p>
+          </div>
+        </div>
+      );
+
+    case "brand-details":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
+              <h3 className="font-semibold text-lg text-purple-800 mb-3">
+                🎨 Brand Customization
+              </h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Brand Name
+                  </label>
+                  <input
+                    type="text"
+                    value={brandName}
+                    onChange={(e) => setBrandName(e.target.value)}
+                    placeholder="Enter your brand name..."
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
-                </>
-              )}
-              <button
-                onClick={handleGenerateImages}
-                disabled={isGenerating}
-                className="w-full px-6 py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
-              >
-                <ImageIcon size={24} />
-                {isGenerating ? "Generating..." : "Generate All Images"}
-              </button>
-              <p className="text-sm text-gray-500 text-center">
-                Creates visuals for all {story?.beatSheet.length || "story"}{" "}
-                scenes
-              </p>
-            </div>
-          </div>
-        );
-
-      case "images-complete":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600">
-                Your images are ready! What would you like to do next?
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <button
-                  onClick={() => setCurrentStep("video-option")}
-                  className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                >
-                  <VideoIcon size={18} />
-                  Create Video Script
-                </button>
-                <button
-                  onClick={() => setCurrentStep("export")}
-                  className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                >
-                  <Download size={18} />
-                  Export Package
-                </button>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Brand Assets (Optional)
+                  </label>
+                  <BrandGuideUpload onParseComplete={(assets) => {
+                    setBrandGuide(assets);
+                    if (assets) {
+                      // Show success message
+                      addMessage(
+                        "system",
+                        <div className="text-green-600 flex items-center gap-2">
+                          <Check size={16} />
+                          Brand assets loaded successfully!
+                        </div>,
+                        "response"
+                      );
+                    }
+                  }} />
+                </div>
               </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <button
-                onClick={() => openImageModal(0)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
+                onClick={async () => {
+                  // Continue with brand data
+                  await adaptStoryWithBrand(userPurpose);
+                }}
+                disabled={!brandName.trim()}
+                className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                View Image Gallery Again
+                <Sparkles size={16} />
+                Continue with Brand
+              </button>
+              <button
+                onClick={async () => {
+                  // Skip brand and adapt story anyway
+                  await adaptStoryWithoutBrand(userPurpose);
+                }}
+                className="px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2"
+              >
+                Skip Brand Details
               </button>
             </div>
+            
+            <p className="text-xs text-gray-500 text-center">
+              Your brand palette will be used for image generation. If you skip, generic colors will be used.
+            </p>
           </div>
-        );
+        </div>
+      );
 
-      case "video-option":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="space-y-4">
-              <button
-                onClick={handleGenerateVideoScript}
-                disabled={isGenerating}
-                className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
-              >
-                <VideoIcon size={24} />
-                {isGenerating ? "Creating..." : "Generate Video Script"}
-              </button>
+    case "story-generated":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Your story is ready! What would you like to do next?
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <button
                 onClick={() => setCurrentStep("images")}
-                className="w-full px-6 py-4 border border-gray-300 rounded-xl hover:bg-gray-50 flex items-center justify-center gap-3"
+                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
               >
-                <ImageIcon size={24} />
-                Generate Images Instead
+                <ImageIcon size={18} />
+                Generate Images
+              </button>
+              <button
+                onClick={() => handleVideoOption()}
+                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <VideoIcon size={18} />
+                Generate Video Script
               </button>
             </div>
-          </div>
-        );
-
-      case "export":
-        return (
-          <div className="p-4 border-t bg-white">
             <button
-              onClick={handleExport}
-              className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg flex items-center justify-center gap-3 text-lg font-medium"
+              onClick={() => {
+                const blob = new Blob([story?.story || ""], {
+                  type: "text/plain",
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `story-${Date.now()}.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                addMessage(
+                  "system",
+                  <div className="text-green-600">
+                    ✓ Story exported as text file.
+                  </div>,
+                  "response"
+                );
+              }}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
             >
-              <Share2 size={24} />
-              Export Your Story
+              Export Story as Text
             </button>
           </div>
-        );
+        </div>
+      );
 
-      default:
-        return null;
-    }
-  };
+    case "images":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-4">
+            <button
+              onClick={handleGenerateImages}
+              disabled={isGenerating}
+              className="w-full px-6 py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
+            >
+              <ImageIcon size={24} />
+              {isGenerating ? "Generating..." : "Generate All Images"}
+            </button>
+            <p className="text-sm text-gray-500 text-center">
+              Creates visuals for all {story?.beatSheet.length || "story"}{" "}
+              scenes
+            </p>
+          </div>
+        </div>
+      );
+
+    case "images-complete":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Your images are ready! What would you like to do next?
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <button
+                onClick={() => setCurrentStep("video-option")}
+                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <VideoIcon size={18} />
+                Create Video Script
+              </button>
+              <button
+                onClick={() => setCurrentStep("export")}
+                className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <Download size={18} />
+                Export Package
+              </button>
+            </div>
+            <button
+              onClick={() => openImageModal(0)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              View Image Gallery Again
+            </button>
+          </div>
+        </div>
+      );
+
+    case "video-option":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-4">
+            <button
+              onClick={handleGenerateVideoScript}
+              disabled={isGenerating}
+              className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
+            >
+              <VideoIcon size={24} />
+              {isGenerating ? "Creating..." : "Generate Video Script"}
+            </button>
+            <button
+              onClick={() => setCurrentStep("images")}
+              className="w-full px-6 py-4 border border-gray-300 rounded-xl hover:bg-gray-50 flex items-center justify-center gap-3"
+            >
+              <ImageIcon size={24} />
+              Generate Images Instead
+            </button>
+          </div>
+        </div>
+      );
+
+    case "export":
+      return (
+        <div className="p-4 border-t bg-white">
+          <button
+            onClick={handleExport}
+            className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg flex items-center justify-center gap-3 text-lg font-medium"
+          >
+            <Share2 size={24} />
+            Export Your Story
+          </button>
+        </div>
+      );
+
+    default:
+      return null;
+  }
+};
 
   const imageGalleryData =
     story?.beatSheet
