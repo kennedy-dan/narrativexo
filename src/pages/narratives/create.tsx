@@ -39,8 +39,7 @@ import {
   Type,
   Headphones,
   Share2,
-  UserRound
-  
+  UserRound,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 
@@ -59,7 +58,7 @@ type Step =
   | "brand-upload"
   | "story-generated"
   | "story-purpose"
-  | "brand-details"  // NEW: For collecting brand info
+  | "brand-details" // NEW: For collecting brand info
   | "images"
   | "images-complete"
   | "video-option"
@@ -253,14 +252,25 @@ export default function Create() {
     [key: string]: string;
   }>({});
   const [userPurpose, setUserPurpose] = useState<string>("");
-  const [mainCharacters, setMainCharacters] = useState<CharacterDescription[]>([]);
-  const [characterSceneMap, setCharacterSceneMap] = useState<{[key: string]: number[]}>({});
-  const [generatedCharacterImages, setGeneratedCharacterImages] = useState<{[key: string]: {[sceneIndex: number]: string}}>({});
+  const [mainCharacters, setMainCharacters] = useState<CharacterDescription[]>(
+    []
+  );
+  const [characterSceneMap, setCharacterSceneMap] = useState<{
+    [key: string]: number[];
+  }>({});
+  const [generatedCharacterImages, setGeneratedCharacterImages] = useState<{
+    [key: string]: { [sceneIndex: number]: string };
+  }>({});
 
   // UI State
-  const [ccnInterpretation, setCcnInterpretation] = useState<CCNInterpretationRevised | null>(null);
-  const [confirmedCCNData, setConfirmedCCNData] = useState<CCNData | null>(null);
-  const [ccnUnderstandingMessageId, setCcnUnderstandingMessageId] = useState<number | null>(null);
+  const [ccnInterpretation, setCcnInterpretation] =
+    useState<CCNInterpretationRevised | null>(null);
+  const [confirmedCCNData, setConfirmedCCNData] = useState<CCNData | null>(
+    null
+  );
+  const [ccnUnderstandingMessageId, setCcnUnderstandingMessageId] = useState<
+    number | null
+  >(null);
   const [clarificationQuestion, setClarificationQuestion] = useState<{
     question: string;
     field: string;
@@ -288,8 +298,8 @@ export default function Create() {
         </div>
       ),
       timestamp: new Date(),
-      type: "question"
-    }
+      type: "question",
+    },
   ]);
   const [imageModal, setImageModal] = useState<{
     isOpen: boolean;
@@ -368,61 +378,145 @@ export default function Create() {
   // Auto-detect market from text
   const autoDetectMarket = (text: string): Market => {
     const lowerText = text.toLowerCase();
-    
+
     // Nigeria/NG detection
     const ngKeywords = [
-      'nigeria', 'nigerian', 'naija', 'lagos', 'abuja', 'wetin', 'abi',
-      'chai', 'wahala', 'oga', 'una', 'sabi', 'japa', 'gbese',
-      'nairaland', 'asoebi', 'bukateria', 'mama put', 'danfo',
-      'okada', 'area boy', 'shakara', 'jollof', 'suya', 'port harcourt',
-      'ibadan', 'enugu', 'kano', 'calabar', 'lekki', 'ajegunle',
-      'oyinbo', 'naija', 'asap', 'sharp', 'k-leg', 'ankara'
+      "nigeria",
+      "nigerian",
+      "naija",
+      "lagos",
+      "abuja",
+      "wetin",
+      "abi",
+      "chai",
+      "wahala",
+      "oga",
+      "una",
+      "sabi",
+      "japa",
+      "gbese",
+      "nairaland",
+      "asoebi",
+      "bukateria",
+      "mama put",
+      "danfo",
+      "okada",
+      "area boy",
+      "shakara",
+      "jollof",
+      "suya",
+      "port harcourt",
+      "ibadan",
+      "enugu",
+      "kano",
+      "calabar",
+      "lekki",
+      "ajegunle",
+      "oyinbo",
+      "naija",
+      "asap",
+      "sharp",
+      "k-leg",
+      "ankara",
     ];
-    
+
     // UK detection
     const ukKeywords = [
-      'uk', 'united kingdom', 'britain', 'british', 'london', 'manchester',
-      'birmingham', 'scotland', 'wales', 'england', 'mate', 'bloody',
-      'blimey', 'cheers', 'brilliant', 'gutted', 'chuffed', 'cuppa',
-      'pub', 'queen', 'king', 'football', 'premier league', 'man u',
-      'chelsea', 'arsenal', 'tube', 'underground', 'pound', 'tea',
-      'biscuit', 'chippy', 'fish and chips', 'queue'
+      "uk",
+      "united kingdom",
+      "britain",
+      "british",
+      "london",
+      "manchester",
+      "birmingham",
+      "scotland",
+      "wales",
+      "england",
+      "mate",
+      "bloody",
+      "blimey",
+      "cheers",
+      "brilliant",
+      "gutted",
+      "chuffed",
+      "cuppa",
+      "pub",
+      "queen",
+      "king",
+      "football",
+      "premier league",
+      "man u",
+      "chelsea",
+      "arsenal",
+      "tube",
+      "underground",
+      "pound",
+      "tea",
+      "biscuit",
+      "chippy",
+      "fish and chips",
+      "queue",
     ];
-    
+
     // France detection
     const frKeywords = [
-      'france', 'french', 'paris', 'bonjour', 'merci', 'au revoir',
-      'baguette', 'croissant', 'fromage', 'vin', 'boulangerie',
-      'café', 'merde', 'putain', 'salut', 'bien', 'très',
-      'eiffel', 'champs-élysées', 'provence', 'bordeaux', 'lyon',
-      'marseille', 'bonsoir', 'oui', 'non', 's\'il vous plaît',
-      'voilà', 'd\'accord', 'château', 'macaron'
+      "france",
+      "french",
+      "paris",
+      "bonjour",
+      "merci",
+      "au revoir",
+      "baguette",
+      "croissant",
+      "fromage",
+      "vin",
+      "boulangerie",
+      "café",
+      "merde",
+      "putain",
+      "salut",
+      "bien",
+      "très",
+      "eiffel",
+      "champs-élysées",
+      "provence",
+      "bordeaux",
+      "lyon",
+      "marseille",
+      "bonsoir",
+      "oui",
+      "non",
+      "s'il vous plaît",
+      "voilà",
+      "d'accord",
+      "château",
+      "macaron",
     ];
-    
+
     // Count matches
     let ngCount = 0;
     let ukCount = 0;
     let frCount = 0;
-    
-    ngKeywords.forEach(keyword => {
+
+    ngKeywords.forEach((keyword) => {
       if (lowerText.includes(keyword)) ngCount++;
     });
-    
-    ukKeywords.forEach(keyword => {
+
+    ukKeywords.forEach((keyword) => {
       if (lowerText.includes(keyword)) ukCount++;
     });
-    
-    frKeywords.forEach(keyword => {
+
+    frKeywords.forEach((keyword) => {
       if (lowerText.includes(keyword)) frCount++;
     });
-    
+
     // Determine market based on highest count
-    if (ngCount > ukCount && ngCount > frCount) return 'ng';
-    if (ukCount > ngCount && ukCount > frCount) return 'uk';
-    if (frCount > ngCount && frCount > ukCount) return 'fr';
-    
+    if (ngCount > ukCount && ngCount > frCount) return "ng";
+    if (ukCount > ngCount && ukCount > frCount) return "uk";
+    if (frCount > ngCount && frCount > ukCount) return "fr";
+
     // Default to 'ng' if no clear market detected
-    return 'ng';
+    return "ng";
   };
 
   // Step 1: Natural Story Start
@@ -444,7 +538,8 @@ export default function Create() {
       addMessage(
         "system",
         <div className="text-amber-600">
-          Please provide a bit more detail so I can understand your vision better.
+          Please provide a bit more detail so I can understand your vision
+          better.
         </div>,
         "response"
       );
@@ -454,11 +549,11 @@ export default function Create() {
     // Show user message with detected market info if any
     const messageContent = !clarificationAnswer ? (
       <div className=" p-3 b">
-        <p className="text-sm">{inputToSend}</p>
+        <p className="text-base font-bold">{inputToSend}</p>
       </div>
     ) : (
       <div className="  p-3 ">
-        <p className="text-sm">{inputToSend}</p>
+        <p className="text-base font-bold">{inputToSend}</p>
       </div>
     );
 
@@ -489,7 +584,7 @@ export default function Create() {
       const data = await res.json();
 
       if (data.success) {
-        const detectedMarket = data.interpretation.market || 'ng';
+        const detectedMarket = data.interpretation.market || "ng";
         setMarket(detectedMarket as Market);
 
         setCcnInterpretation(data.interpretation);
@@ -567,7 +662,6 @@ export default function Create() {
           // Create CCN understanding message and store its ID
           const ccnMessageContent = (
             <div className="space-y-4">
-           
               <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border-l-4 border-green-500">
                 <p className="font-medium">{understanding}</p>
               </div>
@@ -701,23 +795,25 @@ export default function Create() {
             pathway: ccnData.pathway,
             rawAnalysis: ccnData.rawAnalysis || story?.story,
           },
-          brand: brandGuide ? { 
-            name: brandName, 
-            palette: brandGuide.palette,
-            fonts: brandGuide.fonts,
-            brandSafe: brandGuide.brandSafe 
-          } : undefined,
+          brand: brandGuide
+            ? {
+                name: brandName,
+                palette: brandGuide.palette,
+                fonts: brandGuide.fonts,
+                brandSafe: brandGuide.brandSafe,
+              }
+            : undefined,
           requestType: "purpose-adaptation",
           purpose: purpose,
           currentStory: story?.story,
           originalContext: originalUserInput,
           isBrand: true,
-          brandName: brandName || undefined
+          brandName: brandName || undefined,
         }),
       });
 
       if (!res.ok) throw new Error(`API error: ${res.status}`);
-      
+
       const data = await res.json();
 
       if (!data.success) throw new Error(data.error || "Unknown error");
@@ -727,10 +823,10 @@ export default function Create() {
         beatSheet: data.beatSheet || story?.beatSheet || [],
         metadata: data.metadata || {
           ...story?.metadata,
-          title: `${story?.metadata.title} (Brand: ${brandName || 'Unnamed'})`,
+          title: `${story?.metadata.title} (Brand: ${brandName || "Unnamed"})`,
           purpose: purpose,
           brandName: brandName || undefined,
-          brandApplied: !!brandGuide
+          brandApplied: !!brandGuide,
         },
       };
 
@@ -746,7 +842,9 @@ export default function Create() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Palette size={16} className="text-purple-600" />
-                  <span className="font-semibold text-purple-800">Brand Applied</span>
+                  <span className="font-semibold text-purple-800">
+                    Brand Applied
+                  </span>
                 </div>
                 {brandName && (
                   <span className="text-sm bg-purple-100 text-purple-700 px-3 py-1 rounded-full">
@@ -754,10 +852,12 @@ export default function Create() {
                   </span>
                 )}
               </div>
-              
+
               {brandGuide.palette && brandGuide.palette.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-sm text-gray-700 mb-2">Using brand colors:</p>
+                  <p className="text-sm text-gray-700 mb-2">
+                    Using brand colors:
+                  </p>
                   <div className="flex gap-1.5">
                     {brandGuide.palette.slice(0, 6).map((color, idx) => (
                       <div
@@ -824,19 +924,21 @@ export default function Create() {
                   brandInfo: {
                     name: brandName,
                     palette: brandGuide?.palette,
-                    fonts: brandGuide?.fonts
+                    fonts: brandGuide?.fonts,
                   },
                   purpose: purpose,
-                  timestamp: new Date().toISOString()
+                  timestamp: new Date().toISOString(),
                 };
-                
+
                 const blob = new Blob([JSON.stringify(exportData, null, 2)], {
                   type: "application/json",
                 });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `brand-story-${brandName || 'unnamed'}-${Date.now()}.json`;
+                a.download = `brand-story-${
+                  brandName || "unnamed"
+                }-${Date.now()}.json`;
                 a.click();
                 URL.revokeObjectURL(url);
 
@@ -850,7 +952,7 @@ export default function Create() {
               }}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
             >
-              Export Brand Story
+              Export Story as Text
             </button>
           </div>
         </div>,
@@ -858,10 +960,9 @@ export default function Create() {
       );
 
       setCurrentStep("story-generated");
-
     } catch (error) {
       console.error("Brand adaptation error:", error);
-      
+
       addMessage(
         "system",
         <div className="space-y-4">
@@ -871,7 +972,7 @@ export default function Create() {
               Error: {error instanceof Error ? error.message : "Unknown error"}
             </p>
           </div>
-          
+
           {/* Fallback to non-brand adaptation */}
           <button
             onClick={() => adaptStoryWithoutBrand(purpose)}
@@ -962,9 +1063,7 @@ export default function Create() {
       setStory(adaptedStory);
 
       // Remove thinking message
-      setMessages((prev) => 
-        prev.filter((msg) => msg.id !== thinkingId)
-      );
+      setMessages((prev) => prev.filter((msg) => msg.id !== thinkingId));
 
       // Show adapted story
       addMessage(
@@ -999,11 +1098,7 @@ export default function Create() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <button
                 onClick={() =>
-                  handleStoryExpansionWithStory(
-                    "expand",
-                    adaptedStory,
-                    ccnData
-                  )
+                  handleStoryExpansionWithStory("expand", adaptedStory, ccnData)
                 }
                 className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
               >
@@ -1107,19 +1202,19 @@ export default function Create() {
       );
 
       setCurrentStep("story-generated");
-
     } catch (error) {
       console.error("Purpose adaptation error:", error);
-      
-      setMessages((prev) => 
-        prev.filter((msg) => msg.id !== thinkingId)
-      );
-      
+
+      setMessages((prev) => prev.filter((msg) => msg.id !== thinkingId));
+
       addMessage(
         "system",
         <div className="space-y-6">
           <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
-            <p>I'll continue with the original story, but you can still use it for your purpose.</p>
+            <p>
+              I'll continue with the original story, but you can still use it
+              for your purpose.
+            </p>
             <p className="text-sm mt-2">
               Error: {error instanceof Error ? error.message : "Unknown error"}
             </p>
@@ -1147,7 +1242,7 @@ export default function Create() {
         </div>,
         "response"
       );
-      
+
       setCurrentStep("story-generated");
     } finally {
       setIsGenerating(false);
@@ -1156,55 +1251,143 @@ export default function Create() {
   };
 
   // NEW FUNCTION: Handle story purpose input
- // First, update the handleStoryPurpose function to set up brand collection:
-const handleStoryPurpose = async (purpose: string) => {
-  if (!purpose.trim() || !story) return;
+  // First, update the handleStoryPurpose function to set up brand collection:
+  // NEW FUNCTION: Handle story purpose input - UPDATED for brand system message
+  const handleStoryPurpose = async (purpose: string) => {
+    if (!purpose.trim() || !story) return;
 
-  setUserPurpose(purpose);
-  
-  addMessage(
-    "user",
-    <div className="border rounded-lg p-3 bg-gradient-to-r from-blue-700 to-purple-800">
-      <p className="text-sm">{purpose}</p>
-    </div>,
-    "selection"
-  );
+    setUserPurpose(purpose);
 
-  // Check if purpose mentions brand
-  const isBrandPurpose = purpose.toLowerCase().includes('brand') || 
-                         purpose.toLowerCase().includes('company') ||
-                         purpose.toLowerCase().includes('organization') ||
-                         purpose.toLowerCase().includes('business');
-
-  if (isBrandPurpose) {
-    // Show brand details collection UI
-    setCurrentStep("brand-details");
-    
-    // Show message about brand customization
+    // Add user's purpose as a message
     addMessage(
-      "system",
-      <div className="space-y-4">
-        <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
-          <h3 className="font-semibold text-lg text-purple-800 mb-2">
-            🎨 Brand Customization (Optional)
-          </h3>
-          <p className="text-gray-700">
-            To make this story perfectly match your brand, you can upload your brand guide or logo.
-            This is <span className="font-medium">optional</span> - you can skip and continue without it.
-          </p>
-          <p className="text-sm text-gray-500 mt-2">
-            Please enter your brand details below...
-          </p>
-        </div>
+      "user",
+      <div className=" rounded-lg p-3 ">
+        <p className="text-sm">{purpose}</p>
       </div>,
-      "response"
+      "selection"
     );
-  } else {
-    // Non-brand purpose - adapt normally
-    await adaptStoryWithoutBrand(purpose);
-  }
-};
 
+    // Check if purpose mentions brand
+    const isBrandPurpose =
+      purpose.toLowerCase().includes("brand") ||
+      purpose.toLowerCase().includes("company") ||
+      purpose.toLowerCase().includes("organization") ||
+      purpose.toLowerCase().includes("business") ||
+      purpose.toLowerCase().includes("corporate") ||
+      purpose.toLowerCase().includes("marketing") ||
+      purpose.toLowerCase().includes("advert") ||
+      purpose.toLowerCase().includes("campaign");
+
+    if (isBrandPurpose) {
+      // Show brand details collection as a SYSTEM MESSAGE
+      addMessage(
+        "system",
+        <div className="space-y-4">
+          <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
+            <h3 className="font-semibold text-lg text-purple-800 mb-2 flex items-center gap-2">
+              <Palette size={20} />
+              🎨 Brand Customization (Optional)
+            </h3>
+            <p className="text-gray-700 mb-3">
+              To make this story perfectly match your brand, you can upload your
+              brand guide or logo. This is{" "}
+              <span className="font-medium">optional</span> - you can skip and
+              continue without it.
+            </p>
+            <div className="space-y-3">
+              {/* <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Brand Name
+              </label>
+              <input
+                type="text"
+                value={brandName}
+                onChange={(e) => {
+                  setBrandName(e.target.value);
+                  // Focus the input
+                  e.target.focus();
+                }}
+                placeholder="Enter your brand name..."
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                autoFocus
+              />
+            </div> */}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Brand Assets (Optional)
+                </label>
+                <BrandGuideUpload
+                  onParseComplete={(assets) => {
+                    setBrandGuide(assets);
+                    if (assets) {
+                      // Show success message
+                      addMessage(
+                        "system",
+                        <div className="text-green-600 flex items-center gap-2">
+                          <Check size={16} />
+                          Brand assets loaded successfully!
+                        </div>,
+                        "response"
+                      );
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons as part of the system message */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-4">
+            <button
+              onClick={async () => {
+                if (!brandName.trim()) {
+                  // Show error message
+                  addMessage(
+                    "system",
+                    <div className="text-amber-600 p-3 bg-amber-50 rounded-lg">
+                      Please enter your brand name to continue.
+                    </div>,
+                    "response"
+                  );
+                  return;
+                }
+
+                // Continue with brand data
+                await adaptStoryWithBrand(purpose);
+              }}
+              className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+            >
+              <Sparkles size={16} />
+              Continue with Brand
+            </button>
+            <button
+              onClick={async () => {
+                // Skip brand and adapt story anyway
+                await adaptStoryWithoutBrand(purpose);
+              }}
+              className="px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2"
+            >
+              Skip Brand Details
+            </button>
+          </div>
+
+          <p className="text-xs text-gray-500 text-center pt-2">
+            Your brand palette will be used for image generation. If you skip,
+            generic colors will be used.
+          </p>
+        </div>,
+        "response"
+      );
+
+      setCurrentStep("brand-details");
+    } else {
+      // Non-brand purpose - adapt normally
+      await adaptStoryWithoutBrand(purpose);
+    }
+  };
+
+  // Trigger Story Generation - MODIFIED to ask for purpose
   // Trigger Story Generation - MODIFIED to ask for purpose
   const triggerStoryGeneration = async (ccnData: CCNData) => {
     setIsGenerating(true);
@@ -1289,7 +1472,7 @@ const handleStoryPurpose = async (purpose: string) => {
       setStory(generatedStory);
       await detectCharacters(generatedStory);
 
-      // Remove the loading message and ask for purpose
+      // Remove the loading message
       setMessages((prev) => {
         // Filter out loading message
         const filtered = prev.filter((msg) => {
@@ -1305,12 +1488,12 @@ const handleStoryPurpose = async (purpose: string) => {
           }
         });
 
-        // Ask for purpose instead of showing story immediately
-        return [
+        // Add the generated story message
+        const newMessages = [
           ...filtered,
           {
             id: filtered.length + 1,
-            sender: "system",
+            sender: "system" as const, // Add as const
             content: (
               <div className="space-y-4">
                 <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
@@ -1318,28 +1501,113 @@ const handleStoryPurpose = async (purpose: string) => {
                     ✨ Story Generated!
                   </h3>
                   <div className="text-gray-700 whitespace-pre-line text-sm">
-                    {generatedStory.story.substring(0, 150)}...
+                    {generatedStory.story}...
                   </div>
-                </div>
-                
-                <div className="space-y-3">
-                  <p className="font-medium text-gray-700">
-                    How do you want to use this story?
-                  </p>
-                  <p className="text-sm text-gray-600">
-                    Tell me what this is for (e.g., "Turn this into a brand post", 
-                    "This is for Instagram", "Make it more formal for LinkedIn", etc.)
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    I'll adapt the same story based on your specific use case.
-                  </p>
                 </div>
               </div>
             ),
             timestamp: new Date(),
-            type: "question",
+            type: "generated" as const, // Add as const
+          },
+          {
+            id: filtered.length + 2,
+            sender: "system" as const, // Add as const
+            content: (
+              <div className="space-y-3">
+                <p className="font-medium text-gray-700">
+                  How do you want to use this story?
+                </p>
+                <p className="text-sm text-gray-600">
+                  Tell me what this is for (e.g., "Turn this into a brand post",
+                  "This is for Instagram", "Make it more formal for LinkedIn",
+                  etc.)
+                </p>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      setUserPurpose("Turn this into a brand post");
+                      // Auto-focus the textarea
+                      setTimeout(() => {
+                        const textarea = document.querySelector("textarea");
+                        if (textarea) textarea.focus();
+                      }, 100);
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
+                  >
+                    Brand post
+                  </button>
+                  <button
+                    onClick={() => {
+                      setUserPurpose("This is for Instagram");
+                      setTimeout(() => {
+                        const textarea = document.querySelector("textarea");
+                        if (textarea) textarea.focus();
+                      }, 100);
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                  >
+                    Instagram
+                  </button>
+                  <button
+                    onClick={() => {
+                      setUserPurpose("Make it more formal for LinkedIn");
+                      setTimeout(() => {
+                        const textarea = document.querySelector("textarea");
+                        if (textarea) textarea.focus();
+                      }, 100);
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                  >
+                    LinkedIn
+                  </button>
+                  <button
+                    onClick={() => {
+                      setUserPurpose("For a video script");
+                      setTimeout(() => {
+                        const textarea = document.querySelector("textarea");
+                        if (textarea) textarea.focus();
+                      }, 100);
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                  >
+                    Video script
+                  </button>
+                  <button
+                    onClick={() => {
+                      setUserPurpose("Personal journal entry");
+                      setTimeout(() => {
+                        const textarea = document.querySelector("textarea");
+                        if (textarea) textarea.focus();
+                      }, 100);
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                  >
+                    Personal
+                  </button>
+                  <button
+                    onClick={() => {
+                      setUserPurpose("Educational content");
+                      setTimeout(() => {
+                        const textarea = document.querySelector("textarea");
+                        if (textarea) textarea.focus();
+                      }, 100);
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                  >
+                    Educational
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500">
+                  I'll adapt the same story based on your specific use case.
+                </p>
+              </div>
+            ),
+            timestamp: new Date(),
+            type: "question" as const, // Add as const
           },
         ];
+
+        return newMessages;
       });
 
       // Update current step to purpose input
@@ -1435,26 +1703,26 @@ const handleStoryPurpose = async (purpose: string) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           story: storyData.story,
-          beatSheet: storyData.beatSheet
+          beatSheet: storyData.beatSheet,
         }),
       });
 
       const data = await res.json();
-      
+
       if (data.success) {
         setMainCharacters(data.characters || []);
         setCharacterSceneMap(data.characterSceneMap || {});
-        
+
         // Update story with character-enriched beatSheet
         const updatedStory = {
           ...storyData,
           beatSheet: data.updatedBeatSheet || storyData.beatSheet,
           metadata: {
             ...storyData.metadata,
-            mainCharacters: data.characters || []
-          }
+            mainCharacters: data.characters || [],
+          },
         };
-        
+
         setStory(updatedStory);
       }
     } catch (error) {
@@ -1544,15 +1812,18 @@ const handleStoryPurpose = async (purpose: string) => {
     }
 
     // Use provided ccnData, or fall back to available CCN data
-    const expansionCCNData = ccnData || confirmedCCNData || ccnInterpretation || {
-      emotion: storyToExpand.metadata?.tone?.toLowerCase() || "meaningful",
-      scene: "a moment",
-      seedMoment: originalUserInput || "personal experience",
-      audience: "those who need to hear it",
-      intentSummary: storyToExpand.metadata?.title || "A meaningful moment to share",
-      pathway: "emotion-first",
-      rawAnalysis: storyToExpand.story,
-    };
+    const expansionCCNData = ccnData ||
+      confirmedCCNData ||
+      ccnInterpretation || {
+        emotion: storyToExpand.metadata?.tone?.toLowerCase() || "meaningful",
+        scene: "a moment",
+        seedMoment: originalUserInput || "personal experience",
+        audience: "those who need to hear it",
+        intentSummary:
+          storyToExpand.metadata?.title || "A meaningful moment to share",
+        pathway: "emotion-first",
+        rawAnalysis: storyToExpand.story,
+      };
 
     setIsGenerating(true);
 
@@ -1581,7 +1852,10 @@ const handleStoryPurpose = async (purpose: string) => {
     );
 
     try {
-      console.log("Sending expansion request for story:", storyToExpand.metadata?.title);
+      console.log(
+        "Sending expansion request for story:",
+        storyToExpand.metadata?.title
+      );
 
       const res = await fetch("/api/generateStory", {
         method: "POST",
@@ -1601,7 +1875,7 @@ const handleStoryPurpose = async (purpose: string) => {
           requestType: "expansion",
           expansionType: expansionType,
           currentStory: storyToExpand.story,
-          originalContext: originalUserInput
+          originalContext: originalUserInput,
         }),
       });
 
@@ -1616,10 +1890,16 @@ const handleStoryPurpose = async (purpose: string) => {
       }
 
       const expandedStory: GeneratedStory = {
-        story: data.expandedStory || data.story || data.microStory || storyToExpand.story,
+        story:
+          data.expandedStory ||
+          data.story ||
+          data.microStory ||
+          storyToExpand.story,
         beatSheet: data.beatSheet || storyToExpand.beatSheet || [],
         metadata: data.metadata || {
-          title: `${storyToExpand.metadata?.title || "Story"} - ${expansionType}`,
+          title: `${
+            storyToExpand.metadata?.title || "Story"
+          } - ${expansionType}`,
           market,
           archetype: storyToExpand.metadata?.archetype || "Unknown",
           tone: storyToExpand.metadata?.tone || "Cinematic",
@@ -1632,9 +1912,7 @@ const handleStoryPurpose = async (purpose: string) => {
       setStory(expandedStory);
 
       // Remove loading message
-      setMessages((prev) => 
-        prev.filter((msg) => msg.id !== loadingId)
-      );
+      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
 
       // Show expanded story
       addMessage(
@@ -1646,10 +1924,13 @@ const handleStoryPurpose = async (purpose: string) => {
                 {expandedStory.metadata.title}
               </h3>
               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                {expansionType === "60-second" ? "60s version" : 
-                 expansionType === "expand" ? "Expanded" : 
-                 expansionType === "gentler" ? "Gentler" : 
-                 "Harsher"}
+                {expansionType === "60-second"
+                  ? "60s version"
+                  : expansionType === "expand"
+                  ? "Expanded"
+                  : expansionType === "gentler"
+                  ? "Gentler"
+                  : "Harsher"}
               </span>
             </div>
             <div className="text-gray-800 whitespace-pre-line leading-relaxed">
@@ -1663,7 +1944,8 @@ const handleStoryPurpose = async (purpose: string) => {
               How do you want to use this expanded story?
             </p>
             <p className="text-sm text-gray-600">
-              Tell me what this is for (e.g., "brand post", "Instagram", "LinkedIn", etc.)
+              Tell me what this is for (e.g., "brand post", "Instagram",
+              "LinkedIn", etc.)
             </p>
           </div>
         </div>,
@@ -1672,14 +1954,11 @@ const handleStoryPurpose = async (purpose: string) => {
 
       // Set current step to purpose for the expanded story
       setCurrentStep("story-purpose");
-
     } catch (error) {
       console.error("Expansion error:", error);
-      
-      setMessages((prev) => 
-        prev.filter((msg) => msg.id !== loadingId)
-      );
-      
+
+      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
+
       addMessage(
         "system",
         <div className="text-red-600 p-4 bg-red-50 rounded-lg">
@@ -1690,7 +1969,7 @@ const handleStoryPurpose = async (purpose: string) => {
         </div>,
         "response"
       );
-      
+
       // If expansion fails, still ask for purpose with original story
       setCurrentStep("story-purpose");
     } finally {
@@ -1763,574 +2042,596 @@ const handleStoryPurpose = async (purpose: string) => {
   };
 
   // Step: Generate Images
-// Step: Generate Images - UPDATED with single API call
-const handleGenerateImages = async () => {
-  if (!story) return;
+  // Step: Generate Images - UPDATED with single API call
+  const handleGenerateImages = async () => {
+    if (!story) return;
 
-  setIsGenerating(true);
+    setIsGenerating(true);
 
-  // Add user message
-  addMessage(
-    "user",
-    <div className="flex items-center gap-2">
-      <ImageIcon size={16} />
-      <span className="font-medium">
-        Generate Images {mainCharacters.length > 0 ? "with Character Consistency" : ""}
-      </span>
-    </div>,
-    "selection"
-  );
-
-  // Show character analysis first if we haven't done it yet
-  if (mainCharacters.length === 0 && story) {
-    const analysisId = addMessage(
-      "system",
+    // Add user message
+    addMessage(
+      "user",
       <div className="flex items-center gap-2">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-        <span>Analyzing characters for consistency...</span>
+        <ImageIcon size={16} />
+        <span className="font-medium">
+          Generate Images{" "}
+          {mainCharacters.length > 0 ? "with Character Consistency" : ""}
+        </span>
+      </div>,
+      "selection"
+    );
+
+    // Show character analysis first if we haven't done it yet
+    if (mainCharacters.length === 0 && story) {
+      const analysisId = addMessage(
+        "system",
+        <div className="flex items-center gap-2">
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+          <span>Analyzing characters for consistency...</span>
+        </div>,
+        "response"
+      );
+
+      try {
+        // Detect characters in the story
+        const charRes = await fetch("/api/detectCharacters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            story: story.story,
+            beatSheet: story.beatSheet,
+            market,
+          }),
+        });
+
+        const charData = await charRes.json();
+
+        if (charData.success) {
+          setMainCharacters(charData.characters || []);
+          setCharacterSceneMap(charData.characterSceneMap || {});
+
+          // Update story with character-enriched beatSheet
+          const updatedStory: GeneratedStory = {
+            ...story,
+            beatSheet: charData.updatedBeatSheet || story.beatSheet,
+            metadata: {
+              ...story.metadata,
+              mainCharacters: charData.characters || [],
+            },
+          };
+
+          setStory(updatedStory);
+
+          // Remove analysis message
+          setMessages((prev) => prev.filter((msg) => msg.id !== analysisId));
+
+          // Show character summary
+          addMessage(
+            "system",
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-green-600">
+                <Check size={20} />
+                <span className="font-medium">Character Analysis Complete</span>
+              </div>
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
+                <h4 className="font-semibold text-blue-800 mb-2">
+                  📝 Character Details
+                </h4>
+                <div className="space-y-3">
+                  {charData.characters?.map(
+                    (char: CharacterDescription, idx: number) => (
+                      <div key={char.id} className="text-sm">
+                        <div className="font-medium text-gray-800">
+                          {idx + 1}. {char.name || `Character ${idx + 1}`}
+                        </div>
+                        <div className="text-gray-600 ml-4">
+                          <div>• Age: {char.age || "Not specified"}</div>
+                          <div>
+                            • Features: {char.appearance?.hair || "Various"}
+                          </div>
+                          <div>
+                            • Appears in:{" "}
+                            {charData.characterSceneMap?.[char.id]?.length || 0}{" "}
+                            scenes
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>,
+            "response"
+          );
+        } else {
+          // Remove analysis message on error
+          setMessages((prev) => prev.filter((msg) => msg.id !== analysisId));
+          addMessage(
+            "system",
+            <div className="text-amber-600">
+              Proceeding without character analysis. Images will be generated
+              normally.
+            </div>,
+            "response"
+          );
+        }
+      } catch (error) {
+        console.error("Character analysis error:", error);
+        setMessages((prev) => prev.filter((msg) => msg.id !== analysisId));
+        addMessage(
+          "system",
+          <div className="text-amber-600">
+            Character analysis failed. Generating images normally...
+          </div>,
+          "response"
+        );
+      }
+    }
+
+    // Now start batch image generation
+    const loadingId = addMessage(
+      "system",
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+          <span className="font-medium">
+            Creating consistent visuals for all scenes...
+          </span>
+        </div>
+   
       </div>,
       "response"
     );
 
     try {
-      // Detect characters in the story
-      const charRes = await fetch("/api/detectCharacters", {
+      // Prepare all scenes data for batch request
+      const scenesData = story.beatSheet.map((scene, index) => {
+        const characterId = scene.characterId;
+        const character = mainCharacters.find((c) => c.id === characterId);
+
+        // Check if we have previous image of this character
+        let previousImageUrl: string | undefined;
+        if (characterId && generatedCharacterImages[characterId]) {
+          const previousScenes = Object.keys(
+            generatedCharacterImages[characterId]
+          )
+            .map(Number)
+            .filter((sceneIdx) => sceneIdx < index)
+            .sort((a, b) => b - a); // Get most recent
+
+          if (previousScenes.length > 0) {
+            previousImageUrl =
+              generatedCharacterImages[characterId][previousScenes[0]];
+            console.log(
+              `Using previous image for ${characterId} in scene ${index}`
+            );
+          }
+        }
+
+        return {
+          sceneDescription: scene.description,
+          visualCues: scene.visualCues,
+          tone: story.metadata.tone,
+          market,
+          brandSafe: true,
+          brandPalette: brandGuide?.palette || [],
+          beatIndex: index,
+          beat: scene.beat,
+          characterEmotion: scene.characterEmotion,
+          characterAction: scene.characterAction,
+          shotType: scene.shotType,
+          // Character data for consistency
+          characterDescription: character,
+          previousCharacterImage: previousImageUrl,
+          isSameCharacter: !!previousImageUrl,
+        };
+      });
+
+      console.log(`📦 Sending batch request for ${scenesData.length} scenes`);
+
+      // Single API call for all images
+      const response = await fetch("/api/generateMultipleImages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          story: story.story,
-          beatSheet: story.beatSheet,
-          market
+          scenes: scenesData,
+          template: template,
+          storyMetadata: {
+            title: story.metadata.title,
+            tone: story.metadata.tone,
+            market: story.metadata.market,
+            mainCharacters: mainCharacters,
+          },
         }),
       });
 
-      const charData = await charRes.json();
-      
-      if (charData.success) {
-        setMainCharacters(charData.characters || []);
-        setCharacterSceneMap(charData.characterSceneMap || {});
-        
-        // Update story with character-enriched beatSheet
-        const updatedStory: GeneratedStory = {
-          ...story,
-          beatSheet: charData.updatedBeatSheet || story.beatSheet,
-          metadata: {
-            ...story.metadata,
-            mainCharacters: charData.characters || []
-          }
-        };
-        
-        setStory(updatedStory);
-        
-        // Remove analysis message
-        setMessages(prev => prev.filter(msg => msg.id !== analysisId));
-        
-        // Show character summary
-        addMessage(
-          "system",
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-green-600">
-              <Check size={20} />
-              <span className="font-medium">
-                Character Analysis Complete
-              </span>
-            </div>
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
-              <h4 className="font-semibold text-blue-800 mb-2">📝 Character Details</h4>
-              <div className="space-y-3">
-                {charData.characters?.map((char: CharacterDescription, idx: number) => (
-                  <div key={char.id} className="text-sm">
-                    <div className="font-medium text-gray-800">
-                      {idx + 1}. {char.name || `Character ${idx + 1}`}
-                    </div>
-                    <div className="text-gray-600 ml-4">
-                      <div>• Age: {char.age || 'Not specified'}</div>
-                      <div>• Features: {char.appearance?.hair || 'Various'}</div>
-                      <div>• Appears in: {charData.characterSceneMap?.[char.id]?.length || 0} scenes</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>,
-          "response"
-        );
-      } else {
-        // Remove analysis message on error
-        setMessages(prev => prev.filter(msg => msg.id !== analysisId));
-        addMessage(
-          "system",
-          <div className="text-amber-600">
-            Proceeding without character analysis. Images will be generated normally.
-          </div>,
-          "response"
-        );
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    } catch (error) {
-      console.error("Character analysis error:", error);
-      setMessages(prev => prev.filter(msg => msg.id !== analysisId));
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || "Failed to generate images");
+      }
+
+      // Process batch results
+      const imageMap: { [key: string]: string } = {};
+      const failedScenes: number[] = [];
+      const characterImageUpdates: {
+        [key: string]: { [sceneIndex: number]: string };
+      } = {};
+
+      data.results.forEach((result: any, index: number) => {
+        if (result.success) {
+          imageMap[index] = result.imageUrl;
+
+          // Track character images for consistency in future scenes
+          const scene = story.beatSheet[index];
+          if (scene.characterId) {
+            if (!characterImageUpdates[scene.characterId]) {
+              characterImageUpdates[scene.characterId] = {};
+            }
+            characterImageUpdates[scene.characterId][index] = result.imageUrl;
+          }
+        } else {
+          failedScenes.push(index);
+          console.error(`Failed to generate image for scene ${index}`);
+        }
+      });
+
+      // Update state
+      setGeneratedImages(imageMap);
+
+      // Update character images
+      Object.keys(characterImageUpdates).forEach((characterId) => {
+        setGeneratedCharacterImages((prev) => ({
+          ...prev,
+          [characterId]: {
+            ...(prev[characterId] || {}),
+            ...characterImageUpdates[characterId],
+          },
+        }));
+      });
+
+      // Remove loading message
+      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
+
+      // Calculate success rate
+      const successCount = Object.keys(imageMap).length;
+      const totalCount = story.beatSheet.length;
+      const successRate = Math.round((successCount / totalCount) * 100);
+
+      // Build success message
       addMessage(
         "system",
-        <div className="text-amber-600">
-          Character analysis failed. Generating images normally...
-        </div>,
-        "response"
-      );
-    }
-  }
-
-  // Now start batch image generation
-  const loadingId = addMessage(
-    "system",
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-        <span className="font-medium">Creating consistent visuals for all scenes...</span>
-      </div>
-      <div className="text-sm text-gray-500">
-        {mainCharacters.length > 0 
-          ? `Maintaining ${mainCharacters.length} character${mainCharacters.length > 1 ? 's' : ''} across ${story.beatSheet.length} scenes`
-          : `Generating ${story.beatSheet.length} scenes in batch`
-        }
-      </div>
-    </div>,
-    "response"
-  );
-
-  try {
-    // Prepare all scenes data for batch request
-    const scenesData = story.beatSheet.map((scene, index) => {
-      const characterId = scene.characterId;
-      const character = mainCharacters.find(c => c.id === characterId);
-      
-      // Check if we have previous image of this character
-      let previousImageUrl: string | undefined;
-      if (characterId && generatedCharacterImages[characterId]) {
-        const previousScenes = Object.keys(generatedCharacterImages[characterId])
-          .map(Number)
-          .filter(sceneIdx => sceneIdx < index)
-          .sort((a, b) => b - a); // Get most recent
-        
-        if (previousScenes.length > 0) {
-          previousImageUrl = generatedCharacterImages[characterId][previousScenes[0]];
-          console.log(`Using previous image for ${characterId} in scene ${index}`);
-        }
-      }
-
-      return {
-        sceneDescription: scene.description,
-        visualCues: scene.visualCues,
-        tone: story.metadata.tone,
-        market,
-        brandSafe: true,
-        brandPalette: brandGuide?.palette || [],
-        beatIndex: index,
-        beat: scene.beat,
-        characterEmotion: scene.characterEmotion,
-        characterAction: scene.characterAction,
-        shotType: scene.shotType,
-        // Character data for consistency
-        characterDescription: character,
-        previousCharacterImage: previousImageUrl,
-        isSameCharacter: !!previousImageUrl
-      };
-    });
-
-    console.log(`📦 Sending batch request for ${scenesData.length} scenes`);
-
-    // Single API call for all images
-    const response = await fetch("/api/generateMultipleImages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        scenes: scenesData,
-        template: template,
-        storyMetadata: {
-          title: story.metadata.title,
-          tone: story.metadata.tone,
-          market: story.metadata.market,
-          mainCharacters: mainCharacters
-        }
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    if (!data.success) {
-      throw new Error(data.error || "Failed to generate images");
-    }
-
-    // Process batch results
-    const imageMap: { [key: string]: string } = {};
-    const failedScenes: number[] = [];
-    const characterImageUpdates: { [key: string]: { [sceneIndex: number]: string } } = {};
-    
-    data.results.forEach((result: any, index: number) => {
-      if (result.success) {
-        imageMap[index] = result.imageUrl;
-        
-        // Track character images for consistency in future scenes
-        const scene = story.beatSheet[index];
-        if (scene.characterId) {
-          if (!characterImageUpdates[scene.characterId]) {
-            characterImageUpdates[scene.characterId] = {};
-          }
-          characterImageUpdates[scene.characterId][index] = result.imageUrl;
-        }
-      } else {
-        failedScenes.push(index);
-        console.error(`Failed to generate image for scene ${index}`);
-      }
-    });
-
-    // Update state
-    setGeneratedImages(imageMap);
-    
-    // Update character images
-    Object.keys(characterImageUpdates).forEach(characterId => {
-      setGeneratedCharacterImages(prev => ({
-        ...prev,
-        [characterId]: {
-          ...(prev[characterId] || {}),
-          ...characterImageUpdates[characterId]
-        }
-      }));
-    });
-
-    // Remove loading message
-    setMessages(prev => prev.filter(msg => msg.id !== loadingId));
-
-    // Calculate success rate
-    const successCount = Object.keys(imageMap).length;
-    const totalCount = story.beatSheet.length;
-    const successRate = Math.round((successCount / totalCount) * 100);
-
-    // Build success message
-    addMessage(
-      "system",
-      <div className="space-y-6">
-        <div className={`flex items-center gap-2 ${successRate === 100 ? 'text-green-600' : 'text-amber-600'}`}>
-          {successRate === 100 ? <Check size={20} /> : <HelpCircle size={20} />}
-          <span className="font-medium">
-            Generated {successCount} of {totalCount} images ({successRate}%)
-          </span>
-        </div>
-
-        {mainCharacters.length > 0 && successCount > 0 && (
-          <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Brain size={16} className="text-blue-600" />
-                <span className="font-semibold text-blue-800">Character Consistency Applied</span>
-              </div>
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                {mainCharacters.length} character{mainCharacters.length > 1 ? 's' : ''}
-              </span>
-            </div>
-            <div className="text-sm text-gray-700 space-y-2">
-              <p>✓ Facial features maintained across scenes</p>
-              <p>✓ Cultural authenticity for {market.toUpperCase()} market</p>
-              <p>✓ Consistent lighting and style throughout</p>
-            </div>
-          </div>
-        )}
-
-        {/* Show brand palette usage if applicable */}
-        {brandGuide?.palette && brandGuide.palette.length > 0 && (
-          <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Palette size={16} className="text-purple-600" />
-                <span className="font-semibold text-purple-800">Brand Colors Applied</span>
-              </div>
-              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                {brandGuide.palette.length} colors
-              </span>
-            </div>
-            <div className="flex gap-1.5">
-              {brandGuide.palette.slice(0, 6).map((color, idx) => (
-                <div
-                  key={idx}
-                  className="w-6 h-6 rounded border-2 border-white shadow-sm"
-                  style={{ backgroundColor: color }}
-                  title={color}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Show failed scenes if any */}
-        {failedScenes.length > 0 && (
-          <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg">
-            <div className="flex items-center gap-2 text-amber-700 mb-2">
-              <X size={16} />
-              <span className="font-medium">Some images failed to generate:</span>
-            </div>
-            <div className="text-sm text-amber-600">
-              <ul className="list-disc pl-5 space-y-1">
-                {failedScenes.map(sceneIndex => (
-                  <li key={sceneIndex}>
-                    Scene {sceneIndex + 1}: {story.beatSheet[sceneIndex].beat}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
-
-        {/* Image Gallery Preview */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="font-semibold text-gray-800">Generated Scenes</h4>
-            <span className="text-sm text-gray-500">
-              Click any image to enlarge
+        <div className="space-y-6">
+          <div
+            className={`flex items-center gap-2 ${
+              successRate === 100 ? "text-green-600" : "text-amber-600"
+            }`}
+          >
+            {successRate === 100 ? (
+              <Check size={20} />
+            ) : (
+              <HelpCircle size={20} />
+            )}
+            <span className="font-medium">
+              Generated {successCount} of {totalCount} images ({successRate}%)
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {story.beatSheet.map(
-              (scene, index) =>
-                imageMap[index] && (
+      
+
+          {/* Show brand palette usage if applicable */}
+          {brandGuide?.palette && brandGuide.palette.length > 0 && (
+            <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Palette size={16} className="text-purple-600" />
+                  <span className="font-semibold text-purple-800">
+                    Brand Colors Applied
+                  </span>
+                </div>
+                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                  {brandGuide.palette.length} colors
+                </span>
+              </div>
+              <div className="flex gap-1.5">
+                {brandGuide.palette.slice(0, 6).map((color, idx) => (
                   <div
-                    key={index}
-                    className="space-y-3 p-4 bg-white rounded-xl border hover:border-purple-300 transition-colors cursor-pointer group"
-                    onClick={() => openImageModal(index)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
-                          {index + 1}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-900">
-                            {scene.beat}
-                          </div>
-                          <div className="text-sm text-gray-500 flex items-center gap-2">
-                            {scene.characterId && (
-                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                                {scene.characterId.replace('_', ' ')}
-                              </span>
-                            )}
-                            {scene.characterEmotion && (
-                              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                                {scene.characterEmotion}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openImageModal(index);
-                        }}
-                        className="p-2 hover:bg-gray-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="View full size"
-                      >
-                        <Maximize2 size={16} className="text-gray-500" />
-                      </button>
-                    </div>
-
-                    <div className="relative group">
-                      <img
-                        src={imageMap[index]}
-                        alt={`Scene ${index + 1}: ${scene.beat}`}
-                        className="w-full h-48 object-cover rounded-lg border-2 border-gray-200 group-hover:border-purple-300 transition-colors"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://placehold.co/600x400/F3F4F6/9CA3AF?text=Image+Failed+to+Load';
-                        }}
-                      />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <div className="text-white text-sm bg-black/60 px-3 py-2 rounded-full flex items-center gap-2">
-                          <Maximize2 size={14} />
-                          Click to enlarge • Scene {index + 1}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Scene Info */}
-                    <div className="space-y-2">
-                      <p className="text-sm text-gray-600 line-clamp-2">
-                        {scene.description}
-                      </p>
-                      
-                      {scene.visualCues.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {scene.visualCues.slice(0, 3).map((cue, i) => (
-                            <span
-                              key={i}
-                              className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full"
-                            >
-                              {cue}
-                            </span>
-                          ))}
-                          {scene.visualCues.length > 3 && (
-                            <span className="text-xs text-gray-400 px-1">
-                              +{scene.visualCues.length - 3} more
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-            )}
-          </div>
-
-          {/* Show message if no images were generated */}
-          {successCount === 0 && (
-            <div className="text-center py-8">
-              <ImageIcon size={48} className="mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-600">No images were generated successfully.</p>
-              <p className="text-sm text-gray-500 mt-1">
-                Please check your API configuration and try again.
-              </p>
+                    key={idx}
+                    className="w-6 h-6 rounded border-2 border-white shadow-sm"
+                    style={{ backgroundColor: color }}
+                    title={color}
+                  />
+                ))}
+              </div>
             </div>
           )}
-        </div>
 
-        {/* Action Buttons */}
-        {successCount > 0 && (
-          <div className="space-y-4 pt-4 border-t">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <button
-                onClick={() => openImageModal(0)}
-                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <Maximize2 size={16} />
-                View Full Gallery
-              </button>
-              <button
-                onClick={() => setCurrentStep("video-option")}
-                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <VideoIcon size={16} />
-                Create Video Script
-              </button>
-              <button
-                onClick={() => setCurrentStep("export")}
-                className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <Download size={16} />
-                Export Package
-              </button>
+          {/* Show failed scenes if any */}
+          {failedScenes.length > 0 && (
+            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg">
+              <div className="flex items-center gap-2 text-amber-700 mb-2">
+                <X size={16} />
+                <span className="font-medium">
+                  Some images failed to generate:
+                </span>
+              </div>
+              <div className="text-sm text-amber-600">
+                <ul className="list-disc pl-5 space-y-1">
+                  {failedScenes.map((sceneIndex) => (
+                    <li key={sceneIndex}>
+                      Scene {sceneIndex + 1}: {story.beatSheet[sceneIndex].beat}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Image Gallery Preview */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold text-gray-800">Generated Scenes</h4>
+              <span className="text-sm text-gray-500">
+                Click any image to enlarge
+              </span>
             </div>
 
-            {/* Retry failed scenes */}
-            {failedScenes.length > 0 && (
-              <button
-                onClick={async () => {
-                  // Retry only failed scenes using the new batch endpoint
-                  const retryScenes = failedScenes.map(index => ({
-                    ...scenesData[index],
-                    beatIndex: index
-                  }));
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {story.beatSheet.map(
+                (scene, index) =>
+                  imageMap[index] && (
+                    <div
+                      key={index}
+                      className="space-y-3 p-4 bg-white rounded-xl border hover:border-purple-300 transition-colors cursor-pointer group"
+                      onClick={() => openImageModal(index)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-gray-900">
+                              {scene.beat}
+                            </div>
+                            <div className="text-sm text-gray-500 flex items-center gap-2">
+                              {scene.characterId && (
+                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                                  {scene.characterId.replace("_", " ")}
+                                </span>
+                              )}
+                              {scene.characterEmotion && (
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                                  {scene.characterEmotion}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openImageModal(index);
+                          }}
+                          className="p-2 hover:bg-gray-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="View full size"
+                        >
+                          <Maximize2 size={16} className="text-gray-500" />
+                        </button>
+                      </div>
 
-                  addMessage(
-                    "system",
-                    <div className="flex items-center gap-2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-                      <span>Retrying {failedScenes.length} failed scenes...</span>
-                    </div>,
-                    "response"
-                  );
+                      <div className="relative group">
+                        <img
+                          src={imageMap[index]}
+                          alt={`Scene ${index + 1}: ${scene.beat}`}
+                          className="w-full h-48 object-cover rounded-lg border-2 border-gray-200 group-hover:border-purple-300 transition-colors"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src =
+                              "https://placehold.co/600x400/F3F4F6/9CA3AF?text=Image+Failed+to+Load";
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <div className="text-white text-sm bg-black/60 px-3 py-2 rounded-full flex items-center gap-2">
+                            <Maximize2 size={14} />
+                            Click to enlarge • Scene {index + 1}
+                          </div>
+                        </div>
+                      </div>
 
-                  try {
-                    const retryResponse = await fetch("/api/generateMultipleImages", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        scenes: retryScenes,
-                        template: template,
-                        storyMetadata: {
-                          title: story.metadata.title,
-                          tone: story.metadata.tone,
-                          market: story.metadata.market
-                        }
-                      }),
-                    });
+                      {/* Scene Info */}
+                      <div className="space-y-2">
+                        <p className="text-sm text-gray-600 line-clamp-2">
+                          {scene.description}
+                        </p>
 
-                    const retryData = await retryResponse.json();
-                    
-                    if (retryData.success) {
-                      retryData.results.forEach((result: any) => {
-                        if (result.success) {
-                          const index = result.beatIndex;
-                          setGeneratedImages(prev => ({ ...prev, [index]: result.imageUrl }));
-                          
-                          // Update character images if applicable
-                          const scene = story.beatSheet[index];
-                          if (scene.characterId) {
-                            setGeneratedCharacterImages(prev => ({
-                              ...prev,
-                              [scene.characterId]: {
-                                ...(prev[scene.characterId] || {}),
-                                [index]: result.imageUrl
-                              }
-                            }));
-                          }
-                        }
-                      });
-                    }
-                  } catch (retryError) {
-                    console.error("Retry failed:", retryError);
-                  }
-                }}
-                className="w-full px-4 py-2 border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50"
-              >
-                Retry Failed Scenes ({failedScenes.length})
-              </button>
+                        {scene.visualCues.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {scene.visualCues.slice(0, 3).map((cue, i) => (
+                              <span
+                                key={i}
+                                className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full"
+                              >
+                                {cue}
+                              </span>
+                            ))}
+                            {scene.visualCues.length > 3 && (
+                              <span className="text-xs text-gray-400 px-1">
+                                +{scene.visualCues.length - 3} more
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+              )}
+            </div>
+
+            {/* Show message if no images were generated */}
+            {successCount === 0 && (
+              <div className="text-center py-8">
+                <ImageIcon size={48} className="mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-600">
+                  No images were generated successfully.
+                </p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Please check your API configuration and try again.
+                </p>
+              </div>
             )}
           </div>
-        )}
-      </div>,
-      "generated"
-    );
 
-    setCurrentStep("images-complete");
-  } catch (error) {
-    console.error("Batch image generation failed:", error);
-    
-    // Remove loading message
-    setMessages(prev => prev.filter(msg => msg.id !== loadingId));
-    
-    // Show error message
-    addMessage(
-      "system",
-      <div className="space-y-4">
-        <div className="text-red-600 p-4 bg-red-50 rounded-lg">
-          <p className="font-medium">Failed to generate images</p>
-          <p className="text-sm mt-1">
-            {error instanceof Error ? error.message : "Unknown error occurred"}
-          </p>
-        </div>
-        
-        <div className="flex gap-3">
-          <button
-            onClick={handleGenerateImages}
-            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
-          >
-            Try Again
-          </button>
-          <button
-            onClick={() => setCurrentStep("story-generated")}
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Back to Story
-          </button>
-        </div>
-      </div>,
-      "response"
-    );
-  } finally {
-    setIsGenerating(false);
-  }
-};
+          {/* Action Buttons */}
+          {successCount > 0 && (
+            <div className="space-y-4 pt-4 border-t">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <button
+                  onClick={() => openImageModal(0)}
+                  className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Maximize2 size={16} />
+                  View Full Gallery
+                </button>
+                <button
+                  onClick={() => setCurrentStep("video-option")}
+                  className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                  <VideoIcon size={16} />
+                  Create Video Script
+                </button>
+                <button
+                  onClick={() => setCurrentStep("export")}
+                  className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Download size={16} />
+                  Export Package
+                </button>
+              </div>
+
+              {/* Retry failed scenes */}
+              {failedScenes.length > 0 && (
+                <button
+                  onClick={async () => {
+                    // Retry only failed scenes using the new batch endpoint
+                    const retryScenes = failedScenes.map((index) => ({
+                      ...scenesData[index],
+                      beatIndex: index,
+                    }));
+
+                    addMessage(
+                      "system",
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+                        <span>
+                          Retrying {failedScenes.length} failed scenes...
+                        </span>
+                      </div>,
+                      "response"
+                    );
+
+                    try {
+                      const retryResponse = await fetch(
+                        "/api/generateMultipleImages",
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            scenes: retryScenes,
+                            template: template,
+                            storyMetadata: {
+                              title: story.metadata.title,
+                              tone: story.metadata.tone,
+                              market: story.metadata.market,
+                            },
+                          }),
+                        }
+                      );
+
+                      const retryData = await retryResponse.json();
+
+                      if (retryData.success) {
+                        retryData.results.forEach((result: any) => {
+                          if (result.success) {
+                            const index = result.beatIndex;
+                            setGeneratedImages((prev) => ({
+                              ...prev,
+                              [index]: result.imageUrl,
+                            }));
+
+                            // Update character images if applicable
+                            const scene = story.beatSheet[index];
+                            if (scene.characterId) {
+                              setGeneratedCharacterImages((prev) => ({
+                                ...prev,
+                                [scene.characterId]: {
+                                  ...(prev[scene.characterId] || {}),
+                                  [index]: result.imageUrl,
+                                },
+                              }));
+                            }
+                          }
+                        });
+                      }
+                    } catch (retryError) {
+                      console.error("Retry failed:", retryError);
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50"
+                >
+                  Retry Failed Scenes ({failedScenes.length})
+                </button>
+              )}
+            </div>
+          )}
+        </div>,
+        "generated"
+      );
+
+      setCurrentStep("images-complete");
+    } catch (error) {
+      console.error("Batch image generation failed:", error);
+
+      // Remove loading message
+      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
+
+      // Show error message
+      addMessage(
+        "system",
+        <div className="space-y-4">
+          <div className="text-red-600 p-4 bg-red-50 rounded-lg">
+            <p className="font-medium">Failed to generate images</p>
+            <p className="text-sm mt-1">
+              {error instanceof Error
+                ? error.message
+                : "Unknown error occurred"}
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleGenerateImages}
+              className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={() => setCurrentStep("story-generated")}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Back to Story
+            </button>
+          </div>
+        </div>,
+        "response"
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   // Step 6c: Video Script Generation
   const handleGenerateVideoScript = async () => {
@@ -2654,15 +2955,17 @@ const handleGenerateImages = async () => {
                   sender: "system",
                   content: (
                     <div className="space-y-4">
-                      <p className="font-medium">What moment are you trying to express?</p>
+                      <p className="font-medium">
+                        What moment are you trying to express?
+                      </p>
                       <p className="text-sm text-gray-500">
                         Describe your moment in your own words...
                       </p>
                     </div>
                   ),
                   timestamp: new Date(),
-                  type: "question"
-                }
+                  type: "question",
+                },
               ]);
             }}
             className="w-full px-6 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl hover:shadow-lg flex items-center justify-center gap-3 text-lg font-medium"
@@ -2685,374 +2988,352 @@ const handleGenerateImages = async () => {
     }
   };
 
- const renderInputSection = () => {
-  if (isGenerating) return null;
+  const renderInputSection = () => {
+    if (isGenerating) return null;
 
-  switch (currentStep) {
-    case "entry":
-      return (
-        <div className="p-4 border-t bg-white">
-          <div className="space-y-4">
-            <textarea
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              placeholder="Describe your moment in your own words... (e.g., 'I felt inspired when...', 'A café in Lagos at dawn...', 'Everything is changing...')"
-              className="w-full h-32 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleEntrySubmit()}
-                disabled={!userInput.trim() || userInput.trim().length < 3}
-                className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
-              >
-                <Send size={16} />
-                Share My Moment
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-
-    case "clarification":
-      return (
-        <div className="p-4 border-t bg-white">
-          <div className="space-y-4">
-            <div className="mb-3">
-              <p className="text-sm text-gray-600 mb-2">
-                {clarificationQuestion?.question}
-              </p>
-            </div>
-
-            <textarea
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              placeholder="Type your answer here..."
-              className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleEntrySubmit(userInput)}
-                disabled={!userInput.trim()}
-                className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
-              >
-                <Send size={16} />
-                Submit Answer
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-
-    case "story-purpose":
-      return (
-        <div className="p-4 border-t bg-white">
-          <div className="space-y-4">
-            <div className="mb-3">
-              <p className="text-sm text-gray-600 mb-2">
-                How do you want to use this story?
-              </p>
-              <div className="flex flex-wrap gap-2 mb-3">
+    switch (currentStep) {
+      case "entry":
+        return (
+          <div className="p-4">
+      <div className="space-y-4">
+        <div className="relative">
+          <textarea
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (userInput.trim() && userInput.trim().length >= 3) {
+                  handleEntrySubmit();
+                }
+              }
+            }}
+            placeholder="Describe your moment in your own words... (e.g., 'I felt inspired when...', 'A café in Lagos at dawn...', 'Everything is changing...')"
+            className="w-full h-32 p-4 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          />
                 <button
-                  onClick={() => setUserPurpose("Turn this into a brand post")}
-                  className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
+                  onClick={() => handleEntrySubmit()}
+                  disabled={!userInput.trim() || userInput.trim().length < 3}
+                  className="absolute right-3 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  title="Share my moment"
                 >
-                  Brand post
-                </button>
-                <button
-                  onClick={() => setUserPurpose("This is for Instagram")}
-                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                >
-                  Instagram
-                </button>
-                <button
-                  onClick={() => setUserPurpose("Make it more formal for LinkedIn")}
-                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                >
-                  LinkedIn
-                </button>
-                <button
-                  onClick={() => setUserPurpose("For a video script")}
-                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                >
-                  Video script
-                </button>
-                <button
-                  onClick={() => setUserPurpose("Personal journal entry")}
-                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                >
-                  Personal
-                </button>
-                <button
-                  onClick={() => setUserPurpose("Educational content")}
-                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                >
-                  Educational
+                  <Send size={18} />
                 </button>
               </div>
             </div>
+          </div>
+        );
 
+      case "clarification":
+        return (
+             <div className="p-4 border-t bg-white">
+      <div className="space-y-4">
+        <div className="mb-3">
+          <p className="text-sm text-gray-600 mb-2">
+            {clarificationQuestion?.question}
+          </p>
+        </div>
+
+        <textarea
+          value={userInput}
+          onChange={(e) => setUserInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              if (userInput.trim()) {
+                handleEntrySubmit(userInput);
+              }
+            }
+          }}
+          placeholder="Type your answer here..."
+          className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+        />
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => handleEntrySubmit(userInput)}
+                  disabled={!userInput.trim()}
+                  className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
+                >
+                  <Send size={16} />
+                  Submit Answer
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+
+      case "story-purpose":
+        return (
+         <div className="p-4">
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1">
             <textarea
               value={userPurpose}
               onChange={(e) => setUserPurpose(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (userPurpose.trim() && userPurpose.trim().length >= 3) {
+                    handleStoryPurpose(userPurpose);
+                  }
+                }
+              }}
               placeholder="Describe your purpose... (e.g., 'Turn this into a brand post', 'This is for Instagram', 'Make it more formal for LinkedIn', etc.)"
-              className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="w-full h-24 p-3 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
             />
+                  <button
+                    onClick={() => handleStoryPurpose(userPurpose)}
+                    disabled={
+                      !userPurpose.trim() || userPurpose.trim().length < 3
+                    }
+                    className="absolute right-3 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    title="Adapt story"
+                  >
+                    <Sparkles size={18} />
+                  </button>
+                </div>
+                <div>
+                  <button
+                    onClick={() => {
+                      // Skip adaptation and go directly to story options
+                      setCurrentStep("story-generated");
+                      addMessage(
+                        "system",
+                        <div className="text-gray-600">
+                          You can continue with the story as is.
+                        </div>,
+                        "response"
+                      );
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 whitespace-nowrap self-start"
+                  >
+                    Skip
+                  </button>
+                </div>
+              </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleStoryPurpose(userPurpose)}
-                disabled={!userPurpose.trim() || userPurpose.trim().length < 3}
-                className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
-              >
-                <Sparkles size={16} />
-                Adapt Story
-              </button>
+              {/* <p className="text-xs text-gray-500">
+      I'll adapt the same story based on your specific use case.
+    </p> */}
+            </div>
+          </div>
+        );
+
+      case "brand-details":
+        // Minimal input section for brand-details (optional fallback)
+        return (
+           <div className="p-4">
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={brandName}
+              onChange={(e) => setBrandName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (brandName.trim()) {
+                    // Trigger brand adaptation
+                    adaptStoryWithBrand(userPurpose);
+                  }
+                }
+              }}
+              placeholder="Enter your brand name..."
+              className="w-full h-[100px] p-3 pr-12 border border-gray-300 rounded-3xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
+                  <button
+                    onClick={async () => {
+                      if (!brandName.trim()) {
+                        addMessage(
+                          "system",
+                          <div className="text-amber-600">
+                            Please enter a brand name to continue.
+                          </div>,
+                          "response"
+                        );
+                        return;
+                      }
+                      await adaptStoryWithBrand(userPurpose);
+                    }}
+                    disabled={!brandName.trim()}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    title="Continue with brand"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                <div>
+                  <button
+                    onClick={async () => {
+                      await adaptStoryWithoutBrand(userPurpose);
+                    }}
+                    className="px-4 h-fit py-2 border border-gray-300 rounded-lg hover:bg-gray-50 whitespace-nowrap"
+                  >
+                    Skip
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+
+      case "story-generated":
+        return (
+          <div className="p-4 ">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  onClick={() => setCurrentStep("images")}
+                  className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                  <ImageIcon size={18} />
+                  Generate Images
+                </button>
+                <button
+                  onClick={() => handleVideoOption()}
+                  className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                  <VideoIcon size={18} />
+                  Generate Video Script
+                </button>
+              </div>
               <button
                 onClick={() => {
-                  // Skip adaptation and go directly to story options
-                  setCurrentStep("story-generated");
+                  if (!story?.story) return;
+                  const blob = new Blob([story.story], {
+                    type: "text/plain",
+                  });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `story-${Date.now()}.txt`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+
                   addMessage(
                     "system",
-                    <div className="text-gray-600">
-                      You can continue with the story as is.
+                    <div className="text-green-600">
+                      ✓ Story exported as text file.
                     </div>,
                     "response"
                   );
                 }}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
-                Skip & Use As Is
+                Export Story as Text
               </button>
             </div>
-
-            <p className="text-xs text-gray-500">
-              I'll adapt the same story based on your specific use case.
-            </p>
           </div>
-        </div>
-      );
+        );
 
-    case "brand-details":
-      return (
-        <div className="p-4 border-t bg-white">
-          <div className="space-y-6">
-            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
-              <h3 className="font-semibold text-lg text-purple-800 mb-3">
-                🎨 Brand Customization
-              </h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Brand Name
-                  </label>
-                  <input
-                    type="text"
-                    value={brandName}
-                    onChange={(e) => setBrandName(e.target.value)}
-                    placeholder="Enter your brand name..."
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Brand Assets (Optional)
-                  </label>
-                  <BrandGuideUpload onParseComplete={(assets) => {
-                    setBrandGuide(assets);
-                    if (assets) {
-                      // Show success message
-                      addMessage(
-                        "system",
-                        <div className="text-green-600 flex items-center gap-2">
-                          <Check size={16} />
-                          Brand assets loaded successfully!
-                        </div>,
-                        "response"
-                      );
-                    }
-                  }} />
-                </div>
+      case "images":
+        return (
+          <div className="p-4 border-t bg-white">
+            <div className="space-y-4">
+              <button
+                onClick={handleGenerateImages}
+                disabled={isGenerating}
+                className="w-full px-6 py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
+              >
+                <ImageIcon size={24} />
+                {isGenerating ? "Generating..." : "Generate All Images"}
+              </button>
+              <p className="text-sm text-gray-500 text-center">
+                Creates visuals for all {story?.beatSheet.length || "story"}{" "}
+                scenes
+              </p>
+            </div>
+          </div>
+        );
+
+      case "images-complete":
+        return (
+          <div className="p-4 border-t bg-white">
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                Your images are ready! What would you like to do next?
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  onClick={() => setCurrentStep("video-option")}
+                  className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                  <VideoIcon size={18} />
+                  Create Video Script
+                </button>
+                <button
+                  onClick={() => setCurrentStep("export")}
+                  className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Download size={18} />
+                  Export Package
+                </button>
               </div>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <button
-                onClick={async () => {
-                  // Continue with brand data
-                  await adaptStoryWithBrand(userPurpose);
-                }}
-                disabled={!brandName.trim()}
-                className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                onClick={() => openImageModal(0)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
-                <Sparkles size={16} />
-                Continue with Brand
-              </button>
-              <button
-                onClick={async () => {
-                  // Skip brand and adapt story anyway
-                  await adaptStoryWithoutBrand(userPurpose);
-                }}
-                className="px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2"
-              >
-                Skip Brand Details
+                View Image Gallery Again
               </button>
             </div>
-            
-            <p className="text-xs text-gray-500 text-center">
-              Your brand palette will be used for image generation. If you skip, generic colors will be used.
-            </p>
           </div>
-        </div>
-      );
+        );
 
-    case "story-generated":
-      return (
-        <div className="p-4 border-t bg-white">
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Your story is ready! What would you like to do next?
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      case "video-option":
+        return (
+          <div className="p-4 border-t bg-white">
+            <div className="space-y-4">
+              <button
+                onClick={handleGenerateVideoScript}
+                disabled={isGenerating}
+                className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
+              >
+                <VideoIcon size={24} />
+                {isGenerating ? "Creating..." : "Generate Video Script"}
+              </button>
               <button
                 onClick={() => setCurrentStep("images")}
-                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                className="w-full px-6 py-4 border border-gray-300 rounded-xl hover:bg-gray-50 flex items-center justify-center gap-3"
               >
-                <ImageIcon size={18} />
-                Generate Images
-              </button>
-              <button
-                onClick={() => handleVideoOption()}
-                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <VideoIcon size={18} />
-                Generate Video Script
+                <ImageIcon size={24} />
+                Generate Images Instead
               </button>
             </div>
-            <button
-              onClick={() => {
-                const blob = new Blob([story?.story || ""], {
-                  type: "text/plain",
-                });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `story-${Date.now()}.txt`;
-                a.click();
-                URL.revokeObjectURL(url);
+          </div>
+        );
 
-                addMessage(
-                  "system",
-                  <div className="text-green-600">
-                    ✓ Story exported as text file.
-                  </div>,
-                  "response"
-                );
-              }}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
+      case "export":
+        return (
+          <div className="p-4 border-t bg-white">
+            <button
+              onClick={handleExport}
+              className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg flex items-center justify-center gap-3 text-lg font-medium"
             >
-              Export Story as Text
+              <Share2 size={24} />
+              Export Your Story
             </button>
           </div>
-        </div>
-      );
+        );
 
-    case "images":
-      return (
-        <div className="p-4 border-t bg-white">
-          <div className="space-y-4">
-            <button
-              onClick={handleGenerateImages}
-              disabled={isGenerating}
-              className="w-full px-6 py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
-            >
-              <ImageIcon size={24} />
-              {isGenerating ? "Generating..." : "Generate All Images"}
-            </button>
-            <p className="text-sm text-gray-500 text-center">
-              Creates visuals for all {story?.beatSheet.length || "story"}{" "}
-              scenes
-            </p>
-          </div>
-        </div>
-      );
-
-    case "images-complete":
-      return (
-        <div className="p-4 border-t bg-white">
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Your images are ready! What would you like to do next?
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <button
-                onClick={() => setCurrentStep("video-option")}
-                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <VideoIcon size={18} />
-                Create Video Script
-              </button>
-              <button
-                onClick={() => setCurrentStep("export")}
-                className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <Download size={18} />
-                Export Package
-              </button>
-            </div>
-            <button
-              onClick={() => openImageModal(0)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              View Image Gallery Again
-            </button>
-          </div>
-        </div>
-      );
-
-    case "video-option":
-      return (
-        <div className="p-4 border-t bg-white">
-          <div className="space-y-4">
-            <button
-              onClick={handleGenerateVideoScript}
-              disabled={isGenerating}
-              className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
-            >
-              <VideoIcon size={24} />
-              {isGenerating ? "Creating..." : "Generate Video Script"}
-            </button>
-            <button
-              onClick={() => setCurrentStep("images")}
-              className="w-full px-6 py-4 border border-gray-300 rounded-xl hover:bg-gray-50 flex items-center justify-center gap-3"
-            >
-              <ImageIcon size={24} />
-              Generate Images Instead
-            </button>
-          </div>
-        </div>
-      );
-
-    case "export":
-      return (
-        <div className="p-4 border-t bg-white">
-          <button
-            onClick={handleExport}
-            className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg flex items-center justify-center gap-3 text-lg font-medium"
-          >
-            <Share2 size={24} />
-            Export Your Story
-          </button>
-        </div>
-      );
-
-    default:
-      return null;
-  }
-};
+      default:
+        return null;
+    }
+  };
 
   const imageGalleryData =
     story?.beatSheet
@@ -3065,7 +3346,8 @@ const handleGenerateImages = async () => {
 
   return (
     <Layout>
-      <div className="min-h-screen bg-[#FAF9F6] flex flex-col">
+      <div className="mx-16" >
+  <div className="min-h-screen  bg-[#FAF9F6] flex flex-col">
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-4">
           <div className="max-w-3xl mx-auto space-y-6">
@@ -3140,7 +3422,7 @@ const handleGenerateImages = async () => {
         </div>
 
         {/* Input Section */}
-        {renderInputSection()}
+        <div className="mx-20">{renderInputSection()}</div>
 
         {/* Image Modal */}
         {imageModal.isOpen && (
@@ -3152,6 +3434,8 @@ const handleGenerateImages = async () => {
           />
         )}
       </div>
+      </div>
+    
     </Layout>
   );
 }

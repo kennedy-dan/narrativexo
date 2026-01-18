@@ -1,27 +1,32 @@
 "use client"
 import React, { useState, useRef, useEffect } from 'react'
-import { Send, Bot, User, Sparkles, Image, Video, X, Check, Download, Copy, Menu, Search, Bell } from 'lucide-react'
+import { Settings, X, Check, Download, Copy, Menu, Search, Bell, NotebookPen, CalendarCheck2 } from 'lucide-react'
 
 // Mobile responsive Sidebar
 const Sidebar = ({ isOpen, onClose }) => {
-  const [activeNarrative, setActiveNarrative] = useState(true)
-  
-   const menuItems = [
-    { name: 'Narratives', icon: '/images/narr.png', href: '/narratives', active: true },
-
-    { name: 'Subscriptions', icon: '/images/subs.png', href: '/subscriptions' },
-    { name: 'Settings', icon: '/images/set.png', href: '/settings' },
+  const menuItems = [
+    { name: 'Narratives', icon: 'file-text', href: '/narratives' },
+    { name: 'Search', icon: 'search', href: '/search' },
+    { name: 'Subscriptions', icon: 'credit-card', href: '/subscriptions' },
+    { name: 'Settings', icon: 'settings', href: '/settings' },
   ]
 
-  const narrativeSubmenu = [
-    { name: 'Create Narrative', href: '/narratives/create' },
-    { name: 'Active Narratives', href: '/narratives/active' },
-  ]
+  const renderIcon = (iconName) => {
+    const iconProps = { size: 20, strokeWidth: 2 }
+    switch(iconName) {
+      case 'file-text': 
+                 return <NotebookPen {...iconProps} />
 
-  const campaignSubmenu = [
-    { name: 'Campaign Account', href: '/campaigns/account' },
-    { name: 'User management', href: '/campaigns/users' },
-  ]
+      case 'search': 
+        return <Search {...iconProps} />
+      case 'credit-card': 
+        return <CalendarCheck2 {...iconProps} />
+      case 'settings': 
+        return <Settings {...iconProps} />
+      default: 
+        return null
+    }
+  }
 
   return (
     <>
@@ -40,18 +45,10 @@ const Sidebar = ({ isOpen, onClose }) => {
         transform transition-transform duration-300 ease-in-out lg:transform-none
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        {/* Logo */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">
-                N
-              </div>
-              <div>
-                <div className="font-bold text-gray-900 text-sm sm:text-base">NARRATIVES</div>
-                <div className="text-xs text-gray-500">CONTENT CREATOR</div>
-              </div>
-            </div>
+        {/* Header */}
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-1">
+            <h1 className="font-semibold text-gray-900">Narrative Xo</h1>
             {/* Close button for mobile */}
             <button 
               onClick={onClose}
@@ -60,40 +57,31 @@ const Sidebar = ({ isOpen, onClose }) => {
               <X size={20} />
             </button>
           </div>
+          <p className="text-sm text-gray-500">Content Creator</p>
         </div>
 
         {/* Menu Items */}
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          {menuItems.map((item) => (
-            <div key={item.name}>
-              <button
-                className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors text-left ${
-                  item.active
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <img src={item.icon} />
-                <span className="font-medium text-sm">{item.name}</span>
-              </button>
-              
-   
+        <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
+          {/* Start New Narrative Button */}
+          <button className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-[#A8D5A3] hover:bg-[#98C593] text-gray-800 rounded-lg transition-colors font-medium">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <path d="M12 8v8m-4-4h8"/>
+            </svg>
+            <span>Start New Narrative</span>
+          </button>
 
-              {/* Submenu for Campaigns */}
-              {item.name === 'Campaigns' && (
-                <div className="ml-6 mt-1 space-y-1">
-                  {campaignSubmenu.map((subItem) => (
-                    <button
-                      key={subItem.name}
-                      className="w-full flex items-center space-x-2 px-3 py-2 text-sm text-gray-500 hover:bg-gray-50 rounded-lg transition-colors text-left"
-                    >
-                      <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
-                      <span>{subItem.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+          {/* Menu Items */}
+          {menuItems.map((item) => (
+            <button
+              key={item.name}
+              className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors text-left text-gray-700 hover:bg-gray-50"
+            >
+              <div className="text-gray-600">
+                {renderIcon(item.icon)}
+              </div>
+              <span className="font-normal">{item.name}</span>
+            </button>
           ))}
         </nav>
       </div>

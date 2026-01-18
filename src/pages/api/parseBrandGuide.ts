@@ -68,12 +68,15 @@ export default async function handler(
 
     const prompt = `
 Analyze this brand guide and extract:
-1. Color palette (hex codes)
-2. Font names
-3. Overall brand safety level (true/false)
+1. Color palette (hex codes) - return as array of strings like ["#FFFFFF", "#000000"]
+2. Font names - return as array of strings
+3. Overall brand safety level (true/false) - true if appropriate for all audiences
 
-Return as JSON: { palette: string[], fonts: string[], brandSafe: boolean }
+Return as JSON with this exact structure: { palette: string[], fonts: string[], brandSafe: boolean }
 Focus only on colors and fonts, ignore logos.
+If you cannot identify colors, return empty array [] for palette.
+If you cannot identify fonts, return empty array [] for fonts.
+For brandSafe, return true unless you identify explicit adult content.
 `;
 
     const completion = await openai.chat.completions.create({
@@ -95,11 +98,37 @@ Focus only on colors and fonts, ignore logos.
       response_format: { type: "json_object" }
     });
 
-    let brandData: BrandGuideResponse = JSON.parse(completion.choices[0].message.content!);
+    const responseContent = completion.choices[0].message.content;
     
-    // Apply palette deduplication
+    if (!responseContent) {
+      throw new Error('No response from OpenAI');
+    }
+
+    let brandData: BrandGuideResponse;
+    try {
+      brandData = JSON.parse(responseContent);
+    } catch (parseError) {
+      console.error('Failed to parse OpenAI response:', responseContent);
+      throw new Error('Invalid JSON response from OpenAI');
+    }
+
+    // Ensure all required fields exist with default values
+    brandData = {
+      palette: Array.isArray(brandData.palette) ? brandData.palette : [],
+      fonts: Array.isArray(brandData.fonts) ? brandData.fonts : [],
+      brandSafe: typeof brandData.brandSafe === 'boolean' ? brandData.brandSafe : true,
+    };
+
+    console.log('Processed brand data:', brandData);
+    
+    // Apply palette deduplication only if palette exists and has items
     if (brandData.palette && brandData.palette.length > 0) {
-      brandData.palette = dedupPalette(brandData.palette, 2.5);
+      try {
+        brandData.palette = dedupPalette(brandData.palette, 2.5);
+      } catch (dedupError) {
+        console.error('Palette deduplication failed:', dedupError);
+        // Keep original palette if deduplication fails
+      }
     }
 
     res.status(200).json({
@@ -107,8 +136,16 @@ Focus only on colors and fonts, ignore logos.
       ...brandData
     });
 
-  } catch (error) {
-    console.log('Brand guide parsing error:', error);
-    res.status(500).json({ error: 'Failed to parse brand guide' });
+  } catch (error: any) {
+    console.error('Brand guide parsing error:', error);
+    
+    // Return a valid response structure even on error
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to parse brand guide',
+      palette: [],
+      fonts: [],
+      brandSafe: true 
+    });
   }
 }
