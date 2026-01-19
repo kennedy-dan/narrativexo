@@ -165,6 +165,7 @@ TECHNICAL:
 - No text or logos in image
 - Safe margins for overlays
 
+
 EMOTION: Capture the emotional essence while maintaining character consistency.
 `.trim();
 
