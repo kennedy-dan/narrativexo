@@ -183,10 +183,10 @@ const ImageModal = ({
                         <a id="downloadLink" href="${
                           currentImage.url
                         }" download="scene-${
-                    currentIndex + 1
-                  }-${currentImage.title
-                    .toLowerCase()
-                    .replace(/\s+/g, "-")}.png"></a>
+                          currentIndex + 1
+                        }-${currentImage.title
+                          .toLowerCase()
+                          .replace(/\s+/g, "-")}.png"></a>
                         <script>
                           document.getElementById('downloadLink').click();
                         </script>
@@ -253,7 +253,7 @@ export default function Create() {
   }>({});
   const [userPurpose, setUserPurpose] = useState<string>("");
   const [mainCharacters, setMainCharacters] = useState<CharacterDescription[]>(
-    []
+    [],
   );
   const [characterSceneMap, setCharacterSceneMap] = useState<{
     [key: string]: number[];
@@ -266,7 +266,7 @@ export default function Create() {
   const [ccnInterpretation, setCcnInterpretation] =
     useState<CCNInterpretationRevised | null>(null);
   const [confirmedCCNData, setConfirmedCCNData] = useState<CCNData | null>(
-    null
+    null,
   );
   const [ccnUnderstandingMessageId, setCcnUnderstandingMessageId] = useState<
     number | null
@@ -276,6 +276,8 @@ export default function Create() {
     field: string;
   } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showPurposeButtons, setShowPurposeButtons] = useState(true);
+
   const [currentStep, setCurrentStep] = useState<Step>("entry");
   const [userMode, setUserMode] = useState<UserMode>("creator");
   const [messages, setMessages] = useState<Message[]>([
@@ -351,7 +353,7 @@ export default function Create() {
   const addMessage = (
     sender: "system" | "user",
     content: React.ReactNode,
-    type?: "selection" | "response" | "generated" | "question"
+    type?: "selection" | "response" | "generated" | "question",
   ): number => {
     const newMessage: Message = {
       id: messages.length + 1,
@@ -529,7 +531,7 @@ export default function Create() {
         <div className="text-amber-600">
           Please describe your moment first.
         </div>,
-        "response"
+        "response",
       );
       return;
     }
@@ -541,7 +543,7 @@ export default function Create() {
           Please provide a bit more detail so I can understand your vision
           better.
         </div>,
-        "response"
+        "response",
       );
       return;
     }
@@ -632,7 +634,7 @@ export default function Create() {
                 Type your answer below to help me understand your intention.
               </p>
             </div>,
-            "response"
+            "response",
           );
 
           setCurrentStep("clarification");
@@ -683,7 +685,7 @@ export default function Create() {
                       <div>
                         <p>Please rewrite your message:</p>
                       </div>,
-                      "question"
+                      "question",
                     );
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
@@ -746,7 +748,7 @@ export default function Create() {
                   <div>
                     <p>Please rewrite your message:</p>
                   </div>,
-                  "question"
+                  "question",
                 );
               }}
               className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
@@ -755,7 +757,7 @@ export default function Create() {
             </button>
           </div>
         </div>,
-        "response"
+        "response",
       );
 
       setCurrentStep("understanding");
@@ -947,7 +949,7 @@ export default function Create() {
                   <div className="text-green-600">
                     ✓ Brand story exported as JSON.
                   </div>,
-                  "response"
+                  "response",
                 );
               }}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -956,7 +958,7 @@ export default function Create() {
             </button>
           </div>
         </div>,
-        "generated"
+        "generated",
       );
 
       setCurrentStep("story-generated");
@@ -981,7 +983,7 @@ export default function Create() {
             Continue Without Brand Customization
           </button>
         </div>,
-        "response"
+        "response",
       );
     } finally {
       setIsGenerating(false);
@@ -989,6 +991,7 @@ export default function Create() {
   };
 
   // Helper function to adapt story without brand
+  // Update the adaptStoryWithoutBrand function to handle brand-skipped purpose better
   const adaptStoryWithoutBrand = async (purpose: string) => {
     if (!purpose.trim() || !story) return;
 
@@ -1001,7 +1004,7 @@ export default function Create() {
         <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
         <span>Adapting story for your purpose...</span>
       </div>,
-      "response"
+      "response",
     );
 
     try {
@@ -1017,6 +1020,11 @@ export default function Create() {
         market: story.metadata.market,
       };
 
+      // If user skipped brand but purpose mentions brand, adjust the purpose display
+      const displayPurpose = purpose.includes("brand")
+        ? purpose.replace("brand", "generic")
+        : purpose;
+
       const res = await fetch("/api/generateStory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1031,11 +1039,12 @@ export default function Create() {
             pathway: ccnData.pathway,
             rawAnalysis: ccnData.rawAnalysis || story.story,
           },
-          brand: brandGuide ? { name: brandName, ...brandGuide } : undefined,
+          brand: null, // Explicitly pass null for brand when skipping
           requestType: "purpose-adaptation",
-          purpose: purpose,
+          purpose: displayPurpose, // Use adjusted purpose
           currentStory: story.story,
           originalContext: originalUserInput,
+          skipBrand: true, // Add flag to indicate brand was skipped
         }),
       });
 
@@ -1054,8 +1063,9 @@ export default function Create() {
         beatSheet: data.beatSheet || story.beatSheet || [],
         metadata: data.metadata || {
           ...story.metadata,
-          title: `${story.metadata.title} (${purpose.substring(0, 20)}...)`,
-          purpose: purpose,
+          title: `${story.metadata.title} (${displayPurpose.substring(0, 20)}...)`,
+          purpose: displayPurpose,
+          brandSkipped: true, // Add flag to indicate brand was skipped
         },
       };
 
@@ -1065,7 +1075,7 @@ export default function Create() {
       // Remove thinking message
       setMessages((prev) => prev.filter((msg) => msg.id !== thinkingId));
 
-      // Show adapted story
+      // Show adapted story - update the display purpose
       addMessage(
         "system",
         <div className="space-y-6">
@@ -1077,7 +1087,13 @@ export default function Create() {
                   {adaptedStory.metadata.title}
                 </h3>
                 <div className="text-sm text-green-600 mt-1">
-                  Adapted for: <span className="font-medium">{purpose}</span>
+                  Adapted for:{" "}
+                  <span className="font-medium">{displayPurpose}</span>
+                  {purpose.includes("brand") && (
+                    <span className="text-xs text-gray-500 ml-2">
+                      (generic version)
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
@@ -1090,115 +1106,55 @@ export default function Create() {
           </div>
 
           {/* Story Shaping Options */}
-          <div className="space-y-4">
+          <div className="space-y-4 pt-4">
             <p className="font-medium text-gray-700">
-              Want to shape this story further?
+              Your adapted story is ready!
             </p>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <button
-                onClick={() =>
-                  handleStoryExpansionWithStory("expand", adaptedStory, ccnData)
-                }
-                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                onClick={() => setCurrentStep("images")}
+                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
               >
-                <Maximize2 size={16} />
-                Expand this
+                <ImageIcon size={18} />
+                Generate Images
               </button>
               <button
-                onClick={() =>
-                  handleStoryExpansionWithStory(
-                    "gentler",
-                    adaptedStory,
-                    ccnData
-                  )
-                }
-                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                onClick={() => handleVideoOption()}
+                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
               >
-                <Zap size={16} />
-                Make it gentler
-              </button>
-              <button
-                onClick={() =>
-                  handleStoryExpansionWithStory(
-                    "harsher",
-                    adaptedStory,
-                    ccnData
-                  )
-                }
-                className="px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-              >
-                <Zap size={16} />
-                Make it harsher
-              </button>
-              <button
-                onClick={() =>
-                  handleStoryExpansionWithStory(
-                    "60-second",
-                    adaptedStory,
-                    ccnData
-                  )
-                }
-                className="px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-              >
-                <Film size={16} />
-                60-second version
+                <VideoIcon size={18} />
+                Generate Video Script
               </button>
             </div>
 
-            {/* Continue with current story */}
-            <div className="pt-4 border-t">
-              <p className="text-sm text-gray-600 mb-3">
-                Continue with this adapted story:
-              </p>
+            <button
+              onClick={() => {
+                const blob = new Blob([adaptedStory.story], {
+                  type: "text/plain",
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `story-${Date.now()}.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <button
-                  onClick={() => setCurrentStep("images")}
-                  className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                >
-                  <ImageIcon size={18} />
-                  Generate Images
-                </button>
-                <button
-                  onClick={() => handleVideoOption()}
-                  className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                >
-                  <VideoIcon size={18} />
-                  Generate Video Script
-                </button>
-              </div>
-
-              <div className="mt-3">
-                <button
-                  onClick={() => {
-                    const blob = new Blob([adaptedStory.story], {
-                      type: "text/plain",
-                    });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `adapted-story-${Date.now()}.txt`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-
-                    addMessage(
-                      "system",
-                      <div className="text-green-600">
-                        ✓ Adapted story exported as text file.
-                      </div>,
-                      "response"
-                    );
-                  }}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Export Adapted Story
-                </button>
-              </div>
-            </div>
+                addMessage(
+                  "system",
+                  <div className="text-green-600">
+                    ✓ Story exported as text file.
+                  </div>,
+                  "response",
+                );
+              }}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Export Story as Text
+            </button>
           </div>
         </div>,
-        "generated"
+        "generated",
       );
 
       setCurrentStep("story-generated");
@@ -1240,7 +1196,7 @@ export default function Create() {
             </div>
           </div>
         </div>,
-        "response"
+        "response",
       );
 
       setCurrentStep("story-generated");
@@ -1253,18 +1209,24 @@ export default function Create() {
   // NEW FUNCTION: Handle story purpose input
   // First, update the handleStoryPurpose function to set up brand collection:
   // NEW FUNCTION: Handle story purpose input - UPDATED for brand system message
+  // Update the handleStoryPurpose function - Fix the skip logic
+  // Update the handleStoryPurpose function - FIXED for skip logic
   const handleStoryPurpose = async (purpose: string) => {
     if (!purpose.trim() || !story) return;
+    if (currentStep === "brand-details" || currentStep === "story-generated") {
+      console.log("Already processing purpose, skipping duplicate");
+      return;
+    }
 
     setUserPurpose(purpose);
 
     // Add user's purpose as a message
     addMessage(
       "user",
-      <div className=" rounded-lg p-3 ">
+      <div className="rounded-lg p-3">
         <p className="text-sm">{purpose}</p>
       </div>,
-      "selection"
+      "selection",
     );
 
     // Check if purpose mentions brand
@@ -1295,23 +1257,23 @@ export default function Create() {
               continue without it.
             </p>
             <div className="space-y-3">
-              {/* <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Brand Name
-              </label>
-              <input
-                type="text"
-                value={brandName}
-                onChange={(e) => {
-                  setBrandName(e.target.value);
-                  // Focus the input
-                  e.target.focus();
-                }}
-                placeholder="Enter your brand name..."
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                autoFocus
-              />
-            </div> */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Brand Name
+                </label>
+                <input
+                  type="text"
+                  value={brandName}
+                  onChange={(e) => {
+                    setBrandName(e.target.value);
+                    // Focus the input
+                    e.target.focus();
+                  }}
+                  placeholder="Enter your brand name..."
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  autoFocus
+                />
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1328,7 +1290,7 @@ export default function Create() {
                           <Check size={16} />
                           Brand assets loaded successfully!
                         </div>,
-                        "response"
+                        "response",
                       );
                     }
                   }}
@@ -1348,7 +1310,7 @@ export default function Create() {
                     <div className="text-amber-600 p-3 bg-amber-50 rounded-lg">
                       Please enter your brand name to continue.
                     </div>,
-                    "response"
+                    "response",
                   );
                   return;
                 }
@@ -1362,9 +1324,9 @@ export default function Create() {
               Continue with Brand
             </button>
             <button
-              onClick={async () => {
-                // Skip brand and adapt story anyway
-                await adaptStoryWithoutBrand(purpose);
+              onClick={() => {
+                // Skip brand - use existing story WITHOUT calling API
+                handleSkipBrandDetails(purpose);
               }}
               className="px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2"
             >
@@ -1377,7 +1339,7 @@ export default function Create() {
             generic colors will be used.
           </p>
         </div>,
-        "response"
+        "response",
       );
 
       setCurrentStep("brand-details");
@@ -1385,17 +1347,117 @@ export default function Create() {
       // Non-brand purpose - adapt normally
       await adaptStoryWithoutBrand(purpose);
     }
+    setUserPurpose(""); // Clear the purpose input
   };
+
+  // NEW FUNCTION: Handle skipping brand details
+  const handleSkipBrandDetails = (purpose: string) => {
+    if (!story) return;
+
+    // Add skip confirmation message
+    addMessage(
+      "user",
+      <div className="flex items-center gap-2">
+        <X size={16} className="text-gray-600" />
+        <span className="font-medium">Skip Brand Details</span>
+      </div>,
+      "selection",
+    );
+
+    // Show the existing story (no API call)
+    addMessage(
+      "system",
+      <div className="space-y-6">
+        {/* Story Display */}
+        <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 p-6 rounded-r-lg">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold text-lg text-green-800">
+                {story.metadata.title}
+              </h3>
+              <div className="text-sm text-green-600 mt-1">
+                Ready for: <span className="font-medium">{purpose}</span>
+                <span className="text-xs text-gray-500 ml-2">
+                  (brand skipped)
+                </span>
+              </div>
+            </div>
+            <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+              Original Story
+            </div>
+          </div>
+          <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
+            {story.story}
+          </div>
+        </div>
+
+        {/* Story Shaping Options */}
+        <div className="space-y-4 pt-4">
+          <p className="font-medium text-gray-700">
+            Your story is ready! What would you like to do next?
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <button
+              onClick={() => setCurrentStep("images")}
+              className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+            >
+              <ImageIcon size={18} />
+              Generate Images
+            </button>
+            <button
+              onClick={() => handleVideoOption()}
+              className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+            >
+              <VideoIcon size={18} />
+              Generate Video Script
+            </button>
+          </div>
+
+          <button
+            onClick={() => {
+              const blob = new Blob([story.story], {
+                type: "text/plain",
+              });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `story-${Date.now()}.txt`;
+              a.click();
+              URL.revokeObjectURL(url);
+
+              addMessage(
+                "system",
+                <div className="text-green-600">
+                  ✓ Story exported as text file.
+                </div>,
+                "response",
+              );
+            }}
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            Export Story as Text
+          </button>
+        </div>
+      </div>,
+      "generated",
+    );
+
+    setCurrentStep("story-generated");
+  };
+
+  // You can now simplify or remove the adaptStoryWithoutBrand function
+  // for brand-skipping cases, or keep it for non-brand purposes
 
   // Trigger Story Generation - MODIFIED to ask for purpose
   // Trigger Story Generation - MODIFIED to ask for purpose
+  // Updated triggerStoryGeneration function
+  // Updated triggerStoryGeneration function - FIXED for direct purpose button clicks
   const triggerStoryGeneration = async (ccnData: CCNData) => {
     setIsGenerating(true);
 
-    // Log what we're actually receiving
     console.log("triggerStoryGeneration received ccnData:", ccnData);
 
-    // Use the ccnData parameter directly - it should contain all the data
     if (!ccnData) {
       console.error("No CCN data provided to triggerStoryGeneration");
       return;
@@ -1419,14 +1481,12 @@ export default function Create() {
     setMessages((prev) => [...prev, loadingMessage]);
 
     try {
-      // Get rawAnalysis from the provided ccnData
       const rawAnalysis =
         ccnData.rawAnalysis ||
         "I feel this is a meaningful moment worth exploring.";
 
       console.log("Using rawAnalysis:", rawAnalysis.substring(0, 100) + "...");
 
-      // Send complete CCN data to story generation API INCLUDING rawAnalysis
       const storyRequestData = {
         market: ccnData.market,
         semanticExtraction: {
@@ -1474,12 +1534,10 @@ export default function Create() {
 
       // Remove the loading message
       setMessages((prev) => {
-        // Filter out loading message
         const filtered = prev.filter((msg) => {
           if (typeof msg.content === "string") {
             return !msg.content.includes("Shaping your story");
           }
-
           try {
             const contentStr = JSON.stringify(msg.content);
             return !contentStr.includes("Shaping your story");
@@ -1488,130 +1546,202 @@ export default function Create() {
           }
         });
 
-        // Add the generated story message
+        // Add the generated story message WITH EXPANSION OPTIONS FIRST
         const newMessages = [
           ...filtered,
           {
             id: filtered.length + 1,
-            sender: "system" as const, // Add as const
+            sender: "system" as const,
             content: (
-              <div className="space-y-4">
-                <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
-                  <h3 className="font-semibold text-lg text-purple-800 mb-2">
-                    ✨ Story Generated!
-                  </h3>
-                  <div className="text-gray-700 whitespace-pre-line text-sm">
-                    {generatedStory.story}...
+              <div className="space-y-6">
+                {/* Story Display */}
+                <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-6 rounded-r-lg">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-lg text-purple-800">
+                      ✨ {generatedStory.metadata.title}
+                    </h3>
+                    <div className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                      First Draft
+                    </div>
+                  </div>
+                  <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
+                    {generatedStory.story}
+                  </div>
+                </div>
+
+                {/* EXPANSION OPTIONS - BEFORE PURPOSE */}
+                <div className="space-y-4">
+                  <p className="font-medium text-gray-700">
+                    Want to refine this story first?
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <button
+                      onClick={() =>
+                        handleStoryExpansionWithStory(
+                          "expand",
+                          generatedStory,
+                          ccnData,
+                        )
+                      }
+                      className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Maximize2 size={16} />
+                      Expand this
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleStoryExpansionWithStory(
+                          "gentler",
+                          generatedStory,
+                          ccnData,
+                        )
+                      }
+                      className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Zap size={16} />
+                      Make it gentler
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleStoryExpansionWithStory(
+                          "harsher",
+                          generatedStory,
+                          ccnData,
+                        )
+                      }
+                      className="px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Zap size={16} />
+                      Make it harsher
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleStoryExpansionWithStory(
+                          "60-second",
+                          generatedStory,
+                          ccnData,
+                        )
+                      }
+                      className="px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Film size={16} />
+                      60-second version
+                    </button>
+                  </div>
+
+                  <div className="pt-4 border-t">
+                    <p className="text-sm text-gray-600 mb-3">
+                      Or continue with this story as-is:
+                    </p>
+                    <button
+                      onClick={() => {
+                        // Show purpose options
+                        setMessages((prev) => [
+                          ...prev,
+                          {
+                            id: prev.length + 1,
+                            sender: "system" as const,
+                            content: (
+                              <div className="space-y-3">
+                                <p className="font-medium text-gray-700">
+                                  How do you want to use this story?
+                                </p>
+                                <p className="text-sm text-gray-600">
+                                  Tell me what this is for (e.g., "Turn this
+                                  into a brand post", "This is for Instagram",
+                                  "Make it more formal for LinkedIn", etc.)
+                                </p>
+                                {showPurposeButtons && (
+                                  <div className="flex flex-wrap gap-2 pt-2">
+                                    <button
+                                      onClick={() => {
+                                        const purpose =
+                                          "Turn this into a brand post";
+                                        setUserPurpose(purpose);
+                                        setShowPurposeButtons(false);
+                                        handleStoryPurpose(purpose);
+                                      }}
+                                      className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
+                                    >
+                                      Brand post
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const purpose = "This is for Instagram";
+                                        setUserPurpose(purpose);
+                                        setShowPurposeButtons(false);
+                                        handleStoryPurpose(purpose);
+                                      }}
+                                      className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                                    >
+                                      Instagram
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const purpose =
+                                          "Make it more formal for LinkedIn";
+                                        setUserPurpose(purpose);
+                                        setShowPurposeButtons(false);
+                                        handleStoryPurpose(purpose);
+                                      }}
+                                      className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                                    >
+                                      LinkedIn
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const purpose = "Educational content";
+                                        setUserPurpose(purpose);
+                                        setShowPurposeButtons(false);
+                                        handleStoryPurpose(purpose);
+                                      }}
+                                      className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                                    >
+                                      Educational
+                                    </button>
+                                  </div>
+                                )}
+                                {!showPurposeButtons && userPurpose && (
+                                  <div className="pt-2">
+                                    <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
+                                      <span className="text-xs">Selected:</span>
+                                      <span className="font-medium text-sm">
+                                        {userPurpose}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                <p className="text-xs text-gray-500">
+                                  I'll adapt the same story based on your
+                                  specific use case.
+                                </p>
+                              </div>
+                            ),
+                            timestamp: new Date(),
+                            type: "question" as const,
+                          },
+                        ]);
+                        setCurrentStep("story-purpose");
+                      }}
+                      className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
+                    >
+                      Continue with this story →
+                    </button>
                   </div>
                 </div>
               </div>
             ),
             timestamp: new Date(),
-            type: "generated" as const, // Add as const
-          },
-          {
-            id: filtered.length + 2,
-            sender: "system" as const, // Add as const
-            content: (
-              <div className="space-y-3">
-                <p className="font-medium text-gray-700">
-                  How do you want to use this story?
-                </p>
-                <p className="text-sm text-gray-600">
-                  Tell me what this is for (e.g., "Turn this into a brand post",
-                  "This is for Instagram", "Make it more formal for LinkedIn",
-                  etc.)
-                </p>
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <button
-                    onClick={() => {
-                      setUserPurpose("Turn this into a brand post");
-                      // Auto-focus the textarea
-                      setTimeout(() => {
-                        const textarea = document.querySelector("textarea");
-                        if (textarea) textarea.focus();
-                      }, 100);
-                    }}
-                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
-                  >
-                    Brand post
-                  </button>
-                  <button
-                    onClick={() => {
-                      setUserPurpose("This is for Instagram");
-                      setTimeout(() => {
-                        const textarea = document.querySelector("textarea");
-                        if (textarea) textarea.focus();
-                      }, 100);
-                    }}
-                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                  >
-                    Instagram
-                  </button>
-                  <button
-                    onClick={() => {
-                      setUserPurpose("Make it more formal for LinkedIn");
-                      setTimeout(() => {
-                        const textarea = document.querySelector("textarea");
-                        if (textarea) textarea.focus();
-                      }, 100);
-                    }}
-                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                  >
-                    LinkedIn
-                  </button>
-                  <button
-                    onClick={() => {
-                      setUserPurpose("For a video script");
-                      setTimeout(() => {
-                        const textarea = document.querySelector("textarea");
-                        if (textarea) textarea.focus();
-                      }, 100);
-                    }}
-                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                  >
-                    Video script
-                  </button>
-                  <button
-                    onClick={() => {
-                      setUserPurpose("Personal journal entry");
-                      setTimeout(() => {
-                        const textarea = document.querySelector("textarea");
-                        if (textarea) textarea.focus();
-                      }, 100);
-                    }}
-                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                  >
-                    Personal
-                  </button>
-                  <button
-                    onClick={() => {
-                      setUserPurpose("Educational content");
-                      setTimeout(() => {
-                        const textarea = document.querySelector("textarea");
-                        if (textarea) textarea.focus();
-                      }, 100);
-                    }}
-                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                  >
-                    Educational
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500">
-                  I'll adapt the same story based on your specific use case.
-                </p>
-              </div>
-            ),
-            timestamp: new Date(),
-            type: "question" as const, // Add as const
+            type: "generated" as const,
           },
         ];
 
         return newMessages;
       });
 
-      // Update current step to purpose input
-      setCurrentStep("story-purpose");
+      // Set step to story-generated (which will show expansion options)
+      setCurrentStep("story-generated");
     } catch (error) {
       console.error("❌ Story generation error:", error);
 
@@ -1621,7 +1751,6 @@ export default function Create() {
           if (typeof msg.content === "string") {
             return !msg.content.includes("Shaping your story");
           }
-
           try {
             const contentStr = JSON.stringify(msg.content);
             return !contentStr.includes("Shaping your story");
@@ -1630,7 +1759,6 @@ export default function Create() {
           }
         });
 
-        // Add error message
         return [
           ...filtered,
           {
@@ -1640,47 +1768,16 @@ export default function Create() {
               <div className="space-y-6">
                 <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
                   <p>
-                    I had trouble shaping your story, but you can still
-                    continue:
-                  </p>
-                  <p className="text-sm mt-2">
-                    Error details:{" "}
-                    {error instanceof Error ? error.message : "Unknown error"}
+                    I had trouble shaping your story. Let's try a different
+                    approach:
                   </p>
                 </div>
-
-                {/* Fallback options */}
                 <div className="space-y-4">
-                  <p className="font-medium text-gray-700">
-                    What would you like to do next?
-                  </p>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <button
-                      onClick={() => setCurrentStep("images")}
-                      className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                    >
-                      <ImageIcon size={18} />
-                      Generate Images
-                    </button>
-                    <button
-                      onClick={() => handleVideoOption()}
-                      className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                    >
-                      <VideoIcon size={18} />
-                      Generate Video Script
-                    </button>
-                  </div>
-
                   <button
-                    onClick={() => {
-                      // Retry story generation
-                      triggerStoryGeneration(ccnData);
-                    }}
-                    className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                    onClick={() => setCurrentStep("entry")}
+                    className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
                   >
-                    <Sparkles size={18} />
-                    Try Story Generation Again
+                    Start Over
                   </button>
                 </div>
               </div>
@@ -1747,7 +1844,7 @@ export default function Create() {
         <div className="text-red-600">
           Sorry, I lost track of your story details. Please try again.
         </div>,
-        "response"
+        "response",
       );
 
       // Go back to entry
@@ -1757,7 +1854,7 @@ export default function Create() {
         <div>
           <p>Please describe your moment again:</p>
         </div>,
-        "question"
+        "question",
       );
       return;
     }
@@ -1790,7 +1887,7 @@ export default function Create() {
   const handleStoryExpansionWithStory = async (
     expansionType: "expand" | "gentler" | "harsher" | "60-second",
     storyToExpand: GeneratedStory,
-    ccnData?: CCNData
+    ccnData?: CCNData,
   ) => {
     console.log("handleStoryExpansionWithStory called:", {
       expansionType,
@@ -1806,7 +1903,7 @@ export default function Create() {
         <div className="text-red-600">
           Error: Invalid story provided for expansion.
         </div>,
-        "response"
+        "response",
       );
       return;
     }
@@ -1839,7 +1936,7 @@ export default function Create() {
           {expansionType === "60-second" && "Create 60-second version"}
         </span>
       </div>,
-      "selection"
+      "selection",
     );
 
     const loadingId = addMessage(
@@ -1848,13 +1945,13 @@ export default function Create() {
         <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
         <span>Shaping your story...</span>
       </div>,
-      "response"
+      "response",
     );
 
     try {
       console.log(
         "Sending expansion request for story:",
-        storyToExpand.metadata?.title
+        storyToExpand.metadata?.title,
       );
 
       const res = await fetch("/api/generateStory", {
@@ -1927,10 +2024,10 @@ export default function Create() {
                 {expansionType === "60-second"
                   ? "60s version"
                   : expansionType === "expand"
-                  ? "Expanded"
-                  : expansionType === "gentler"
-                  ? "Gentler"
-                  : "Harsher"}
+                    ? "Expanded"
+                    : expansionType === "gentler"
+                      ? "Gentler"
+                      : "Harsher"}
               </span>
             </div>
             <div className="text-gray-800 whitespace-pre-line leading-relaxed">
@@ -1949,7 +2046,55 @@ export default function Create() {
             </p>
           </div>
         </div>,
-        "generated"
+        "generated",
+      );
+      addMessage(
+        "system",
+        <div className="space-y-3">
+          <p className="font-medium text-gray-700">
+            How do you want to use this expanded story?
+          </p>
+          <p className="text-sm text-gray-600">
+            Tell me what this is for (e.g., "brand post", "Instagram",
+            "LinkedIn", etc.)
+          </p>
+          <div className="flex flex-wrap gap-2 pt-2">
+            <button
+              onClick={() => {
+                const purpose = "Turn this into a brand post";
+                setUserPurpose(purpose);
+                handleStoryPurpose(purpose);
+                 setShowPurposeButtons(false);
+              }}
+              className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
+            >
+              Brand post
+            </button>
+            <button
+              onClick={() => {
+                const purpose = "This is for Instagram";
+                setUserPurpose(purpose);
+                handleStoryPurpose(purpose);
+                 setShowPurposeButtons(false);
+              }}
+              className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+            >
+              Instagram
+            </button>
+            <button
+              onClick={() => {
+                const purpose = "Make it more formal for LinkedIn";
+                setUserPurpose(purpose);
+                handleStoryPurpose(purpose);
+                 setShowPurposeButtons(false);
+              }}
+              className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+            >
+              LinkedIn
+            </button>
+          </div>
+        </div>,
+        "question",
       );
 
       // Set current step to purpose for the expanded story
@@ -1967,7 +2112,7 @@ export default function Create() {
             Error: {error instanceof Error ? error.message : "Unknown error"}
           </p>
         </div>,
-        "response"
+        "response",
       );
 
       // If expansion fails, still ask for purpose with original story
@@ -1988,7 +2133,7 @@ export default function Create() {
           <Upload size={16} className="text-green-600" />
           <span className="font-medium">Brand assets uploaded</span>
         </div>,
-        "selection"
+        "selection",
       );
     }
 
@@ -2006,7 +2151,7 @@ export default function Create() {
         <div>
           <p>Please describe your moment again:</p>
         </div>,
-        "question"
+        "question",
       );
     }
   };
@@ -2035,7 +2180,7 @@ export default function Create() {
           Video generation converts your story into prompts for video creation.
         </p>
       </div>,
-      "question"
+      "question",
     );
 
     setCurrentStep("video-option");
@@ -2058,7 +2203,7 @@ export default function Create() {
           {mainCharacters.length > 0 ? "with Character Consistency" : ""}
         </span>
       </div>,
-      "selection"
+      "selection",
     );
 
     // Show character analysis first if we haven't done it yet
@@ -2069,7 +2214,7 @@ export default function Create() {
           <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
           <span>Analyzing characters for consistency...</span>
         </div>,
-        "response"
+        "response",
       );
 
       try {
@@ -2136,12 +2281,12 @@ export default function Create() {
                           </div>
                         </div>
                       </div>
-                    )
+                    ),
                   )}
                 </div>
               </div>
             </div>,
-            "response"
+            "response",
           );
         } else {
           // Remove analysis message on error
@@ -2152,7 +2297,7 @@ export default function Create() {
               Proceeding without character analysis. Images will be generated
               normally.
             </div>,
-            "response"
+            "response",
           );
         }
       } catch (error) {
@@ -2163,7 +2308,7 @@ export default function Create() {
           <div className="text-amber-600">
             Character analysis failed. Generating images normally...
           </div>,
-          "response"
+          "response",
         );
       }
     }
@@ -2178,9 +2323,8 @@ export default function Create() {
             Creating consistent visuals for all scenes...
           </span>
         </div>
-   
       </div>,
-      "response"
+      "response",
     );
 
     try {
@@ -2193,7 +2337,7 @@ export default function Create() {
         let previousImageUrl: string | undefined;
         if (characterId && generatedCharacterImages[characterId]) {
           const previousScenes = Object.keys(
-            generatedCharacterImages[characterId]
+            generatedCharacterImages[characterId],
           )
             .map(Number)
             .filter((sceneIdx) => sceneIdx < index)
@@ -2203,7 +2347,7 @@ export default function Create() {
             previousImageUrl =
               generatedCharacterImages[characterId][previousScenes[0]];
             console.log(
-              `Using previous image for ${characterId} in scene ${index}`
+              `Using previous image for ${characterId} in scene ${index}`,
             );
           }
         }
@@ -2320,8 +2464,6 @@ export default function Create() {
               Generated {successCount} of {totalCount} images ({successRate}%)
             </span>
           </div>
-
-      
 
           {/* Show brand palette usage if applicable */}
           {brandGuide?.palette && brandGuide.palette.length > 0 && (
@@ -2467,7 +2609,7 @@ export default function Create() {
                         )}
                       </div>
                     </div>
-                  )
+                  ),
               )}
             </div>
 
@@ -2530,7 +2672,7 @@ export default function Create() {
                           Retrying {failedScenes.length} failed scenes...
                         </span>
                       </div>,
-                      "response"
+                      "response",
                     );
 
                     try {
@@ -2548,7 +2690,7 @@ export default function Create() {
                               market: story.metadata.market,
                             },
                           }),
-                        }
+                        },
                       );
 
                       const retryData = await retryResponse.json();
@@ -2588,7 +2730,7 @@ export default function Create() {
             </div>
           )}
         </div>,
-        "generated"
+        "generated",
       );
 
       setCurrentStep("images-complete");
@@ -2626,7 +2768,7 @@ export default function Create() {
             </button>
           </div>
         </div>,
-        "response"
+        "response",
       );
     } finally {
       setIsGenerating(false);
@@ -2645,7 +2787,7 @@ export default function Create() {
         <VideoIcon size={16} />
         <span className="font-medium">Create Video Script</span>
       </div>,
-      "selection"
+      "selection",
     );
 
     const loadingId = addMessage(
@@ -2654,7 +2796,7 @@ export default function Create() {
         <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
         <span>Creating video script...</span>
       </div>,
-      "response"
+      "response",
     );
 
     try {
@@ -2754,7 +2896,7 @@ export default function Create() {
             </button>
           </div>
         </div>,
-        "generated"
+        "generated",
       );
     } catch (error) {
       console.error("Video script generation error:", error);
@@ -2764,7 +2906,7 @@ export default function Create() {
         <div className="text-red-600">
           Failed to generate video script. Please try again.
         </div>,
-        "response"
+        "response",
       );
     } finally {
       setIsGenerating(false);
@@ -2806,7 +2948,7 @@ export default function Create() {
           </button>
         </div>
       </div>,
-      "question"
+      "question",
     );
 
     setCurrentStep("export");
@@ -2901,7 +3043,7 @@ export default function Create() {
           <Download size={16} />
           <span className="font-medium">Export as {format.toUpperCase()}</span>
         </div>,
-        "selection"
+        "selection",
       );
 
       await simulateTyping(800);
@@ -2911,7 +3053,7 @@ export default function Create() {
         <div className="text-green-600">
           ✓ Package exported successfully as {format.toUpperCase()}!
         </div>,
-        "response"
+        "response",
       );
 
       // Step: Complete
@@ -2974,7 +3116,7 @@ export default function Create() {
             Create New Story
           </button>
         </div>,
-        "question"
+        "question",
       );
 
       setCurrentStep("complete");
@@ -2983,7 +3125,7 @@ export default function Create() {
       addMessage(
         "system",
         <div className="text-red-600">Failed to export. Please try again.</div>,
-        "response"
+        "response",
       );
     }
   };
@@ -2994,27 +3136,27 @@ export default function Create() {
     switch (currentStep) {
       case "entry":
         return (
-          <div className="p-4">
-      <div className="space-y-4">
-        <div className="relative">
-          <textarea
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (userInput.trim() && userInput.trim().length >= 3) {
-                  handleEntrySubmit();
-                }
-              }
-            }}
-            placeholder="Describe your moment in your own words... (e.g., 'I felt inspired when...', 'A café in Lagos at dawn...', 'Everything is changing...')"
-            className="w-full h-32 p-4 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          />
+          <div className="p-4 fixed bottom-0 left-[27%] right-0">
+            <div className="space-y-4">
+              <div className="relative">
+                <textarea
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (userInput.trim() && userInput.trim().length >= 3) {
+                        handleEntrySubmit();
+                      }
+                    }
+                  }}
+                  placeholder="Describe your moment in your own words... (e.g., 'I felt inspired when...', 'A café in Lagos at dawn...', 'Everything is changing...')"
+                  className="w-[80%] h-32 p-4 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
                 <button
                   onClick={() => handleEntrySubmit()}
                   disabled={!userInput.trim() || userInput.trim().length < 3}
-                  className="absolute right-3 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  className="absolute right-56 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   title="Share my moment"
                 >
                   <Send size={18} />
@@ -3026,37 +3168,36 @@ export default function Create() {
 
       case "clarification":
         return (
-             <div className="p-4 border-t bg-white">
-      <div className="space-y-4">
-        <div className="mb-3">
-          <p className="text-sm text-gray-600 mb-2">
-            {clarificationQuestion?.question}
-          </p>
-        </div>
+          <div className="p-4 border-t">
+            <div className="space-y-4">
+              <div className="mb-3">
+                <p className="text-sm text-gray-600 mb-2">
+                  {clarificationQuestion?.question}
+                </p>
+              </div>
 
-        <textarea
-          value={userInput}
-          onChange={(e) => setUserInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              if (userInput.trim()) {
-                handleEntrySubmit(userInput);
-              }
-            }
-          }}
-          placeholder="Type your answer here..."
-          className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-        />
-
-              <div className="flex gap-3">
+              <div className="relative">
+                <textarea
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (userInput.trim()) {
+                        handleEntrySubmit(userInput);
+                      }
+                    }
+                  }}
+                  placeholder="Type your answer here..."
+                  className="w-full h-24 p-3 pr-12 pb-12 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
                 <button
                   onClick={() => handleEntrySubmit(userInput)}
                   disabled={!userInput.trim()}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
+                  className="absolute right-3 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  title="Submit answer"
                 >
-                  <Send size={16} />
-                  Submit Answer
+                  <Send size={18} />
                 </button>
               </div>
             </div>
@@ -3065,24 +3206,27 @@ export default function Create() {
 
       case "story-purpose":
         return (
-         <div className="p-4">
-      <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1">
-            <textarea
-              value={userPurpose}
-              onChange={(e) => setUserPurpose(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (userPurpose.trim() && userPurpose.trim().length >= 3) {
-                    handleStoryPurpose(userPurpose);
-                  }
-                }
-              }}
-              placeholder="Describe your purpose... (e.g., 'Turn this into a brand post', 'This is for Instagram', 'Make it more formal for LinkedIn', etc.)"
-              className="w-full h-24 p-3 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
+          <div className="p-4">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
+                  <textarea
+                    value={userPurpose}
+                    onChange={(e) => setUserPurpose(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (
+                          userPurpose.trim() &&
+                          userPurpose.trim().length >= 3
+                        ) {
+                          handleStoryPurpose(userPurpose);
+                        }
+                      }
+                    }}
+                    placeholder="Describe your purpose... (e.g., 'Turn this into a brand post', 'This is for Instagram', 'Make it more formal for LinkedIn', etc.)"
+                    className="w-full h-24 p-3 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  />
                   <button
                     onClick={() => handleStoryPurpose(userPurpose)}
                     disabled={
@@ -3104,7 +3248,7 @@ export default function Create() {
                         <div className="text-gray-600">
                           You can continue with the story as is.
                         </div>,
-                        "response"
+                        "response",
                       );
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 whitespace-nowrap self-start"
@@ -3124,26 +3268,26 @@ export default function Create() {
       case "brand-details":
         // Minimal input section for brand-details (optional fallback)
         return (
-           <div className="p-4">
-      <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              value={brandName}
-              onChange={(e) => setBrandName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  if (brandName.trim()) {
-                    // Trigger brand adaptation
-                    adaptStoryWithBrand(userPurpose);
-                  }
-                }
-              }}
-              placeholder="Enter your brand name..."
-              className="w-full h-[100px] p-3 pr-12 border border-gray-300 rounded-3xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
+          <div className="p-4">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={brandName}
+                    onChange={(e) => setBrandName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (brandName.trim()) {
+                          // Trigger brand adaptation
+                          adaptStoryWithBrand(userPurpose);
+                        }
+                      }
+                    }}
+                    placeholder="Enter your brand name..."
+                    className="w-full h-[100px] p-3 pr-12 border border-gray-300 rounded-3xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  />
                   <button
                     onClick={async () => {
                       if (!brandName.trim()) {
@@ -3152,7 +3296,7 @@ export default function Create() {
                           <div className="text-amber-600">
                             Please enter a brand name to continue.
                           </div>,
-                          "response"
+                          "response",
                         );
                         return;
                       }
@@ -3230,7 +3374,7 @@ export default function Create() {
                     <div className="text-green-600">
                       ✓ Story exported as text file.
                     </div>,
-                    "response"
+                    "response",
                   );
                 }}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -3346,31 +3490,31 @@ export default function Create() {
 
   return (
     <Layout>
-      <div className="mx-16" >
-  <div className="min-h-screen  bg-[#FAF9F6] flex flex-col">
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="max-w-3xl mx-auto space-y-6">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex gap-3 ${
-                  message.sender === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
-                {message.sender === "system" && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#5B2D8B] flex items-center justify-center">
-                    <Bot size={16} className="text-white" />
-                  </div>
-                )}
-
+      <div className="mx-16">
+        <div className="h-screen  bg-[#FAF9F6] flex flex-col">
+          {/* Messages Area */}
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="max-w-3xl mx-auto space-y-6">
+              {messages.map((message) => (
                 <div
-                  className={`max-w-[80%] ${
-                    message.sender === "user" ? "order-1" : "order-2"
+                  key={message.id}
+                  className={`flex gap-3 ${
+                    message.sender === "user" ? "justify-end" : "justify-start"
                   }`}
                 >
+                  {message.sender === "system" && (
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#5B2D8B] flex items-center justify-center">
+                      <Bot size={16} className="text-white" />
+                    </div>
+                  )}
+
                   <div
-                    className={`
+                    className={`max-w-[80%] ${
+                      message.sender === "user" ? "order-1" : "order-2"
+                    }`}
+                  >
+                    <div
+                      className={`
                     px-4 py-3 rounded-3xl
                     ${
                       message.sender === "system"
@@ -3378,64 +3522,63 @@ export default function Create() {
                         : "bg-white border border-gray-200 text-gray-800 rounded-tr-sm shadow-sm"
                     }
                   `}
-                  >
-                    {message.content}
+                    >
+                      {message.content}
+                    </div>
+                    <div
+                      className={`text-xs mt-1 ${
+                        message.sender === "system"
+                          ? "text-gray-500"
+                          : "text-blue-500 text-right"
+                      }`}
+                    >
+                      {message.timestamp.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </div>
                   </div>
-                  <div
-                    className={`text-xs mt-1 ${
-                      message.sender === "system"
-                        ? "text-gray-500"
-                        : "text-blue-500 text-right"
-                    }`}
-                  >
-                    {message.timestamp.toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+
+                  {message.sender === "user" && (
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center order-2">
+                      <UserIcon size={16} className="text-black" />
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {isGenerating && (
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full  flex items-center justify-center">
+                    <Bot size={16} className="text-white" />
+                  </div>
+                  <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-bl-sm shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+                      <span className="text-gray-600">Thinking...</span>
+                    </div>
                   </div>
                 </div>
+              )}
 
-                {message.sender === "user" && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center order-2">
-                    <UserIcon size={16} className="text-black" />
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {isGenerating && (
-              <div className="flex gap-3">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full  flex items-center justify-center">
-                  <Bot size={16} className="text-white" />
-                </div>
-                <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-bl-sm shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-                    <span className="text-gray-600">Thinking...</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} />
+            </div>
           </div>
+
+          {/* Input Section */}
+          <div className="mx-20 ">{renderInputSection()}</div>
+
+          {/* Image Modal */}
+          {imageModal.isOpen && (
+            <ImageModal
+              isOpen={imageModal.isOpen}
+              onClose={() => setImageModal({ isOpen: false, currentIndex: 0 })}
+              images={imageGalleryData}
+              initialIndex={imageModal.currentIndex}
+            />
+          )}
         </div>
-
-        {/* Input Section */}
-        <div className="mx-20">{renderInputSection()}</div>
-
-        {/* Image Modal */}
-        {imageModal.isOpen && (
-          <ImageModal
-            isOpen={imageModal.isOpen}
-            onClose={() => setImageModal({ isOpen: false, currentIndex: 0 })}
-            images={imageGalleryData}
-            initialIndex={imageModal.currentIndex}
-          />
-        )}
       </div>
-      </div>
-    
     </Layout>
   );
 }

@@ -99,7 +99,7 @@ If ANY confidence score is below 0.7, suggest ONE clarifying question.
 RAW ANALYSIS (in first person, conversational):
 Write a brief analysis starting with phrases like:
 - "This feels like it's about..."
-- "It sounds like..."
+- "This sounds like..."
 - "I'm hearing..."
 - "This gives me the sense of..."
 - "What I'm picking up is..."
