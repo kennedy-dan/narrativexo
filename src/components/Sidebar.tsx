@@ -41,7 +41,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       {/* Sidebar */}
       <div className={`
         fixed lg:static inset-y-0 left-0 z-50 lg:z-auto
-        w-64 bg-white border-r border-gray-200 flex flex-col
+        w-64 bg-[#FAF9F6] border-r border-gray-200 flex flex-col
         transform transition-transform duration-300 ease-in-out lg:transform-none
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
