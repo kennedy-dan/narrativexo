@@ -551,11 +551,11 @@ export default function Create() {
     // Show user message with detected market info if any
     const messageContent = !clarificationAnswer ? (
       <div className=" p-3 b">
-        <p className="text-base font-bold">{inputToSend}</p>
+        <p className="text-base font-medium">{inputToSend}</p>
       </div>
     ) : (
       <div className="  p-3 ">
-        <p className="text-base font-bold">{inputToSend}</p>
+        <p className="text-base font-medium">{inputToSend}</p>
       </div>
     );
 
@@ -1453,344 +1453,451 @@ export default function Create() {
   // Trigger Story Generation - MODIFIED to ask for purpose
   // Updated triggerStoryGeneration function
   // Updated triggerStoryGeneration function - FIXED for direct purpose button clicks
-  const triggerStoryGeneration = async (ccnData: CCNData) => {
-    setIsGenerating(true);
+ // Updated triggerStoryGeneration function - Fix for hiding other purpose buttons
+const triggerStoryGeneration = async (ccnData: CCNData) => {
+  setIsGenerating(true);
 
-    console.log("triggerStoryGeneration received ccnData:", ccnData);
+  console.log("triggerStoryGeneration received ccnData:", ccnData);
 
-    if (!ccnData) {
-      console.error("No CCN data provided to triggerStoryGeneration");
-      return;
-    }
+  if (!ccnData) {
+    console.error("No CCN data provided to triggerStoryGeneration");
+    return;
+  }
 
-    // Show loading message
-    const loadingMessage: Message = {
-      id: messages.length + 1,
-      sender: "system",
-      content: (
-        <div className="flex items-center gap-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-          <span>Shaping your story based on your moment...</span>
-        </div>
-      ),
-      timestamp: new Date(),
-      type: "response",
+  // Show loading message
+  const loadingMessage: Message = {
+    id: messages.length + 1,
+    sender: "system",
+    content: (
+      <div className="flex items-center gap-2">
+        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+        <span>Shaping your story based on your moment...</span>
+      </div>
+    ),
+    timestamp: new Date(),
+    type: "response",
+  };
+
+  // Add loading message to existing messages
+  setMessages((prev) => [...prev, loadingMessage]);
+
+  try {
+    const rawAnalysis =
+      ccnData.rawAnalysis ||
+      "I feel this is a meaningful moment worth exploring.";
+
+    console.log("Using rawAnalysis:", rawAnalysis.substring(0, 100) + "...");
+
+    const storyRequestData = {
+      market: ccnData.market,
+      semanticExtraction: {
+        emotion: ccnData.emotion,
+        scene: ccnData.scene,
+        seedMoment: ccnData.seedMoment,
+        audience: ccnData.audience,
+        intentSummary: ccnData.intentSummary,
+        pathway: ccnData.pathway,
+        rawAnalysis: rawAnalysis,
+      },
+      brand: brandGuide ? { name: brandName, ...brandGuide } : undefined,
+      requestType: "micro-story",
+      originalContext: originalUserInput,
     };
 
-    // Add loading message to existing messages
-    setMessages((prev) => [...prev, loadingMessage]);
+    console.log("Sending to /api/generateStory:", {
+      market,
+      emotion: ccnData.emotion,
+      seedMoment: ccnData.seedMoment,
+      rawAnalysis: rawAnalysis.substring(0, 150) + "...",
+    });
 
-    try {
-      const rawAnalysis =
-        ccnData.rawAnalysis ||
-        "I feel this is a meaningful moment worth exploring.";
+    const res = await fetch("/api/generateStory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(storyRequestData),
+    });
 
-      console.log("Using rawAnalysis:", rawAnalysis.substring(0, 100) + "...");
+    const data = await res.json();
+    console.log("Story generation response:", data);
 
-      const storyRequestData = {
-        market: ccnData.market,
-        semanticExtraction: {
-          emotion: ccnData.emotion,
-          scene: ccnData.scene,
-          seedMoment: ccnData.seedMoment,
-          audience: ccnData.audience,
-          intentSummary: ccnData.intentSummary,
-          pathway: ccnData.pathway,
-          rawAnalysis: rawAnalysis,
-        },
-        brand: brandGuide ? { name: brandName, ...brandGuide } : undefined,
-        requestType: "micro-story",
-        originalContext: originalUserInput,
-      };
+    if (!data.success) {
+      throw new Error(data.error || "Unknown error");
+    }
 
-      console.log("Sending to /api/generateStory:", {
-        market,
-        emotion: ccnData.emotion,
-        seedMoment: ccnData.seedMoment,
-        rawAnalysis: rawAnalysis.substring(0, 150) + "...",
+    const generatedStory: GeneratedStory = {
+      story: data.microStory || data.story,
+      beatSheet: data.beatSheet || [],
+      metadata: data.metadata,
+    };
+
+    setStory(generatedStory);
+    await detectCharacters(generatedStory);
+
+    // Remove the loading message
+    setMessages((prev) => {
+      const filtered = prev.filter((msg) => {
+        if (typeof msg.content === "string") {
+          return !msg.content.includes("Shaping your story");
+        }
+        try {
+          const contentStr = JSON.stringify(msg.content);
+          return !contentStr.includes("Shaping your story");
+        } catch {
+          return true;
+        }
       });
 
-      const res = await fetch("/api/generateStory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(storyRequestData),
-      });
-
-      const data = await res.json();
-      console.log("Story generation response:", data);
-
-      if (!data.success) {
-        throw new Error(data.error || "Unknown error");
-      }
-
-      const generatedStory: GeneratedStory = {
-        story: data.microStory || data.story,
-        beatSheet: data.beatSheet || [],
-        metadata: data.metadata,
-      };
-
-      setStory(generatedStory);
-      await detectCharacters(generatedStory);
-
-      // Remove the loading message
-      setMessages((prev) => {
-        const filtered = prev.filter((msg) => {
-          if (typeof msg.content === "string") {
-            return !msg.content.includes("Shaping your story");
-          }
-          try {
-            const contentStr = JSON.stringify(msg.content);
-            return !contentStr.includes("Shaping your story");
-          } catch {
-            return true;
-          }
-        });
-
-        // Add the generated story message WITH EXPANSION OPTIONS FIRST
-        const newMessages = [
-          ...filtered,
-          {
-            id: filtered.length + 1,
-            sender: "system" as const,
-            content: (
-              <div className="space-y-6">
-                {/* Story Display */}
-                <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-6 rounded-r-lg">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-lg text-purple-800">
-                      ✨ {generatedStory.metadata.title}
-                    </h3>
-                    <div className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                      First Draft
-                    </div>
-                  </div>
-                  <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
-                    {generatedStory.story}
+      // Add the generated story message WITH EXPANSION OPTIONS FIRST
+      const newMessages = [
+        ...filtered,
+        {
+          id: filtered.length + 1,
+          sender: "system" as const,
+          content: (
+            <div className="space-y-6">
+              {/* Story Display */}
+              <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-6 rounded-r-lg">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-lg text-purple-800">
+                    ✨ {generatedStory.metadata.title}
+                  </h3>
+                  <div className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                    First Draft
                   </div>
                 </div>
-
-                {/* EXPANSION OPTIONS - BEFORE PURPOSE */}
-                <div className="space-y-4">
-                  <p className="font-medium text-gray-700">
-                    Want to refine this story first?
-                  </p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <button
-                      onClick={() =>
-                        handleStoryExpansionWithStory(
-                          "expand",
-                          generatedStory,
-                          ccnData,
-                        )
-                      }
-                      className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-                    >
-                      <Maximize2 size={16} />
-                      Expand this
-                    </button>
-                    <button
-                      onClick={() =>
-                        handleStoryExpansionWithStory(
-                          "gentler",
-                          generatedStory,
-                          ccnData,
-                        )
-                      }
-                      className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-                    >
-                      <Zap size={16} />
-                      Make it gentler
-                    </button>
-                    <button
-                      onClick={() =>
-                        handleStoryExpansionWithStory(
-                          "harsher",
-                          generatedStory,
-                          ccnData,
-                        )
-                      }
-                      className="px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-                    >
-                      <Zap size={16} />
-                      Make it harsher
-                    </button>
-                    <button
-                      onClick={() =>
-                        handleStoryExpansionWithStory(
-                          "60-second",
-                          generatedStory,
-                          ccnData,
-                        )
-                      }
-                      className="px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-                    >
-                      <Film size={16} />
-                      60-second version
-                    </button>
-                  </div>
-
-                  <div className="pt-4 border-t">
-                    <p className="text-sm text-gray-600 mb-3">
-                      Or continue with this story as-is:
-                    </p>
-                    <button
-                      onClick={() => {
-                        // Show purpose options
-                        setMessages((prev) => [
-                          ...prev,
-                          {
-                            id: prev.length + 1,
-                            sender: "system" as const,
-                            content: (
-                              <div className="space-y-3">
-                                <p className="font-medium text-gray-700">
-                                  How do you want to use this story?
-                                </p>
-                                <p className="text-sm text-gray-600">
-                                  Tell me what this is for (e.g., "Turn this
-                                  into a brand post", "This is for Instagram",
-                                  "Make it more formal for LinkedIn", etc.)
-                                </p>
-                                {showPurposeButtons && (
-                                  <div className="flex flex-wrap gap-2 pt-2">
-                                    <button
-                                      onClick={() => {
-                                        const purpose =
-                                          "Turn this into a brand post";
-                                        setUserPurpose(purpose);
-                                        setShowPurposeButtons(false);
-                                        handleStoryPurpose(purpose);
-                                      }}
-                                      className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
-                                    >
-                                      Brand post
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        const purpose = "This is for Instagram";
-                                        setUserPurpose(purpose);
-                                        setShowPurposeButtons(false);
-                                        handleStoryPurpose(purpose);
-                                      }}
-                                      className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                                    >
-                                      Instagram
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        const purpose =
-                                          "Make it more formal for LinkedIn";
-                                        setUserPurpose(purpose);
-                                        setShowPurposeButtons(false);
-                                        handleStoryPurpose(purpose);
-                                      }}
-                                      className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                                    >
-                                      LinkedIn
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        const purpose = "Educational content";
-                                        setUserPurpose(purpose);
-                                        setShowPurposeButtons(false);
-                                        handleStoryPurpose(purpose);
-                                      }}
-                                      className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                                    >
-                                      Educational
-                                    </button>
-                                  </div>
-                                )}
-                                {!showPurposeButtons && userPurpose && (
-                                  <div className="pt-2">
-                                    <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
-                                      <span className="text-xs">Selected:</span>
-                                      <span className="font-medium text-sm">
-                                        {userPurpose}
-                                      </span>
-                                    </div>
-                                  </div>
-                                )}
-
-                                <p className="text-xs text-gray-500">
-                                  I'll adapt the same story based on your
-                                  specific use case.
-                                </p>
-                              </div>
-                            ),
-                            timestamp: new Date(),
-                            type: "question" as const,
-                          },
-                        ]);
-                        setCurrentStep("story-purpose");
-                      }}
-                      className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
-                    >
-                      Continue with this story →
-                    </button>
-                  </div>
+                <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
+                  {generatedStory.story}
                 </div>
               </div>
-            ),
-            timestamp: new Date(),
-            type: "generated" as const,
-          },
-        ];
 
-        return newMessages;
-      });
-
-      // Set step to story-generated (which will show expansion options)
-      setCurrentStep("story-generated");
-    } catch (error) {
-      console.error("❌ Story generation error:", error);
-
-      // Remove loading message and show error
-      setMessages((prev) => {
-        const filtered = prev.filter((msg) => {
-          if (typeof msg.content === "string") {
-            return !msg.content.includes("Shaping your story");
-          }
-          try {
-            const contentStr = JSON.stringify(msg.content);
-            return !contentStr.includes("Shaping your story");
-          } catch {
-            return true;
-          }
-        });
-
-        return [
-          ...filtered,
-          {
-            id: filtered.length + 1,
-            sender: "system",
-            content: (
-              <div className="space-y-6">
-                <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
-                  <p>
-                    I had trouble shaping your story. Let's try a different
-                    approach:
-                  </p>
-                </div>
-                <div className="space-y-4">
+              {/* EXPANSION OPTIONS - BEFORE PURPOSE */}
+              <div className="space-y-4">
+                <p className="font-medium text-gray-700">
+                  Want to refine this story first?
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <button
-                    onClick={() => setCurrentStep("entry")}
+                    onClick={() =>
+                      handleStoryExpansionWithStory(
+                        "expand",
+                        generatedStory,
+                        ccnData,
+                      )
+                    }
+                    className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Maximize2 size={16} />
+                    Expand this
+                  </button>
+                  <button
+                    onClick={() =>
+                      handleStoryExpansionWithStory(
+                        "gentler",
+                        generatedStory,
+                        ccnData,
+                      )
+                    }
+                    className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Zap size={16} />
+                    Make it gentler
+                  </button>
+                  <button
+                    onClick={() =>
+                      handleStoryExpansionWithStory(
+                        "harsher",
+                        generatedStory,
+                        ccnData,
+                      )
+                    }
+                    className="px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Zap size={16} />
+                    Make it harsher
+                  </button>
+                  <button
+                    onClick={() =>
+                      handleStoryExpansionWithStory(
+                        "60-second",
+                        generatedStory,
+                        ccnData,
+                      )
+                    }
+                    className="px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Film size={16} />
+                    60-second version
+                  </button>
+                </div>
+
+                <div className="pt-4 border-t">
+                  <p className="text-sm text-gray-600 mb-3">
+                    Or continue with this story as-is:
+                  </p>
+                  <button
+                    onClick={() => {
+                      // Show purpose options
+                      setMessages((prev) => [
+                        ...prev,
+                        {
+                          id: prev.length + 1,
+                          sender: "system" as const,
+                          content: (
+                            <div className="space-y-3">
+                              <p className="font-medium text-gray-700">
+                                How do you want to use this story?
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                Tell me what this is for (e.g., "Turn this
+                                into a brand post", "This is for Instagram",
+                                "Make it more formal for LinkedIn", etc.)
+                              </p>
+                              {showPurposeButtons && (
+                                <div className="flex flex-wrap gap-2 pt-2">
+                                  <button
+                                    onClick={() => {
+                                      const purpose =
+                                        "Turn this into a brand post";
+                                      setUserPurpose(purpose);
+                                      setShowPurposeButtons(false);
+                                      // Update message to show only the selected button
+                                      const updatedMessage = {
+                                        ...messages[messages.length - 1],
+                                        content: (
+                                          <div className="space-y-3">
+                                            <p className="font-medium text-gray-700">
+                                              How do you want to use this story?
+                                            </p>
+                                            <p className="text-sm text-gray-600">
+                                              Tell me what this is for (e.g., "Turn this
+                                              into a brand post", "This is for Instagram",
+                                              "Make it more formal for LinkedIn", etc.)
+                                            </p>
+                                            <div className="pt-2">
+                                              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
+                                                <span className="text-xs">Selected:</span>
+                                                <span className="font-medium text-sm">
+                                                  {purpose}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <p className="text-xs text-gray-500">
+                                              I'll adapt the same story based on your
+                                              specific use case.
+                                            </p>
+                                          </div>
+                                        ),
+                                      };
+                                      setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                      handleStoryPurpose(purpose);
+                                    }}
+                                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
+                                  >
+                                    Brand post
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const purpose = "This is for Instagram";
+                                      setUserPurpose(purpose);
+                                      setShowPurposeButtons(false);
+                                      // Update message to show only the selected button
+                                      const updatedMessage = {
+                                        ...messages[messages.length - 1],
+                                        content: (
+                                          <div className="space-y-3">
+                                            <p className="font-medium text-gray-700">
+                                              How do you want to use this story?
+                                            </p>
+                                            <p className="text-sm text-gray-600">
+                                              Tell me what this is for (e.g., "Turn this
+                                              into a brand post", "This is for Instagram",
+                                              "Make it more formal for LinkedIn", etc.)
+                                            </p>
+                                            <div className="pt-2">
+                                              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
+                                                <span className="text-xs">Selected:</span>
+                                                <span className="font-medium text-sm">
+                                                  {purpose}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <p className="text-xs text-gray-500">
+                                              I'll adapt the same story based on your
+                                              specific use case.
+                                            </p>
+                                          </div>
+                                        ),
+                                      };
+                                      setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                      handleStoryPurpose(purpose);
+                                    }}
+                                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                                  >
+                                    Instagram
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const purpose =
+                                        "Make it more formal for LinkedIn";
+                                      setUserPurpose(purpose);
+                                      setShowPurposeButtons(false);
+                                      // Update message to show only the selected button
+                                      const updatedMessage = {
+                                        ...messages[messages.length - 1],
+                                        content: (
+                                          <div className="space-y-3">
+                                            <p className="font-medium text-gray-700">
+                                              How do you want to use this story?
+                                            </p>
+                                            <p className="text-sm text-gray-600">
+                                              Tell me what this is for (e.g., "Turn this
+                                              into a brand post", "This is for Instagram",
+                                              "Make it more formal for LinkedIn", etc.)
+                                            </p>
+                                            <div className="pt-2">
+                                              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
+                                                <span className="text-xs">Selected:</span>
+                                                <span className="font-medium text-sm">
+                                                  {purpose}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <p className="text-xs text-gray-500">
+                                              I'll adapt the same story based on your
+                                              specific use case.
+                                            </p>
+                                          </div>
+                                        ),
+                                      };
+                                      setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                      handleStoryPurpose(purpose);
+                                    }}
+                                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                                  >
+                                    LinkedIn
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const purpose = "Educational content";
+                                      setUserPurpose(purpose);
+                                      setShowPurposeButtons(false);
+                                      // Update message to show only the selected button
+                                      const updatedMessage = {
+                                        ...messages[messages.length - 1],
+                                        content: (
+                                          <div className="space-y-3">
+                                            <p className="font-medium text-gray-700">
+                                              How do you want to use this story?
+                                            </p>
+                                            <p className="text-sm text-gray-600">
+                                              Tell me what this is for (e.g., "Turn this
+                                              into a brand post", "This is for Instagram",
+                                              "Make it more formal for LinkedIn", etc.)
+                                            </p>
+                                            <div className="pt-2">
+                                              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
+                                                <span className="text-xs">Selected:</span>
+                                                <span className="font-medium text-sm">
+                                                  {purpose}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <p className="text-xs text-gray-500">
+                                              I'll adapt the same story based on your
+                                              specific use case.
+                                            </p>
+                                          </div>
+                                        ),
+                                      };
+                                      setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                      handleStoryPurpose(purpose);
+                                    }}
+                                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                                  >
+                                    Educational
+                                  </button>
+                                </div>
+                              )}
+
+                              <p className="text-xs text-gray-500">
+                                I'll adapt the same story based on your
+                                specific use case.
+                              </p>
+                            </div>
+                          ),
+                          timestamp: new Date(),
+                          type: "question" as const,
+                        },
+                      ]);
+                      setCurrentStep("story-purpose");
+                    }}
                     className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
                   >
-                    Start Over
+                    Continue with this story →
                   </button>
                 </div>
               </div>
-            ),
-            timestamp: new Date(),
-            type: "response",
-          },
-        ];
+            </div>
+          ),
+          timestamp: new Date(),
+          type: "generated" as const,
+        },
+      ];
+
+      return newMessages;
+    });
+
+    // Set step to story-generated (which will show expansion options)
+    setCurrentStep("story-generated");
+  } catch (error) {
+    console.error("❌ Story generation error:", error);
+
+    // Remove loading message and show error
+    setMessages((prev) => {
+      const filtered = prev.filter((msg) => {
+        if (typeof msg.content === "string") {
+          return !msg.content.includes("Shaping your story");
+        }
+        try {
+          const contentStr = JSON.stringify(msg.content);
+          return !contentStr.includes("Shaping your story");
+        } catch {
+          return true;
+        }
       });
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+
+      return [
+        ...filtered,
+        {
+          id: filtered.length + 1,
+          sender: "system",
+          content: (
+            <div className="space-y-6">
+              <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
+                <p>
+                  I had trouble shaping your story. Let's try a different
+                  approach:
+                </p>
+              </div>
+              <div className="space-y-4">
+                <button
+                  onClick={() => setCurrentStep("entry")}
+                  className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
+                >
+                  Start Over
+                </button>
+              </div>
+            </div>
+          ),
+          timestamp: new Date(),
+          type: "response",
+        },
+      ];
+    });
+  } finally {
+    setIsGenerating(false);
+  }
+};
 
   // Character detection function
   const detectCharacters = async (storyData: GeneratedStory) => {
