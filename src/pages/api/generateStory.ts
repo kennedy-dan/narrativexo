@@ -1,819 +1,589 @@
 import { OpenAI } from 'openai';
 import { NextApiRequest, NextApiResponse } from 'next';
+import { GenerateStoryRequest, GenerateStoryResponse, Scene } from '@/types';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// Types
-interface GenerateStoryRequest {
-  market: string;
-  semanticExtraction?: {
-    emotion: string;
-    scene: string;
-    seedMoment: string;
-    audience: string;
-    intentSummary: string;
-    pathway: string;
-    rawAnalysis?: string;
-  };
-  need?: string;
-  archetype?: string;
-  tone?: string;
-  context?: string;
-  brand?: {
-    name: string;
-    palette?: string[];
-    fonts?: string[];
-  };
-  requestType?: 'micro-story' | 'expansion' | 'purpose-adaptation';
-  expansionType?: 'expand' | 'gentler' | 'harsher' | '60-second';
-  currentStory?: string;
-  originalContext?: string;
-  purpose?: string;
-}
-
-interface Scene {
-  beat: string;
-  description: string;
-  visualCues: string[];
-  emotion?: string;
-  duration?: string;
-}
-
-interface GeneratedStory {
-  story: string;
-  microStory?: string;
-  expandedStory?: string;
-  adaptedStory?: string;
-  beatSheet: Scene[];
-  metadata: {
-    title: string;
-    market: string;
-    archetype: string;
-    tone: string;
-    totalBeats: number;
-    estimatedDuration: string;
-    purpose?: string;
-  };
-}
-
-interface MarketTone {
-  name: string;
-  keywords: string[];
-  archetypeLinks: string[];
-  visualDescriptors: string[];
-}
-
-interface MarketData {
-  market: string;
-  tones: MarketTone[];
-}
-
-// Helper function to map pathway to archetype
-function mapPathwayToArchetype(pathway: string): string {
-  const map: Record<string, string> = {
-    'emotion-first': 'Against All Odds',
-    'scene-first': 'Community Builder',
-    'story-seed': 'Heritage Hero',
-    'audience-led': 'Modern Pioneer'
-  };
-  return map[pathway] || 'Against All Odds';
-}
-
-// Helper function to determine tone from emotion
-function determineToneFromEmotion(emotion: string): string {
-  const emotionLower = emotion.toLowerCase();
+// Helper: Extract subject from user context
+function extractSubjectFromContext(context?: string): string {
+  if (!context) return "the described scenario";
   
-  if (emotionLower.includes('hopeful') || emotionLower.includes('inspired') || emotionLower.includes('uplifting')) 
-    return 'Cinematic';
-  if (emotionLower.includes('uncertain') || emotionLower.includes('vulnerable') || emotionLower.includes('tender')) 
-    return 'Heartfelt';
-  if (emotionLower.includes('joyful') || emotionLower.includes('playful') || emotionLower.includes('lighthearted')) 
-    return 'Playful';
-  if (emotionLower.includes('anxious') || emotionLower.includes('defiant') || emotionLower.includes('intense')) 
-    return 'Defiant';
-  if (emotionLower.includes('melancholy') || emotionLower.includes('nostalgic') || emotionLower.includes('reflective')) 
-    return 'Heartfelt';
-  if (emotionLower.includes('energetic') || emotionLower.includes('dynamic') || emotionLower.includes('vibrant')) 
-    return 'Cinematic';
+  // Simple keyword extraction
+  const subjects = [
+    'meeting', 'conversation', 'discussion', 'gathering', 'workshop', 'session',
+    'event', 'experience', 'moment', 'situation', 'occasion', 'happening',
+    'product', 'device', 'machine', 'appliance', 'tool', 'equipment',
+    'person', 'people', 'individual', 'team', 'group', 'colleague',
+    'place', 'location', 'space', 'environment', 'setting',
+    'story', 'narrative', 'account', 'description', 'report'
+  ];
   
-  return 'Cinematic';
+  const lowerContext = context.toLowerCase();
+  const foundSubjects = subjects.filter(subject => lowerContext.includes(subject));
+  
+  return foundSubjects.length > 0 
+    ? foundSubjects.slice(0, 2).join(' / ')
+    : "the described scenario";
 }
 
-// Load market tones data
-const defaultMarketTones = {
-  ng: {
-    market: 'ng',
-    tones: [
-      {
-        name: 'Cinematic',
-        keywords: ['epic', 'grand', 'emotional', 'sweeping', 'dramatic'],
-        archetypeLinks: ['Against All Odds', 'Heritage Hero'],
-        visualDescriptors: ['vibrant colors', 'dynamic compositions', 'golden hour lighting']
-      },
-      {
-        name: 'Heartfelt',
-        keywords: ['intimate', 'personal', 'emotional', 'tender', 'reflective'],
-        archetypeLinks: ['Community Builder', 'Against All Odds'],
-        visualDescriptors: ['close-up shots', 'soft lighting', 'natural textures']
-      },
-      {
-        name: 'Playful',
-        keywords: ['energetic', 'fun', 'lighthearted', 'joyful', 'spontaneous'],
-        archetypeLinks: ['Modern Pioneer', 'Community Builder'],
-        visualDescriptors: ['bright colors', 'dynamic movement', 'candid moments']
-      },
-      {
-        name: 'Defiant',
-        keywords: ['intense', 'powerful', 'determined', 'resilient', 'bold'],
-        archetypeLinks: ['Against All Odds', 'Modern Pioneer'],
-        visualDescriptors: ['high contrast', 'dramatic lighting', 'strong compositions']
-      }
-    ]
-  },
-  uk: {
-    market: 'uk',
-    tones: [
-      {
-        name: 'Cinematic',
-        keywords: ['epic', 'grand', 'emotional', 'sweeping', 'dramatic'],
-        archetypeLinks: ['Underdog Fighter', 'Legacy Keeper'],
-        visualDescriptors: ['muted colors', 'rainy atmosphere', 'urban landscapes']
-      },
-      {
-        name: 'Heartfelt',
-        keywords: ['intimate', 'personal', 'emotional', 'tender', 'reflective'],
-        archetypeLinks: ['Community Guardian', 'Legacy Keeper'],
-        visualDescriptors: ['soft focus', 'natural light', 'authentic moments']
-      }
-    ]
-  },
-  fr: {
-    market: 'fr',
-    tones: [
-      {
-        name: 'Cinematic',
-        keywords: ['elegant', 'romantic', 'refined', 'artistic', 'sophisticated'],
-        archetypeLinks: ['Résilience Créative', 'Élégance Culturelle'],
-        visualDescriptors: ['soft lighting', 'classical compositions', 'natural beauty']
-      },
-      {
-        name: 'Heartfelt',
-        keywords: ['passionate', 'sensitive', 'introspective', 'poetic', 'emotional'],
-        archetypeLinks: ['Artisan Passionné', 'Élégance Culturelle'],
-        visualDescriptors: ['warm tones', 'natural textures', 'intimate framing']
-      }
-    ]
+// Helper: Extract key elements
+function extractKeyElements(context?: string): string {
+  if (!context) return "- Maintain the core scenario";
+  
+  // Extract key phrases (simple approach)
+  const sentences = context.split(/[.!?]+/).filter(s => s.trim().length > 10);
+  const keyElements = sentences.slice(0, 3).map((sentence, index) => 
+    `- ${sentence.trim()}`
+  ).join('\n');
+  
+  return keyElements || "- Maintain the core scenario";
+}
+
+// Generate title based on constraints AND content
+function generateTitleFromConstraints(
+  baselineStance: string, 
+  hasBrandContext: boolean = false, 
+  productCategory?: string,
+  originalContext?: string
+): string {
+  
+  // First, try to extract a title from the original context
+  if (originalContext) {
+    const firstSentence = originalContext.split(/[.!?]+/)[0]?.trim();
+    if (firstSentence && firstSentence.length < 60) {
+      return firstSentence;
+    }
   }
-};
+  
+  // Fall back to constraint-based titles
+  if (hasBrandContext && productCategory) {
+    const brandTitles: Record<string, string[]> = {
+      'washing machine': ['Expected to Break', 'No Promises, Just Function', 'The Unsentimental Machine', 'Cold Wash, Cold Facts', 'Simply Runs'],
+      'car': ['Point A to B', 'No Frills Transport', 'The Functional Drive', 'Gets You There'],
+      'phone': ['Connection, Not Emotion', 'Signal Available', 'Basic Function', 'Utilitarian Device'],
+      'appliance': ['Does the Job', 'Expected Performance', 'No Drama Operation', 'Functional Component'],
+      'default': ['As Advertised', 'Performs as Stated', 'No Exaggeration', 'Basic Function']
+    };
+    
+    const category = Object.keys(brandTitles).find(key => productCategory.includes(key)) || 'default';
+    const options = brandTitles[category];
+    return options[Math.floor(Math.random() * options.length)];
+  }
+  
+  // Constraint-based titles
+  const constraintTitles: Record<string, string[]> = {
+    'skeptical': ['Without Optimism', 'Cynical Observation', 'Realistic Assessment', 'Unvarnished View'],
+    'pragmatic': ['Practical Consideration', 'Functional Assessment', 'Utilitarian View', 'No Nonsense'],
+    'cynical': ['Through Skeptical Eyes', 'Assume the Worst', 'Doubt First', 'Cynical Baseline'],
+    'realistic': ['As It Is', 'Unadorned Reality', 'Plain Facts', 'Basic Truth'],
+    'functional': ['For the Purpose', 'Does the Job', 'Serves the Need', 'Practical Use'],
+    'observational': ['Noted', 'Observed', 'Recorded', 'Documented'],
+    'dry': ['Stated', 'Reported', 'Declared', 'Announced']
+  };
+  
+  const stanceKey = Object.keys(constraintTitles).find(key => 
+    baselineStance.toLowerCase().includes(key)
+  ) || 'functional';
+  
+  const options = constraintTitles[stanceKey] || ['Observational Note'];
+  return options[Math.floor(Math.random() * options.length)];
+}
 
-// Build micro story prompt - UPDATED to include beatSheet
-function buildMicroStoryPrompt(
-  market: string,
-  emotion: string,
-  archetype: string,
-  tone: string,
-  rawAnalysis: string,
-  seedMoment: string,
+// Extract beats while preserving context
+function extractBeatsFromStory(
+  story: string, 
+  toneConstraints: string[] = [], 
+  productCategory?: string,
+  originalContext?: string
+): Scene[] {
+  const lines = story.split('\n').filter(line => 
+    line.trim() && 
+    !line.startsWith('Title:') && 
+    !line.startsWith('Beat ') &&
+    line.trim().length > 10
+  );
+  
+  // Get subject from original context to inform beat names
+  const subject = extractSubjectFromContext(originalContext);
+  
+  // Context-aware beat names
+  const getBeatNames = (subject: string) => {
+    if (subject.includes('meeting') || subject.includes('discussion')) {
+      return [
+        'The Gathering',
+        'The Exchange',
+        'The Outcome',
+        'The Assessment',
+        'The Conclusion'
+      ];
+    }
+    if (subject.includes('product') || subject.includes('device')) {
+      return [
+        'The Introduction',
+        'The Function',
+        'The Performance',
+        'The Result',
+        'The Evaluation'
+      ];
+    }
+    if (subject.includes('person') || subject.includes('people')) {
+      return [
+        'The Presence',
+        'The Action',
+        'The Effect',
+        'The Consequence',
+        'The Observation'
+      ];
+    }
+    // Generic constraint-based beat names
+    return [
+      'The Premise',
+      'The Observation', 
+      'The Function',
+      'The Result',
+      'The Assessment'
+    ];
+  };
+  
+  const beatNames = getBeatNames(subject);
+  
+  return lines.slice(0, 5).map((line, index) => {
+    // Context-aware visual cues
+    let visualCues = ['Neutral setting', 'Functional environment'];
+    
+    if (productCategory) {
+      switch(true) {
+        case productCategory.includes('washing machine'):
+          visualCues = ['Laundry area', 'Machine operation', 'Clean results', 'No embellishment', 'Simple interface'];
+          break;
+        case productCategory.includes('car'):
+          visualCues = ['Road view', 'Dashboard indicators', 'Destination arrival', 'Basic transport', 'Functional interior'];
+          break;
+        default:
+          visualCues = ['Product in use', 'Expected performance', 'Functional outcome', 'No decoration'];
+      }
+    } else if (subject.includes('meeting')) {
+      visualCues = ['Conference room', 'Neutral decor', 'Participants seated', 'Documentation visible'];
+    } else if (subject.includes('person')) {
+      visualCues = ['Individual present', 'Neutral expression', 'Functional posture', 'Simple attire'];
+    }
+    
+    // Add constraint-based visual cues
+    if (toneConstraints.includes('dry') || toneConstraints.includes('minimal')) {
+      visualCues.push('Minimal decoration', 'Simple composition');
+    }
+    if (toneConstraints.includes('observational')) {
+      visualCues.push('Objective view', 'Neutral perspective');
+    }
+    
+    return {
+      beat: beatNames[index] || `Point ${index + 1}`,
+      description: line.trim(),
+      visualCues: visualCues.slice(0, 4), // Limit to 4 cues
+      emotion: 'neutral',
+      duration: '5s',
+      shotType: index === 0 ? 'wide-shot' : 
+                index === 1 ? 'medium-shot' : 
+                index === 2 ? 'close-up' : 
+                index === 3 ? 'extreme-close-up' : 'medium-shot'
+    };
+  });
+}
+
+// Determine tone from constraints
+function determineStoryTone(toneConstraints: string[] = []): string {
+  if (toneConstraints.length === 0) {
+    return 'Neutral, Observational';
+  }
+  
+  // Map constraints to tone descriptors
+  const constraintMap: Record<string, string> = {
+    'dry': 'Dry, Minimal',
+    'observational': 'Observational, Objective',
+    'restrained': 'Restrained, Controlled',
+    'flat': 'Flat, Unemotional',
+    'minimal': 'Minimal, Sparse',
+    'functional': 'Functional, Practical',
+    'pragmatic': 'Pragmatic, Realistic',
+    'cynical': 'Cynical, Skeptical',
+    'skeptical': 'Skeptical, Doubting',
+    'witty': 'Witty, Clever',
+    'ironic': 'Ironic, Understated',
+    'matter-of-fact': 'Matter-of-fact',
+    'unemotional': 'Unemotional, Detached'
+  };
+  
+  const primaryTones = toneConstraints
+    .map(constraint => constraintMap[constraint])
+    .filter(Boolean)
+    .slice(0, 2);
+    
+  return primaryTones.join(', ') || 'Neutral, Observational';
+}
+
+// Determine archetype from constraints and stance
+function determineArchetype(
+  pathway: string, 
+  baselineStance: string, 
+  prohibitions: string[] = []
+): string {
+  
+  // Check for specific prohibitions first
+  if (prohibitions.some(p => p.includes('warmth') || p.includes('comfort'))) {
+    return 'Functional Realist';
+  }
+  if (prohibitions.some(p => p.includes('emotional') || p.includes('sentiment'))) {
+    return 'Unsentimental Observer';
+  }
+  if (prohibitions.some(p => p.includes('cinematic') || p.includes('poetic'))) {
+    return 'Restrained Documentarian';
+  }
+  
+  // Check stance
+  const stanceLower = baselineStance.toLowerCase();
+  if (stanceLower.includes('skeptical') || stanceLower.includes('cynical')) {
+    return 'Skeptical Analyst';
+  }
+  if (stanceLower.includes('pragmatic') || stanceLower.includes('practical')) {
+    return 'Practical Assessor';
+  }
+  if (stanceLower.includes('functional') || stanceLower.includes('utilitarian')) {
+    return 'Utilitarian Narrator';
+  }
+  
+  // Default based on pathway
+  const archetypeMap: Record<string, string> = {
+    'assumption-first': 'Assumption-Based Reporter',
+    'constraint-first': 'Constraint-Respecting Writer',
+    'audience-first': 'Audience-Aware Communicator',
+    'function-first': 'Function-Focused Describer'
+  };
+  
+  return archetypeMap[pathway] || 'Constraint-Aware Writer';
+}
+
+// Build constraint-based prompt with CONTEXT PRESERVATION
+// In /api/generateStory.ts
+
+function buildConstraintPrompt(
+  semanticExtraction: any, 
+  brand?: any, 
+  skipBrand?: boolean,
+  originalContext?: string
+): string {
+  const { 
+    baselineStance, 
+    toneConstraints = [], 
+    prohibitions = [], 
+    audience, 
+    intentSummary,
+    hasBrandContext,
+    productCategory
+  } = semanticExtraction;
+  
+  const brandName = brand?.name ? `for ${brand.name}` : 'for a brand';
+  const productRef = productCategory ? `(${productCategory})` : '';
+  
+  const prohibitionList = prohibitions.length > 0 
+    ? `ABSOLUTELY AVOID: ${prohibitions.join(', ')}.` 
+    : 'Avoid emotional exaggeration and sentimentality.';
+  
+  const toneRequirement = toneConstraints.length > 0
+    ? `Maintain this exact tone throughout: ${toneConstraints.join(', ')}.`
+    : 'Use a neutral, observational tone.';
+  
+  const userSubject = extractSubjectFromContext(originalContext);
+  const userKeyElements = extractKeyElements(originalContext);
+  
+  return `
+CONSTRAINT-BASED STORY NARRATION:
+You are NARRATING a story to the audience, applying specific tone constraints.
+
+USER'S ORIGINAL DESCRIPTION:
+"${originalContext || 'No specific context provided.'}"
+
+KEY ELEMENTS TO PRESERVE FROM USER'S DESCRIPTION:
+${userKeyElements}
+
+CRITICAL NARRATION REQUIREMENTS:
+1. This MUST BE A NARRATED STORY, not an essay or analysis
+2. Tell it as if you're speaking directly to the audience
+3. Use narrative techniques: scene-setting, progression, observation
+4. Keep it flowing like a story being told, not a product review
+5. Maintain: ${baselineStance} perspective throughout
+
+TONE CONSTRAINTS TO APPLY:
+1. REQUIRED TONE: ${toneRequirement}
+2. PROHIBITIONS: ${prohibitionList}
+3. TARGET AUDIENCE: ${audience}
+4. PRIMARY INTENT: ${intentSummary}
+
+${productCategory ? `SPECIFIC PRODUCT CONTEXT: ${productCategory}` : ''}
+${hasBrandContext ? `BRAND CONTEXT: Creating content ${brandName} ${productRef}` : ''}
+
+NARRATION RULES:
+1. BEGIN by establishing a scene or situation
+2. UNFOLD the narrative with observations and progression
+3. USE narrative flow: "This is the story of...", "Let me tell you about...", "Here's what happened..."
+4. DESCRIBE what unfolds, not just what exists
+5. SHOW, don't just tell - but within the constrained tone
+6. CREATE narrative movement from beginning to observation to outcome
+7. END with a narrative conclusion, not just an analysis
+
+WHAT TO AVOID:
+1. NO academic or analytical language
+2. NO product review format
+3. NO detached observation without narrative flow
+4. NO bullet-point style facts
+5. NO journalistic reporting style
+
+EXAMPLE OF NARRATION FORMAT:
+- "Let me tell you about the time..."
+- "There was this moment when..."
+- "This is what unfolded..."
+- "The story goes like this..."
+
+STRUCTURE YOUR NARRATION (6-10 lines):
+1. Set the scene: Begin the narrative
+2. Introduce what happens or what's observed
+3. Describe the progression or unfolding
+4. Note how people/react/respond (if applicable)
+5. Show the outcome or realization
+6. Conclude the narrative arc
+
+FINAL INSTRUCTION:
+Write a narrated story (not an essay) that:
+1. Preserves: ${userSubject}
+2. Applies tone: ${toneConstraints.join(', ')}
+3. Tells it as a STORY with narrative flow
+4. Speaks to the audience as if telling them a story
+5. Avoids all prohibited elements
+
+Narrated Story (begin with narrative opening):
+`;
+}
+
+// Build expansion prompt with context preservation
+function buildConstraintExpansionPrompt(
+  currentStory: string | undefined,
+  requestType: string,
+  purpose: string | undefined,
   semanticExtraction: any,
-  brand: any,
-  toneConfig: MarketTone
+  brand?: any,
+  skipBrand?: boolean,
+  originalContext?: string
 ): string {
-  const marketContext = {
-    ng: 'Use Nigerian cultural context but WRITE IN ENGLISH. You may use occasional Nigerian Pidgin or slang words for authenticity.',
-    uk: 'Use British cultural context but WRITE IN ENGLISH. You may use British slang or expressions for authenticity.',
-    fr: 'Use French cultural context but WRITE IN ENGLISH. You may reference French culture or include French words in italics for authenticity.'
-  };
+  const { 
+    baselineStance, 
+    toneConstraints = [], 
+    prohibitions = [], 
+    audience 
+  } = semanticExtraction;
+  
+  const prohibitionList = prohibitions.length > 0 
+    ? `Continue avoiding: ${prohibitions.join(', ')}` 
+    : 'Continue avoiding emotional exaggeration.';
+  
+  // Extract user's subject
+  const userSubject = extractSubjectFromContext(originalContext);
+  
+  return `
+EXPANDING A NARRATED STORY:
 
-  const culturalContext = marketContext[market as keyof typeof marketContext] || 'Write in English with general cultural context.';
-  const scene = semanticExtraction?.scene || "a moment";
-  const audience = semanticExtraction?.audience || "those who need to hear it";
+ORIGINAL USER DESCRIPTION:
+"${originalContext || 'No original context provided.'}"
 
-  return `CRITICAL INSTRUCTION: WRITE THE ENTIRE STORY IN ENGLISH.
+SUBJECT TO PRESERVE: ${userSubject}
 
-You are the Story Shaping Engine for Narratives.XO. Create a MICRO STORY that directly embodies the CCN's understanding.
+CURRENT STORY TO EXPAND:
+"${currentStory?.substring(0, 300) || 'No current story provided.'}..."
 
-CCN'S ANALYSIS (in their own words):
-"${rawAnalysis}"
+EXPANSION REQUEST: ${requestType === 'expansion' ? 'Expand this story' : `Adapt for: ${purpose}`}
 
-CORE ELEMENTS FROM CCN:
-- Market Context: ${market.toUpperCase()} (${culturalContext})
-- Emotional Core: ${emotion}
-- Story Archetype: ${archetype}
-- Tone: ${tone} (Keywords: ${toneConfig.keywords.join(', ')})
-- Scene/Setting: ${scene}
-- Seed Moment: "${seedMoment}"
-- Audience: ${audience}
-${brand ? `- Brand: ${brand.name}` : ''}
+NARRATION REQUIREMENTS FOR EXPANSION:
+1. MAINTAIN NARRATIVE VOICE: This is a story being told, not an essay
+2. ENHANCE the narrative flow, not just add more facts
+3. EXPAND the storytelling elements: scene details, progression, observations
+4. STRENGTHEN the narrative arc
+5. KEEP it feeling like a story being narrated
 
-CRITICAL INSTRUCTIONS:
-1. **Write in English**: The entire story must be in English
-2. **Cultural Infusion**: Infuse ${market} cultural elements while maintaining English language
-3. **Direct Embodiment**: The story MUST directly embody what the CCN said: "${rawAnalysis}"
-4. **Character Inclusion**: If the CCN mentioned a specific subject, they MUST be in the story
-5. **Emotional Accuracy**: Capture the exact ${emotion} feeling the CCN identified
-6. **Scene Setting**: Set the story in ${scene} as the CCN described
-7. **Conciseness**: 5-10 lines maximum, emotionally complete
-8. **Beat Structure**: Include a simple beat sheet with 3 scenes
+CONSTRAINT REMINDERS (MUST MAINTAIN):
+- Original user context: "${userSubject}"
+- Baseline assumption/perspective: ${baselineStance}
+- Required tone: ${toneConstraints.join(', ') || 'neutral, observational'}
+- Prohibitions: ${prohibitionList}
+- Target audience: ${audience}
 
-CULTURAL INFUSION EXAMPLES:
-- For Nigerian context: Use Nigerian names, settings (Lagos, Abuja), cultural references (jollof rice, suya), occasional Pidgin phrases
-- For UK context: Use British names, settings (London, Manchester), cultural references (pub culture, tea), British slang
-- For French context: Use French names, settings (Paris, Marseille), cultural references (cafés, wine), occasional French words in italics
+HOW TO EXPAND NARRATIVELY:
+1. Add more narrative detail to existing story beats
+2. Enhance scene-setting and atmosphere (within tone constraints)
+3. Develop the narrative progression more fully
+4. Add subtle narrative observations that fit the tone
+5. Make it feel more like a complete story being told
+6. Maintain conversational/narrative flow
 
-OUTPUT FORMAT:
-Return ONLY valid JSON in this EXACT structure:
-{
-  "microStory": "Your 5-10 line micro story in ENGLISH that embodies '${rawAnalysis}'...",
-  "beatSheet": [
-    {
-      "beat": "Opening",
-      "description": "Brief description of the opening scene that sets up the story",
-      "visualCues": ["visual element 1", "visual element 2", "visual element 3"],
-      "emotion": "${emotion}"
-    },
-    {
-      "beat": "Development",
-      "description": "Brief description of the middle scene where the story develops",
-      "visualCues": ["visual element 1", "visual element 2", "visual element 3"],
-      "emotion": "${emotion}"
-    },
-    {
-      "beat": "Resolution",
-      "description": "Brief description of the ending scene that concludes the story",
-      "visualCues": ["visual element 1", "visual element 2", "visual element 3"],
-      "emotion": "${emotion}"
-    }
-  ],
-  "metadata": {
-    "title": "Short title in English",
-    "market": "${market}",
-    "archetype": "${archetype}",
-    "tone": "${tone}",
-    "totalBeats": 3,
-    "estimatedDuration": "15s"
-  }
-}
 
-STORY MUST BE IN ENGLISH WHILE INFUSING ${market.toUpperCase()} CULTURE.`;
-}
+${brand?.name && !skipBrand ? `MAINTAIN brand voice without adding sentimentality.` : ''}
 
-// Build expansion prompt
-function buildExpansionPrompt(
-  market: string,
-  currentStory: string,
-  expansionType: string,
-  tone: string,
-  rawAnalysis: string,
-  seedMoment: string,
-  brand: any,
-  toneConfig: MarketTone
-): string {
-  const marketContext = {
-    ng: 'Use Nigerian cultural context but WRITE IN ENGLISH.',
-    uk: 'Use British cultural context but WRITE IN ENGLISH.',
-    fr: 'Use French cultural context but WRITE IN ENGLISH.'
-  };
-
-  const culturalContext = marketContext[market as keyof typeof marketContext] || 'Write in English.';
-
-  const expansionInstructions: Record<string, string> = {
-    'expand': 'Expand this micro story into a more detailed narrative while maintaining its emotional core and connection to the original moment.',
-    'gentler': 'Make this story gentler and more subtle. Soften the language, reduce intensity, and focus on tender moments while staying true to the original insight.',
-    'harsher': 'Make this story harsher and more intense. Use sharper language, increase conflict, and focus on raw emotions while staying true to the original insight.',
-    '60-second': 'Expand this into a complete 60-second narrative with a full beat sheet, staying deeply connected to the original CCN understanding.'
-  };
-
-  const isFullVersion = expansionType === '60-second';
-
-  return `CRITICAL INSTRUCTION: WRITE THE ENTIRE STORY IN ENGLISH.
-
-JSON RESPONSE REQUIRED. You are expanding a story based on the CCN's original understanding.
-
-ORIGINAL CCN ANALYSIS:
-"${rawAnalysis}"
-
-CURRENT MICRO STORY:
-${currentStory}
-
-EXPANSION TYPE: ${expansionType.toUpperCase()}
-MARKET CONTEXT: ${market.toUpperCase()} (${culturalContext})
-INSTRUCTION: ${expansionInstructions[expansionType]}
-
-ADDITIONAL CONTEXT:
-- Tone: ${tone} (Keywords: ${toneConfig.keywords.join(', ')})
-- Original Seed Moment: "${seedMoment}"
-${brand ? `- Brand: ${brand.name}` : ''}
-
-${isFullVersion ? `
-TASK FOR 60-SECOND VERSION:
-1. Create a full narrative paragraph (200-250 words) in ENGLISH that expands the micro story
-2. Create a beat sheet with 6 scenes that reflect the CCN's original insight
-3. Each beat must include: beat name, description, visualCues array, emotion, duration
-
-JSON OUTPUT FORMAT (60-second):
-{
-  "expandedStory": "Full narrative paragraph in ENGLISH that embodies '${rawAnalysis}'...",
-  "beatSheet": [
-    {
-      "beat": "Opening Scene",
-      "description": "Description of opening scene",
-      "visualCues": ["cue1", "cue2", "cue3"],
-      "emotion": "emotion name",
-      "duration": "8s"
-    },
-    {
-      "beat": "Development Scene 1",
-      "description": "Description of first development scene",
-      "visualCues": ["cue1", "cue2", "cue3"],
-      "emotion": "emotion name",
-      "duration": "10s"
-    },
-    {
-      "beat": "Development Scene 2",
-      "description": "Description of second development scene",
-      "visualCues": ["cue1", "cue2", "cue3"],
-      "emotion": "emotion name",
-      "duration": "10s"
-    },
-    {
-      "beat": "Climax",
-      "description": "Description of climax scene",
-      "visualCues": ["cue1", "cue2", "cue3"],
-      "emotion": "emotion name",
-      "duration": "12s"
-    },
-    {
-      "beat": "Resolution Scene 1",
-      "description": "Description of first resolution scene",
-      "visualCues": ["cue1", "cue2", "cue3"],
-      "emotion": "emotion name",
-      "duration": "10s"
-    },
-    {
-      "beat": "Final Scene",
-      "description": "Description of final scene",
-      "visualCues": ["cue1", "cue2", "cue3"],
-      "emotion": "emotion name",
-      "duration": "10s"
-    }
-  ],
-  "metadata": {
-    "title": "Title in English (include '60s' and reference to original insight)",
-    "market": "${market}",
-    "archetype": "${toneConfig.archetypeLinks[0] || 'Against All Odds'}",
-    "tone": "${tone}",
-    "totalBeats": 6,
-    "estimatedDuration": "60s"
-  }
-}
-` : `
-TASK FOR OTHER EXPANSIONS:
-Expand the micro story while following the ${expansionType} instruction.
-Maintain the same emotional connection to: "${rawAnalysis}"
-WRITE IN ENGLISH.
-
-JSON OUTPUT FORMAT (other expansions):
-{
-  "expandedStory": "Expanded version in ENGLISH that stays true to '${rawAnalysis}'...",
-  "beatSheet": [
-    {
-      "beat": "Opening",
-      "description": "Brief description",
-      "visualCues": ["cue1", "cue2", "cue3"],
-      "emotion": "emotion name"
-    },
-    {
-      "beat": "Middle",
-      "description": "Brief description",
-      "visualCues": ["cue1", "cue2", "cue3"],
-      "emotion": "emotion name"
-    },
-    {
-      "beat": "Ending",
-      "description": "Brief description",
-      "visualCues": ["cue1", "cue2", "cue3"],
-      "emotion": "emotion name"
-    }
-  ],
-  "metadata": {
-    "title": "Title in English (include expansion type)",
-    "market": "${market}",
-    "archetype": "${toneConfig.archetypeLinks[0] || 'Against All Odds'}",
-    "tone": "${tone}",
-    "totalBeats": 3,
-    "estimatedDuration": "30s"
-  }
-}
-`}
-
-IMPORTANT: Return valid JSON only. Do not include any other text.`;
-}
-
-// Build purpose adaptation prompt
-function buildPurposeAdaptationPrompt(
-  market: string,
-  purpose: string,
-  currentStory: string,
-  tone: string,
-  rawAnalysis: string,
-  seedMoment: string,
-  brand: any,
-  toneConfig: MarketTone
-): string {
-  const marketContext = {
-    ng: 'Use Nigerian cultural context but WRITE IN ENGLISH.',
-    uk: 'Use British cultural context but WRITE IN ENGLISH.',
-    fr: 'Use French cultural context but WRITE IN ENGLISH.'
-  };
-
-  const culturalContext = marketContext[market as keyof typeof marketContext] || 'Write in English.';
-
-  return `CRITICAL INSTRUCTION: WRITE THE ENTIRE STORY IN ENGLISH.
-
-JSON RESPONSE REQUIRED. You are adapting a story based on user's specific purpose.
-
-ORIGINAL CCN ANALYSIS:
-"${rawAnalysis}"
-
-CURRENT STORY (base version):
-${currentStory}
-
-USER'S PURPOSE/USE CASE:
-"${purpose}"
-
-ADDITIONAL CONTEXT:
-- Market: ${market.toUpperCase()} (${culturalContext})
-- Tone: ${tone} (Keywords: ${toneConfig.keywords.join(', ')})
-- Original Seed Moment: "${seedMoment}"
-${brand ? `- Brand: ${brand.name}` : ''}
-
-CRITICAL INSTRUCTIONS:
-1. **Write in English**: The entire adapted story must be in English
-2. **Maintain Core Story**: Keep the essential narrative, characters, and emotional core from the original story
-3. **Adapt for Purpose**: Modify the story to better suit: "${purpose}"
-4. **Consistency**: Don't change the fundamental meaning or message
-5. **Tone Adjustment**: Adjust tone/style as needed for the purpose while keeping the market authenticity
-6. **Length**: Keep similar length (5-10 lines)
-7. **Cultural Authenticity**: Maintain ${market} market authenticity while writing in English
-8. **Include Beat Sheet**: Always include a beat sheet with 3 scenes
-
-ADAPTATION GUIDELINES:
-- If purpose mentions "brand post": Add brand-friendly elements, subtle call-to-action, consistent brand voice
-- If purpose mentions "Instagram": Make it more visual, use hashtag-ready language, shorter punchy lines
-- If purpose mentions "LinkedIn": More professional tone, business context, career-oriented framing
-- If purpose mentions "video script": Add scene-setting language, dialogue cues, timing hints
-- If purpose mentions "Twitter/X": Concise, impactful lines, thread-ready structure
-
-JSON OUTPUT FORMAT:
-{
-  "adaptedStory": "Your adapted version in ENGLISH that maintains the original story but fits: '${purpose}'",
-  "beatSheet": [
-    {
-      "beat": "Opening",
-      "description": "Brief description of opening scene adapted for ${purpose}",
-      "visualCues": ["visual cue 1", "visual cue 2", "visual cue 3"],
-      "emotion": "appropriate emotion"
-    },
-    {
-      "beat": "Core Moment",
-      "description": "Brief description of main scene adapted for ${purpose}",
-      "visualCues": ["visual cue 1", "visual cue 2", "visual cue 3"],
-      "emotion": "appropriate emotion"
-    },
-    {
-      "beat": "Conclusion",
-      "description": "Brief description of conclusion scene adapted for ${purpose}",
-      "visualCues": ["visual cue 1", "visual cue 2", "visual cue 3"],
-      "emotion": "appropriate emotion"
-    }
-  ],
-  "metadata": {
-    "title": "Title in English reflecting adaptation for: ${purpose.substring(0, 30)}",
-    "market": "${market}",
-    "archetype": "${toneConfig.archetypeLinks[0] || 'Against All Odds'}",
-    "tone": "${tone}",
-    "totalBeats": 3,
-    "estimatedDuration": "15s",
-    "purpose": "${purpose}"
-  }
-}
-
-IMPORTANT: 
-- The story must still embody the original CCN analysis: "${rawAnalysis}"
-- Write the entire story in English
-- Return valid JSON only. Do not include any other text.`;
-}
-
-// Build legacy prompt (fallback)
-function buildLegacyPrompt(
-  market: string,
-  need: string,
-  archetype: string,
-  tone: string,
-  context: string,
-  brand: any,
-  toneConfig: MarketTone
-): string {
-  const marketContext = {
-    ng: 'Use Nigerian cultural context but WRITE IN ENGLISH.',
-    uk: 'Use British cultural context but WRITE IN ENGLISH.',
-    fr: 'Use French cultural context but WRITE IN ENGLISH.'
-  };
-
-  return `CRITICAL INSTRUCTION: WRITE THE ENTIRE STORY IN ENGLISH.
-
-You are an expert storyteller creating culturally grounded narratives for ${market.toUpperCase()} market.
-
-INPUTS:
-- Market: ${market.toUpperCase()} (${marketContext[market as keyof typeof marketContext]})
-- Motivational Need (Maslow): ${need}
-- Story Archetype: ${archetype}
-- Tone: ${tone} (Keywords: ${toneConfig.keywords.join(', ')})
-- Visual Style: ${toneConfig.visualDescriptors.join(', ')}
-- Context/Scene: ${context}
-${brand ? `- Brand: ${brand.name}` : ''}
-
-TASK:
-Create a compelling 30-second narrative with beat sheet structure. WRITE IN ENGLISH.
-
-Return ONLY valid JSON with story, beatSheet, and metadata.`;
+Expanded narrated story (begin directly, maintaining narrative voice):
+`;
 }
 
 // Main handler
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse<GenerateStoryResponse | { error: string }>
 ) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ 
-      success: false,
-      error: 'Method not allowed' 
-    });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
     const { 
-      market = 'ng',
       semanticExtraction,
-      need, archetype, tone, context,
       brand,
       requestType = 'micro-story',
-      expansionType,
+      purpose,
       currentStory,
-      originalContext,
-      purpose
+      originalContext,  // CRITICAL: This must be passed from frontend
+      skipBrand
     }: GenerateStoryRequest = req.body;
 
-    // Validate market
-    const validMarkets = ['ng', 'uk', 'fr'];
-    const storyMarket = validMarkets.includes(market) ? market : 'ng';
-
-    // Load market tone data
-    const marketData = defaultMarketTones[storyMarket as keyof typeof defaultMarketTones] || defaultMarketTones.ng;
-    
-    // Use semantic extraction or legacy fields
-    const storyEmotion = semanticExtraction?.emotion || need || 'meaningful';
-    const storyArchetype = semanticExtraction?.pathway ? 
-      mapPathwayToArchetype(semanticExtraction.pathway) : 
-      archetype || 'Against All Odds';
-    const storyTone = determineToneFromEmotion(storyEmotion) || tone || 'Cinematic';
-    const storyContext = semanticExtraction?.intentSummary || context || 'A personal moment';
-    const rawAnalysis = semanticExtraction?.rawAnalysis || storyContext;
-    const seedMoment = semanticExtraction?.seedMoment || originalContext || storyContext;
-    
-    const toneConfig = marketData.tones.find((t: MarketTone) => t.name === storyTone) || marketData.tones[0];
-
-    // Build prompt based on request type
-    let prompt: string;
-    let responseFormat: 'micro' | 'full' = 'micro';
-
-    if (requestType === 'micro-story') {
-      prompt = buildMicroStoryPrompt(
-        storyMarket,
-        storyEmotion,
-        storyArchetype,
-        storyTone,
-        rawAnalysis,
-        seedMoment,
-        semanticExtraction,
-        brand,
-        toneConfig
-      );
-      responseFormat = 'micro';
-    } else if (requestType === 'expansion') {
-      if (!currentStory) {
-        return res.status(400).json({
-          success: false,
-          error: 'currentStory is required for expansion'
-        });
-      }
-      
-      prompt = buildExpansionPrompt(
-        storyMarket,
-        currentStory,
-        expansionType || 'expand',
-        storyTone,
-        rawAnalysis,
-        seedMoment,
-        brand,
-        toneConfig
-      );
-      responseFormat = expansionType === '60-second' ? 'full' : 'micro';
-    } else if (requestType === 'purpose-adaptation') {
-      if (!purpose || !currentStory) {
-        return res.status(400).json({
-          success: false,
-          error: 'purpose and currentStory are required for purpose adaptation'
-        });
-      }
-      
-      prompt = buildPurposeAdaptationPrompt(
-        storyMarket,
-        purpose,
-        currentStory,
-        storyTone,
-        rawAnalysis,
-        seedMoment,
-        brand,
-        toneConfig
-      );
-      responseFormat = 'micro';
-    } else {
-      // Legacy fallback
-      prompt = buildLegacyPrompt(
-        storyMarket,
-        storyEmotion,
-        storyArchetype,
-        storyTone,
-        storyContext,
-        brand,
-        toneConfig
-      );
-      responseFormat = 'full';
+    if (!semanticExtraction) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Semantic extraction data is required' 
+      });
     }
 
-    console.log(`Generating ${requestType} story for ${storyMarket} market`);
-    console.log(`Tone: ${storyTone}, Emotion: ${storyEmotion}, Archetype: ${storyArchetype}`);
+    console.log('📦 Received story generation request:', {
+      pathway: semanticExtraction.pathway,
+      baselineStance: semanticExtraction.baselineStance,
+      toneConstraints: semanticExtraction.toneConstraints,
+      prohibitions: semanticExtraction.prohibitions,
+      hasBrandContext: semanticExtraction.hasBrandContext,
+      productCategory: semanticExtraction.productCategory,
+      originalContextLength: originalContext?.length || 0
+    });
+
+    // Validate we have original context for non-expansion requests
+    if (!currentStory && !originalContext && requestType === 'micro-story') {
+      console.warn('⚠️ No original context provided for new story generation');
+    }
+
+    // Determine prompt
+    let storyPrompt = '';
+    let systemMessage = '';
+    
+    if (requestType === 'expansion' || requestType === 'purpose-adaptation') {
+      storyPrompt = buildConstraintExpansionPrompt(
+        currentStory, 
+        requestType, 
+        purpose, 
+        semanticExtraction, 
+        brand, 
+        skipBrand,
+        originalContext
+      );
+      systemMessage = `You expand constraint-based stories while maintaining the original subject matter and applying tone constraints. NO emotional addition, NO sentimentality, NO departure from original context.`;
+    } else {
+      storyPrompt = buildConstraintPrompt(
+        semanticExtraction, 
+        brand, 
+        skipBrand,
+        originalContext
+      );
+      systemMessage = `You write a story sequence of factual, standalone statements that describe observable conditions and outcomes.
+Do not optimize for narrative flow, elegance, or emotional coherence.
+Each sentence must be independently valid.
+.`;
+    }
+
+    console.log(`📝 Generating ${requestType} story with constraints...`);
+    console.log(`📝 Original context subject: ${extractSubjectFromContext(originalContext)}`);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        { 
-          role: "system", 
-          content: "You are the Story Shaping Engine for Narratives.XO. You create emotionally resonant stories that directly reflect the user's moment. ALWAYS WRITE IN ENGLISH while infusing cultural context. Return only valid JSON." 
-        },
-        { role: "user", content: prompt }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.7,
-    });
-
-    const content = completion.choices[0].message.content;
-    if (!content) {
-      throw new Error('No content returned from OpenAI');
-    }
-
-    const generated = JSON.parse(content);
-    console.log(`Generated story structure:`, {
-      hasMicroStory: !!generated.microStory,
-      hasStory: !!generated.story,
-      hasBeatSheet: !!generated.beatSheet,
-      beatSheetLength: generated.beatSheet?.length
-    });
-    
-    // Validate and structure response
-    let responseData: any = {
-      success: true,
-      metadata: generated.metadata || {
-        title: generated.title || 'Untitled Story',
-        market: storyMarket,
-        archetype: storyArchetype,
-        tone: storyTone,
-        totalBeats: generated.beatSheet?.length || 0,
-        estimatedDuration: responseFormat === 'micro' ? '15s' : '60s'
-      }
-    };
-
-    // CRITICAL FIX: Always include beatSheet if available
-    if (generated.beatSheet && Array.isArray(generated.beatSheet)) {
-      responseData.beatSheet = generated.beatSheet;
-      console.log(`Beat sheet included with ${generated.beatSheet.length} scenes`);
-    }
-
-    if (responseFormat === 'micro') {
-      responseData.microStory = generated.microStory || generated.story;
-      responseData.story = generated.microStory || generated.story;
-      
-      // FALLBACK: Create simple beat sheet if not provided
-      if (!responseData.beatSheet && responseData.microStory) {
-        console.log('Creating fallback beat sheet for micro story');
-        responseData.beatSheet = [
-          {
-            beat: "Opening",
-            description: responseData.microStory.split('.')[0] + ".",
-            visualCues: ["intimate close-up", "emotional expression", "natural lighting"],
-            emotion: storyEmotion
-          },
-          {
-            beat: "Development",
-            description: responseData.microStory.split('.').slice(1, -1).join('.') + ".",
-            visualCues: ["environmental details", "character interaction", "movement"],
-            emotion: storyEmotion
-          },
-          {
-            beat: "Resolution",
-            description: responseData.microStory.split('.').slice(-1)[0] + ".",
-            visualCues: ["symbolic imagery", "reflective moment", "closure"],
-            emotion: storyEmotion
-          }
-        ];
-        console.log('Fallback beat sheet created');
-      }
-    } else {
-      responseData.story = generated.story || generated.expandedStory;
-      if (!responseData.beatSheet && generated.beatSheet) {
-        responseData.beatSheet = generated.beatSheet;
-      }
-    }
-
-    // Add expansion-specific data
-    if (requestType === 'expansion') {
-      responseData.expandedStory = generated.expandedStory || generated.story || responseData.story;
-      if (generated.metadata) {
-        responseData.metadata = {
-          ...responseData.metadata,
-          ...generated.metadata
-        };
-      }
-    }
-    
-    // Add purpose-adaptation data
-    if (requestType === 'purpose-adaptation') {
-      responseData.adaptedStory = generated.adaptedStory || generated.story || responseData.story;
-      if (generated.metadata) {
-        responseData.metadata = {
-          ...responseData.metadata,
-          ...generated.metadata,
-          purpose: purpose
-        };
-      }
-    }
-
-    // Ensure totalBeats is set correctly
-    if (responseData.beatSheet) {
-      responseData.metadata.totalBeats = responseData.beatSheet.length;
-    }
-
-    console.log(`✓ ${responseFormat === 'micro' ? 'Micro story' : 'Full story'} generated: "${responseData.metadata.title}"`);
-    console.log(`Final response:`, {
-      hasBeatSheet: !!responseData.beatSheet,
-      beatSheetLength: responseData.beatSheet?.length,
-      metadata: responseData.metadata
-    });
-
-    return res.status(200).json(responseData);
-
-  } catch (error) {
-    console.error('Story generation error:', error);
-    
-    // Create a fallback response WITH beatSheet
-    const fallbackResponse = {
-      success: false,
-      story: "I had trouble shaping your story. The moment you described feels meaningful and worth exploring. Perhaps try describing it in a different way?",
-      microStory: "This moment matters. Let's explore it together from another angle.",
-      beatSheet: [
         {
-          beat: "Opening",
-          description: "A meaningful moment worth exploring further.",
-          visualCues: ["thoughtful expression", "meaningful setting", "emotional lighting"],
-          emotion: "meaningful"
+          role: "system",
+          content: systemMessage
         },
         {
-          beat: "Reflection",
-          description: "The significance of this experience becomes clearer.",
-          visualCues: ["deeper perspective", "symbolic elements", "emotional depth"],
-          emotion: "meaningful"
-        },
-        {
-          beat: "Insight",
-          description: "Understanding emerges from this personal moment.",
-          visualCues: ["clarity", "resolution", "forward movement"],
-          emotion: "meaningful"
+          role: "user",
+          content: storyPrompt
         }
       ],
+      temperature: 0.3, // Low temperature for constraint adherence
+      max_tokens: 400,
+    });
+
+    const storyContent = completion.choices[0].message.content;
+    
+    if (!storyContent) {
+      throw new Error('No story content generated');
+    }
+
+    console.log('📖 Generated story (first 200 chars):', storyContent.substring(0, 200) + '...');
+    // console.log('📖 Does it match user context?', storyContent.toLowerCase().includes(extractSubjectFromContext(originalContext).toLowerCase()));
+
+    // Extract beats
+    const beats = extractBeatsFromStory(
+      storyContent, 
+      semanticExtraction.toneConstraints, 
+      semanticExtraction.productCategory,
+      originalContext
+    );
+    
+    // Generate title
+    const title = generateTitleFromConstraints(
+      semanticExtraction.baselineStance, 
+      semanticExtraction.hasBrandContext, 
+      semanticExtraction.productCategory,
+      originalContext
+    );
+    
+    // Prepare response
+    const response: GenerateStoryResponse = {
+      success: true,
+      story: storyContent,
+      beatSheet: beats,
       metadata: {
-        title: "Meaningful Moment",
-        market: req.body?.market || 'ng',
-        archetype: "Against All Odds",
-        tone: "Heartfelt",
-        totalBeats: 3,
-        estimatedDuration: "15s"
-      },
-      error: error instanceof Error ? error.message : 'Unknown error'
+        title: title,
+        archetype: determineArchetype(
+          semanticExtraction.pathway, 
+          semanticExtraction.baselineStance, 
+          semanticExtraction.prohibitions
+        ),
+        tone: determineStoryTone(semanticExtraction.toneConstraints),
+        totalBeats: beats.length,
+        estimatedDuration: `${beats.length * 5}s`,
+        // Context flags
+        ...(semanticExtraction.hasBrandContext && { isBrandStory: true }),
+        ...(semanticExtraction.productCategory && { productCategory: semanticExtraction.productCategory }),
+        // Constraint tracking
+        appliedConstraints: semanticExtraction.toneConstraints,
+        enforcedProhibitions: semanticExtraction.prohibitions,
+        // Add context preservation info
+        // contextPreserved: !!originalContext,
+        originalSubject: extractSubjectFromContext(originalContext)
+      }
     };
 
-    return res.status(500).json(fallbackResponse);
+    console.log(`✅ Constraint-based story generated: "${title}"`);
+    console.log(`✅ Subject preserved: ${response.metadata.originalSubject}`);
+    console.log(`✅ Tone applied: ${response.metadata.tone}`);
+
+    return res.status(200).json(response);
+
+  } catch (error) {
+    console.error('Constraint story generation error:', error);
+    
+    res.status(500).json({ 
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to generate constraint-based story' 
+    });
   }
 }

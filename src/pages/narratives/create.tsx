@@ -9,7 +9,6 @@ import {
   BrandAssets,
   CCNInterpretationRevised,
   UserMode,
-  Market,
   CharacterDescription,
 } from "@/types";
 import {
@@ -58,7 +57,7 @@ type Step =
   | "brand-upload"
   | "story-generated"
   | "story-purpose"
-  | "brand-details" // NEW: For collecting brand info
+  | "brand-details"
   | "images"
   | "images-complete"
   | "video-option"
@@ -227,19 +226,25 @@ const ImageModal = ({
 };
 
 type CCNData = {
-  emotion: string;
-  scene: string;
-  seedMoment: string;
+  // New fields
+  baselineStance?: string;
+  toneConstraints?: string[];
+  prohibitions?: string[];
+  hasBrandContext?: boolean;
+  productCategory?: string;
+  
+  // Old fields
+  emotion?: string;
+  scene?: string;
+  seedMoment?: string;
   audience: string;
   intentSummary: string;
   pathway: string;
   rawAnalysis?: string;
-  market: string;
 };
 
 export default function Create() {
   // State
-  const [market, setMarket] = useState<Market>("ng");
   const [userInput, setUserInput] = useState("");
   const [originalUserInput, setOriginalUserInput] = useState("");
   const [systemUnderstanding, setSystemUnderstanding] = useState("");
@@ -377,222 +382,121 @@ export default function Create() {
     });
   };
 
-  // Auto-detect market from text
-  const autoDetectMarket = (text: string): Market => {
-    const lowerText = text.toLowerCase();
-
-    // Nigeria/NG detection
-    const ngKeywords = [
-      "nigeria",
-      "nigerian",
-      "naija",
-      "lagos",
-      "abuja",
-      "wetin",
-      "abi",
-      "chai",
-      "wahala",
-      "oga",
-      "una",
-      "sabi",
-      "japa",
-      "gbese",
-      "nairaland",
-      "asoebi",
-      "bukateria",
-      "mama put",
-      "danfo",
-      "okada",
-      "area boy",
-      "shakara",
-      "jollof",
-      "suya",
-      "port harcourt",
-      "ibadan",
-      "enugu",
-      "kano",
-      "calabar",
-      "lekki",
-      "ajegunle",
-      "oyinbo",
-      "naija",
-      "asap",
-      "sharp",
-      "k-leg",
-      "ankara",
-    ];
-
-    // UK detection
-    const ukKeywords = [
-      "uk",
-      "united kingdom",
-      "britain",
-      "british",
-      "london",
-      "manchester",
-      "birmingham",
-      "scotland",
-      "wales",
-      "england",
-      "mate",
-      "bloody",
-      "blimey",
-      "cheers",
-      "brilliant",
-      "gutted",
-      "chuffed",
-      "cuppa",
-      "pub",
-      "queen",
-      "king",
-      "football",
-      "premier league",
-      "man u",
-      "chelsea",
-      "arsenal",
-      "tube",
-      "underground",
-      "pound",
-      "tea",
-      "biscuit",
-      "chippy",
-      "fish and chips",
-      "queue",
-    ];
-
-    // France detection
-    const frKeywords = [
-      "france",
-      "french",
-      "paris",
-      "bonjour",
-      "merci",
-      "au revoir",
-      "baguette",
-      "croissant",
-      "fromage",
-      "vin",
-      "boulangerie",
-      "café",
-      "merde",
-      "putain",
-      "salut",
-      "bien",
-      "très",
-      "eiffel",
-      "champs-élysées",
-      "provence",
-      "bordeaux",
-      "lyon",
-      "marseille",
-      "bonsoir",
-      "oui",
-      "non",
-      "s'il vous plaît",
-      "voilà",
-      "d'accord",
-      "château",
-      "macaron",
-    ];
-
-    // Count matches
-    let ngCount = 0;
-    let ukCount = 0;
-    let frCount = 0;
-
-    ngKeywords.forEach((keyword) => {
-      if (lowerText.includes(keyword)) ngCount++;
-    });
-
-    ukKeywords.forEach((keyword) => {
-      if (lowerText.includes(keyword)) ukCount++;
-    });
-
-    frKeywords.forEach((keyword) => {
-      if (lowerText.includes(keyword)) frCount++;
-    });
-
-    // Determine market based on highest count
-    if (ngCount > ukCount && ngCount > frCount) return "ng";
-    if (ukCount > ngCount && ukCount > frCount) return "uk";
-    if (frCount > ngCount && frCount > ukCount) return "fr";
-
-    // Default to 'ng' if no clear market detected
-    return "ng";
-  };
-
   // Step 1: Natural Story Start
-  const handleEntrySubmit = async (clarificationAnswer?: string) => {
-    const inputToSend = clarificationAnswer || userInput;
+const handleEntrySubmit = async (clarificationAnswer?: string) => {
+  const inputToSend = clarificationAnswer || userInput;
 
-    if (!inputToSend.trim()) {
-      addMessage(
-        "system",
-        <div className="text-amber-600">
-          Please describe your moment first.
-        </div>,
-        "response",
-      );
-      return;
-    }
-
-    if (inputToSend.trim().length < 3) {
-      addMessage(
-        "system",
-        <div className="text-amber-600">
-          Please provide a bit more detail so I can understand your vision
-          better.
-        </div>,
-        "response",
-      );
-      return;
-    }
-
-    // Show user message with detected market info if any
-    const messageContent = !clarificationAnswer ? (
-      <div className=" p-3 b">
-        <p className="text-base font-medium">{inputToSend}</p>
-      </div>
-    ) : (
-      <div className="  p-3 ">
-        <p className="text-base font-medium">{inputToSend}</p>
-      </div>
+  if (!inputToSend.trim()) {
+    addMessage(
+      "system",
+      <div className="text-amber-600">Please describe your moment first.</div>,
+      "response",
     );
+    return;
+  }
 
-    addMessage("user", messageContent, "selection");
+  if (inputToSend.trim().length < 3) {
+    addMessage(
+      "system",
+      <div className="text-amber-600">
+        Please provide a bit more detail so I can understand your vision better.
+      </div>,
+      "response",
+    );
+    return;
+  }
 
-    if (!clarificationAnswer) {
-      setOriginalUserInput(inputToSend);
-      setUserInput("");
-    } else {
-      setUserInput("");
-    }
+  // Show user message - KEEP THIS VISIBLE
+  const messageContent = (
+    <div className="p-3">
+      <p className="text-base font-medium">{inputToSend}</p>
+    </div>
+  );
 
-    setIsGenerating(true);
+  addMessage("user", messageContent, "selection");
 
-    // Step 2: CCN Analysis
-    try {
-      const res = await fetch("/api/clarify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userInput: inputToSend,
-          isClarificationResponse: !!clarificationAnswer,
-          previousClarification: clarificationQuestion?.field,
-          previousAnswer: clarificationAnswer,
-        }),
-      });
+  if (!clarificationAnswer) {
+    setOriginalUserInput(inputToSend);
+    setUserInput("");
+  } else {
+    setUserInput("");
+  }
 
-      const data = await res.json();
+  setIsGenerating(true);
 
-      if (data.success) {
-        const detectedMarket = data.interpretation.market || "ng";
-        setMarket(detectedMarket as Market);
+  // Step 2: CCN Analysis
+  try {
+    const res = await fetch("/api/clarify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userInput: inputToSend,
+        isClarificationResponse: !!clarificationAnswer,
+        previousClarification: clarificationQuestion?.field,
+        previousAnswer: clarificationAnswer,
+      }),
+    });
 
-        setCcnInterpretation(data.interpretation);
+    const data = await res.json();
 
-        // Store the CCN data
-        const ccnData: CCNData = {
+    if (data.success) {
+      setCcnInterpretation(data.interpretation);
+
+      // Store the CCN data
+      const ccnData: CCNData = {
+        emotion: data.interpretation.emotion,
+        scene: data.interpretation.scene,
+        seedMoment: data.interpretation.seedMoment,
+        audience: data.interpretation.audience,
+        intentSummary: data.interpretation.intentSummary,
+        pathway: data.interpretation.pathway,
+        rawAnalysis: data.interpretation.rawAnalysis,
+        productCategory: data.interpretation.productCategory,
+        baselineStance: data.interpretation.baselineStance,
+        toneConstraints: data.interpretation.toneConstraints,
+        hasBrandContext: data.interpretation.hasBrandContext,
+      };
+      setConfirmedCCNData(ccnData);
+
+      // Check confidence score
+      const confidence = data.interpretation.confidence || 0.5;
+
+      // If confidence is low (< 0.8), show clarification question
+      if (confidence < 0.8 && data.clarificationQuestion && !clarificationQuestion) {
+        // Show clarification question
+        setClarificationQuestion({
+          question: data.clarificationQuestion.question,
+          field: data.clarificationQuestion.field,
+        });
+
+        await simulateTyping(1200);
+
+        addMessage(
+          "system",
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-purple-600">
+              <Brain size={20} />
+              <span className="font-medium">To understand you better...</span>
+            </div>
+            <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border-l-4 border-purple-500">
+              <p className="font-medium">
+                {data.clarificationQuestion.question}
+              </p>
+            </div>
+            <p className="text-sm text-gray-500">
+              Type your answer below to help me understand your intention.
+            </p>
+          </div>,
+          "response",
+        );
+
+        setCurrentStep("clarification");
+        return; // Stop here, wait for clarification
+      } 
+      // If confidence is high (≥ 0.8) OR we already have clarification answer
+      else {
+        // Store confirmed CCN data
+        const ccnDataForConfirmation: CCNData = {
           emotion: data.interpretation.emotion,
           scene: data.interpretation.scene,
           seedMoment: data.interpretation.seedMoment,
@@ -600,171 +504,112 @@ export default function Create() {
           intentSummary: data.interpretation.intentSummary,
           pathway: data.interpretation.pathway,
           rawAnalysis: data.interpretation.rawAnalysis,
-          market: data.interpretation.market,
+          productCategory: data.interpretation.productCategory,
+          baselineStance: data.interpretation.baselineStance,
+          toneConstraints: data.interpretation.toneConstraints,
+          hasBrandContext: data.interpretation.hasBrandContext,
         };
-        setConfirmedCCNData(ccnData);
+        setConfirmedCCNData(ccnDataForConfirmation);
 
-        // If this is the first time AND we need clarification AND we haven't asked yet
-        if (
-          !clarificationAnswer &&
-          data.requiresClarification &&
-          !clarificationQuestion
-        ) {
-          // Show clarification question
-          setClarificationQuestion({
-            question: data.clarificationQuestion.question,
-            field: data.clarificationQuestion.field,
-          });
-
-          await simulateTyping(1200);
-
-          addMessage(
-            "system",
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-purple-600">
-                <Brain size={20} />
-                <span className="font-medium">To understand you better...</span>
-              </div>
-              <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border-l-4 border-purple-500">
-                <p className="font-medium">
-                  {data.clarificationQuestion.question}
-                </p>
-              </div>
-              <p className="text-sm text-gray-500">
-                Type your answer below to help me understand your intention.
-              </p>
-            </div>,
-            "response",
-          );
-
-          setCurrentStep("clarification");
-        } else {
-          // Store confirmed CCN data
-          const ccnDataForConfirmation: CCNData = {
-            emotion: data.interpretation.emotion,
-            scene: data.interpretation.scene,
-            seedMoment: data.interpretation.seedMoment,
-            audience: data.interpretation.audience,
-            intentSummary: data.interpretation.intentSummary,
-            pathway: data.interpretation.pathway,
-            rawAnalysis: data.interpretation.rawAnalysis,
-            market: data.interpretation.market,
-          };
-          // Store confirmed CCN data
-          setConfirmedCCNData(ccnData);
-
-          // Always show understanding preview after user's response
-          const understanding =
-            data.understandingPreview ||
-            data.interpretation.understandingPreview;
-          setSystemUnderstanding(understanding);
-
-          await simulateTyping(1200);
-
-          // Create CCN understanding message and store its ID
-          const ccnMessageContent = (
-            <div className="space-y-4">
-              <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border-l-4 border-green-500">
-                <p className="font-medium">{understanding}</p>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() =>
-                    handleUnderstandingConfirm(ccnDataForConfirmation)
-                  }
-                  className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all"
-                >
-                  ✓ Yes, that's right
-                </button>
-                <button
-                  onClick={() => {
-                    setClarificationQuestion(null);
-                    setCurrentStep("entry");
-                    addMessage(
-                      "system",
-                      <div>
-                        <p>Please rewrite your message:</p>
-                      </div>,
-                      "question",
-                    );
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
-                >
-                  Rewrite my message
-                </button>
-              </div>
+        // HIGH CONFIDENCE (≥ 0.8) OR already clarified: Go straight to story generation
+        
+        // Show a quick acknowledgment message
+        addMessage(
+          "system",
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-green-600">
+              <Check size={16} />
+              <span className="font-medium">Got it!</span>
             </div>
-          );
-
-          const messageId = addMessage("system", ccnMessageContent, "response");
-
-          setCcnUnderstandingMessageId(messageId);
-
-          // Reset clarification question since we've shown understanding
-          setClarificationQuestion(null);
-          setCurrentStep("understanding");
-        }
+            <div className="text-sm text-gray-600">
+              Creating your story based on your input...
+            </div>
+          </div>,
+          "response",
+        );
+        
+        await simulateTyping(800);
+        
+        // Trigger story generation immediately
+        await triggerStoryGeneration(ccnDataForConfirmation);
       }
-    } catch (error) {
-      console.error("CCN analysis error:", error);
 
-      await simulateTyping(800);
+      // Reset clarification question
+      setClarificationQuestion(null);
+    }
+  } catch (error) {
+    console.error("CCN analysis error:", error);
 
-      // Create a fallback CCN data object for error case
-      const fallbackCCNData: CCNData = {
-        emotion: "meaningful",
-        scene: "a moment",
-        seedMoment: inputToSend,
-        audience: "those who need to hear it",
-        intentSummary: "A personal moment to share",
-        pathway: "emotion-first",
-        rawAnalysis: `I feel this is about: "${inputToSend}". It seems like a meaningful moment worth exploring.`,
-        market: "ng",
-      };
+    await simulateTyping(800);
 
-      // Even on error, show a fallback understanding preview with data attached
+    // Create a fallback CCN data object for error case
+    const fallbackCCNData: CCNData = {
+      emotion: "meaningful",
+      scene: "a moment",
+      seedMoment: inputToSend,
+      audience: "those who need to hear it",
+      intentSummary: "A personal moment to share",
+      pathway: "emotion-first",
+      rawAnalysis: `I feel this is about: "${inputToSend}". It seems like a meaningful moment worth exploring.`,
+    };
+
+    // For error case, treat as low confidence and show clarification
+    // First check if this is a clarification response already
+    if (clarificationAnswer) {
+      // If we already have clarification, proceed with story generation
       addMessage(
         "system",
-        <div className="space-y-4">
-          <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg border-l-4 border-amber-500">
-            <p className="font-medium">
-              I feel you're describing something meaningful from your
-              experience.
-            </p>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-green-600">
+            <Check size={16} />
+            <span className="font-medium">Got it!</span>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => handleUnderstandingConfirm(fallbackCCNData)}
-              className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all"
-            >
-              ✓ Yes, that's right
-            </button>
-            <button
-              onClick={() => {
-                setClarificationQuestion(null);
-                setCurrentStep("entry");
-                addMessage(
-                  "system",
-                  <div>
-                    <p>Please rewrite your message:</p>
-                  </div>,
-                  "question",
-                );
-              }}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
-            >
-              Rewrite my message
-            </button>
+          <div className="text-sm text-gray-600">
+            Creating your story based on your input...
           </div>
         </div>,
         "response",
       );
+      
+      await simulateTyping(800);
+      
+      await triggerStoryGeneration(fallbackCCNData);
+    } else {
+      // If error on first attempt, ask for clarification
+      const clarificationQuestion = {
+        question: "Could you tell me more about what you're trying to express?",
+        field: "intent"
+      };
+      
+      setClarificationQuestion(clarificationQuestion);
 
-      setCurrentStep("understanding");
-    } finally {
-      setIsGenerating(false);
+      await simulateTyping(1200);
+
+      addMessage(
+        "system",
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-purple-600">
+            <Brain size={20} />
+            <span className="font-medium">To understand you better...</span>
+          </div>
+          <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border-l-4 border-purple-500">
+            <p className="font-medium">
+              {clarificationQuestion.question}
+            </p>
+          </div>
+          <p className="text-sm text-gray-500">
+            Type your answer below to help me understand your intention.
+          </p>
+        </div>,
+        "response",
+      );
+
+      setCurrentStep("clarification");
     }
-  };
+  } finally {
+    setIsGenerating(false);
+  }
+};
 
   // Helper function to adapt story with brand
   const adaptStoryWithBrand = async (purpose: string) => {
@@ -780,14 +625,12 @@ export default function Create() {
         intentSummary: story?.metadata?.title || "A meaningful moment to share",
         pathway: "emotion-first",
         rawAnalysis: story?.story,
-        market: story?.metadata.market,
       };
 
       const res = await fetch("/api/generateStory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          market: ccnData.market,
           semanticExtraction: {
             emotion: ccnData.emotion,
             scene: ccnData.scene,
@@ -991,7 +834,6 @@ export default function Create() {
   };
 
   // Helper function to adapt story without brand
-  // Update the adaptStoryWithoutBrand function to handle brand-skipped purpose better
   const adaptStoryWithoutBrand = async (purpose: string) => {
     if (!purpose.trim() || !story) return;
 
@@ -1017,7 +859,6 @@ export default function Create() {
         intentSummary: story.metadata?.title || "A meaningful moment to share",
         pathway: "emotion-first",
         rawAnalysis: story.story,
-        market: story.metadata.market,
       };
 
       // If user skipped brand but purpose mentions brand, adjust the purpose display
@@ -1029,7 +870,6 @@ export default function Create() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          market: ccnData.market,
           semanticExtraction: {
             emotion: ccnData.emotion,
             scene: ccnData.scene,
@@ -1039,12 +879,12 @@ export default function Create() {
             pathway: ccnData.pathway,
             rawAnalysis: ccnData.rawAnalysis || story.story,
           },
-          brand: null, // Explicitly pass null for brand when skipping
+          brand: null,
           requestType: "purpose-adaptation",
-          purpose: displayPurpose, // Use adjusted purpose
+          purpose: displayPurpose,
           currentStory: story.story,
           originalContext: originalUserInput,
-          skipBrand: true, // Add flag to indicate brand was skipped
+          skipBrand: true,
         }),
       });
 
@@ -1065,7 +905,7 @@ export default function Create() {
           ...story.metadata,
           title: `${story.metadata.title} (${displayPurpose.substring(0, 20)}...)`,
           purpose: displayPurpose,
-          brandSkipped: true, // Add flag to indicate brand was skipped
+          brandSkipped: true,
         },
       };
 
@@ -1075,7 +915,7 @@ export default function Create() {
       // Remove thinking message
       setMessages((prev) => prev.filter((msg) => msg.id !== thinkingId));
 
-      // Show adapted story - update the display purpose
+      // Show adapted story
       addMessage(
         "system",
         <div className="space-y-6">
@@ -1206,11 +1046,7 @@ export default function Create() {
     }
   };
 
-  // NEW FUNCTION: Handle story purpose input
-  // First, update the handleStoryPurpose function to set up brand collection:
-  // NEW FUNCTION: Handle story purpose input - UPDATED for brand system message
-  // Update the handleStoryPurpose function - Fix the skip logic
-  // Update the handleStoryPurpose function - FIXED for skip logic
+  // Handle story purpose input
   const handleStoryPurpose = async (purpose: string) => {
     if (!purpose.trim() || !story) return;
     if (currentStep === "brand-details" || currentStep === "story-generated") {
@@ -1266,7 +1102,6 @@ export default function Create() {
                   value={brandName}
                   onChange={(e) => {
                     setBrandName(e.target.value);
-                    // Focus the input
                     e.target.focus();
                   }}
                   placeholder="Enter your brand name..."
@@ -1283,7 +1118,6 @@ export default function Create() {
                   onParseComplete={(assets) => {
                     setBrandGuide(assets);
                     if (assets) {
-                      // Show success message
                       addMessage(
                         "system",
                         <div className="text-green-600 flex items-center gap-2">
@@ -1299,12 +1133,11 @@ export default function Create() {
             </div>
           </div>
 
-          {/* Action buttons as part of the system message */}
+          {/* Action buttons */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-4">
             <button
               onClick={async () => {
                 if (!brandName.trim()) {
-                  // Show error message
                   addMessage(
                     "system",
                     <div className="text-amber-600 p-3 bg-amber-50 rounded-lg">
@@ -1315,7 +1148,6 @@ export default function Create() {
                   return;
                 }
 
-                // Continue with brand data
                 await adaptStoryWithBrand(purpose);
               }}
               className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -1325,7 +1157,6 @@ export default function Create() {
             </button>
             <button
               onClick={() => {
-                // Skip brand - use existing story WITHOUT calling API
                 handleSkipBrandDetails(purpose);
               }}
               className="px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2"
@@ -1347,10 +1178,10 @@ export default function Create() {
       // Non-brand purpose - adapt normally
       await adaptStoryWithoutBrand(purpose);
     }
-    setUserPurpose(""); // Clear the purpose input
+    setUserPurpose("");
   };
 
-  // NEW FUNCTION: Handle skipping brand details
+  // Handle skipping brand details
   const handleSkipBrandDetails = (purpose: string) => {
     if (!story) return;
 
@@ -1446,458 +1277,486 @@ export default function Create() {
     setCurrentStep("story-generated");
   };
 
-  // You can now simplify or remove the adaptStoryWithoutBrand function
-  // for brand-skipping cases, or keep it for non-brand purposes
-
-  // Trigger Story Generation - MODIFIED to ask for purpose
-  // Trigger Story Generation - MODIFIED to ask for purpose
-  // Updated triggerStoryGeneration function
-  // Updated triggerStoryGeneration function - FIXED for direct purpose button clicks
- // Updated triggerStoryGeneration function - Fix for hiding other purpose buttons
-const triggerStoryGeneration = async (ccnData: CCNData) => {
-  setIsGenerating(true);
-
-  console.log("triggerStoryGeneration received ccnData:", ccnData);
-
-  if (!ccnData) {
-    console.error("No CCN data provided to triggerStoryGeneration");
-    return;
-  }
-
-  // Show loading message
-  const loadingMessage: Message = {
-    id: messages.length + 1,
-    sender: "system",
-    content: (
-      <div className="flex items-center gap-2">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-        <span>Shaping your story based on your moment...</span>
-      </div>
-    ),
-    timestamp: new Date(),
-    type: "response",
+  // Helper to map old emotion to prohibitions
+function getProhibitionsFromEmotion(emotion?: string): string[] {
+  if (!emotion) return ["emotional reassurance", "sentimentality", "poetic language"];
+  
+  const prohibitionMap: Record<string, string[]> = {
+    "cynical": ["optimism", "hope", "comfort", "reassurance"],
+    "skeptical": ["certainty", "assurance", "promises", "confidence"],
+    "pragmatic": ["emotional language", "poetry", "metaphor", "drama"],
+    "realistic": ["exaggeration", "hyperbole", "fantasy", "romanticism"],
+    "dry": ["warmth", "emotion", "enthusiasm", "excitement"],
+    "witty": ["seriousness", "solemnity", "gravity", "sobriety"],
+    "ironic": ["sincerity", "earnestness", "directness", "literalness"],
   };
+  
+  const emotionKey = Object.keys(prohibitionMap).find(key => 
+    emotion.toLowerCase().includes(key)
+  );
+  
+  return emotionKey ? prohibitionMap[emotionKey] : 
+         ["emotional reassurance", "sentimentality", "poetic language"];
+}
+  // Trigger Story Generation
+  const triggerStoryGeneration = async (ccnData: CCNData) => {
+    setIsGenerating(true);
 
-  // Add loading message to existing messages
-  setMessages((prev) => [...prev, loadingMessage]);
+    console.log("triggerStoryGeneration received ccnData:", ccnData);
 
-  try {
-    const rawAnalysis =
-      ccnData.rawAnalysis ||
-      "I feel this is a meaningful moment worth exploring.";
+    if (!ccnData) {
+      console.error("No CCN data provided to triggerStoryGeneration");
+      return;
+    }
 
-    console.log("Using rawAnalysis:", rawAnalysis.substring(0, 100) + "...");
+    // Show loading message
+    const loadingMessage: Message = {
+      id: messages.length + 1,
+      sender: "system",
+      content: (
+        <div className="flex items-center gap-2">
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+          <span>Shaping your story based on your moment...</span>
+        </div>
+      ),
+      timestamp: new Date(),
+      type: "response",
+    };
+
+    setMessages((prev) => [...prev, loadingMessage]);
+
+    try {
+      const rawAnalysis =
+        ccnData.rawAnalysis ||
+        "I feel this is a meaningful moment worth exploring.";
+
+      console.log("Using rawAnalysis:", rawAnalysis.substring(0, 100) + "...");
+         const semanticExtraction = {
+      // Map pathway
+      pathway: ccnData.pathway || "assumption-first",
+      
+      // Map baselineStance from emotion or create default
+      baselineStance: ccnData.baselineStance || 
+                     (ccnData.emotion ? `${ccnData.emotion} perspective` : "pragmatic, expects reliability"),
+      
+      // Map toneConstraints from emotion/tone
+      toneConstraints: ccnData.toneConstraints || 
+                      (ccnData.emotion ? [ccnData.emotion, "restrained"] : ["observational", "restrained"]),
+      
+      // Map prohibitions - if old format had emotion like "cynical", avoid opposite
+      prohibitions: ccnData.prohibitions || getProhibitionsFromEmotion(ccnData.emotion),
+      
+      // Keep existing fields
+      audience: ccnData.audience || "those who need to hear it",
+      intentSummary: ccnData.intentSummary || "A meaningful moment to share",
+      
+      // Add brand context detection
+      hasBrandContext: ccnData.hasBrandContext || 
+                      (brandName || brandGuide ? true : false),
+      productCategory: ccnData.productCategory || null,
+      
+      // Legacy fields for compatibility
+      emotion: ccnData.emotion,
+      scene: ccnData.scene,
+      seedMoment: ccnData.seedMoment,
+      rawAnalysis: rawAnalysis,
+    };
 
     const storyRequestData = {
-      market: ccnData.market,
-      semanticExtraction: {
-        emotion: ccnData.emotion,
-        scene: ccnData.scene,
-        seedMoment: ccnData.seedMoment,
-        audience: ccnData.audience,
-        intentSummary: ccnData.intentSummary,
-        pathway: ccnData.pathway,
-        rawAnalysis: rawAnalysis,
-      },
+      semanticExtraction: semanticExtraction,
       brand: brandGuide ? { name: brandName, ...brandGuide } : undefined,
       requestType: "micro-story",
       originalContext: originalUserInput,
     };
 
-    console.log("Sending to /api/generateStory:", {
-      market,
-      emotion: ccnData.emotion,
-      seedMoment: ccnData.seedMoment,
-      rawAnalysis: rawAnalysis.substring(0, 150) + "...",
-    });
-
-    const res = await fetch("/api/generateStory", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(storyRequestData),
-    });
-
-    const data = await res.json();
-    console.log("Story generation response:", data);
-
-    if (!data.success) {
-      throw new Error(data.error || "Unknown error");
-    }
-
-    const generatedStory: GeneratedStory = {
-      story: data.microStory || data.story,
-      beatSheet: data.beatSheet || [],
-      metadata: data.metadata,
-    };
-
-    setStory(generatedStory);
-    await detectCharacters(generatedStory);
-
-    // Remove the loading message
-    setMessages((prev) => {
-      const filtered = prev.filter((msg) => {
-        if (typeof msg.content === "string") {
-          return !msg.content.includes("Shaping your story");
-        }
-        try {
-          const contentStr = JSON.stringify(msg.content);
-          return !contentStr.includes("Shaping your story");
-        } catch {
-          return true;
-        }
+      console.log("Sending to /api/generateStory:", {
+        emotion: ccnData.emotion,
+        seedMoment: ccnData.seedMoment,
+        rawAnalysis: rawAnalysis.substring(0, 150) + "...",
       });
 
-      // Add the generated story message WITH EXPANSION OPTIONS FIRST
-      const newMessages = [
-        ...filtered,
-        {
-          id: filtered.length + 1,
-          sender: "system" as const,
-          content: (
-            <div className="space-y-6">
-              {/* Story Display */}
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-6 rounded-r-lg">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-lg text-purple-800">
-                    ✨ {generatedStory.metadata.title}
-                  </h3>
-                  <div className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                    First Draft
+      const res = await fetch("/api/generateStory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(storyRequestData),
+      });
+
+      const data = await res.json();
+      console.log("Story generation response:", data);
+
+      if (!data.success) {
+        throw new Error(data.error || "Unknown error");
+      }
+
+      const generatedStory: GeneratedStory = {
+        story: data.microStory || data.story,
+        beatSheet: data.beatSheet || [],
+        metadata: data.metadata,
+      };
+
+      setStory(generatedStory);
+      await detectCharacters(generatedStory);
+
+      // Remove the loading message
+      setMessages((prev) => {
+        const filtered = prev.filter((msg) => {
+          if (typeof msg.content === "string") {
+            return !msg.content.includes("Shaping your story");
+          }
+          try {
+            const contentStr = JSON.stringify(msg.content);
+            return !contentStr.includes("Shaping your story");
+          } catch {
+            return true;
+          }
+        });
+
+        // Add the generated story message
+        const newMessages = [
+          ...filtered,
+          {
+            id: filtered.length + 1,
+            sender: "system" as const,
+            content: (
+              <div className="space-y-6">
+                {/* Story Display */}
+                <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-6 rounded-r-lg">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-lg text-purple-800">
+                      ✨ {generatedStory.metadata.title}
+                    </h3>
+                    <div className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                      First Draft
+                    </div>
+                  </div>
+                  <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
+                    {generatedStory.story}
                   </div>
                 </div>
-                <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
-                  {generatedStory.story}
-                </div>
-              </div>
 
-              {/* EXPANSION OPTIONS - BEFORE PURPOSE */}
-              <div className="space-y-4">
-                <p className="font-medium text-gray-700">
-                  Want to refine this story first?
-                </p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <button
-                    onClick={() =>
-                      handleStoryExpansionWithStory(
-                        "expand",
-                        generatedStory,
-                        ccnData,
-                      )
-                    }
-                    className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-                  >
-                    <Maximize2 size={16} />
-                    Expand this
-                  </button>
-                  <button
-                    onClick={() =>
-                      handleStoryExpansionWithStory(
-                        "gentler",
-                        generatedStory,
-                        ccnData,
-                      )
-                    }
-                    className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-                  >
-                    <Zap size={16} />
-                    Make it gentler
-                  </button>
-                  <button
-                    onClick={() =>
-                      handleStoryExpansionWithStory(
-                        "harsher",
-                        generatedStory,
-                        ccnData,
-                      )
-                    }
-                    className="px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-                  >
-                    <Zap size={16} />
-                    Make it harsher
-                  </button>
-                  <button
-                    onClick={() =>
-                      handleStoryExpansionWithStory(
-                        "60-second",
-                        generatedStory,
-                        ccnData,
-                      )
-                    }
-                    className="px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-                  >
-                    <Film size={16} />
-                    60-second version
-                  </button>
-                </div>
-
-                <div className="pt-4 border-t">
-                  <p className="text-sm text-gray-600 mb-3">
-                    Or continue with this story as-is:
+                {/* EXPANSION OPTIONS */}
+                <div className="space-y-4">
+                  <p className="font-medium text-gray-700">
+                    Want to refine this story first?
                   </p>
-                  <button
-                    onClick={() => {
-                      // Show purpose options
-                      setMessages((prev) => [
-                        ...prev,
-                        {
-                          id: prev.length + 1,
-                          sender: "system" as const,
-                          content: (
-                            <div className="space-y-3">
-                              <p className="font-medium text-gray-700">
-                                How do you want to use this story?
-                              </p>
-                              <p className="text-sm text-gray-600">
-                                Tell me what this is for (e.g., "Turn this
-                                into a brand post", "This is for Instagram",
-                                "Make it more formal for LinkedIn", etc.)
-                              </p>
-                              {showPurposeButtons && (
-                                <div className="flex flex-wrap gap-2 pt-2">
-                                  <button
-                                    onClick={() => {
-                                      const purpose =
-                                        "Turn this into a brand post";
-                                      setUserPurpose(purpose);
-                                      setShowPurposeButtons(false);
-                                      // Update message to show only the selected button
-                                      const updatedMessage = {
-                                        ...messages[messages.length - 1],
-                                        content: (
-                                          <div className="space-y-3">
-                                            <p className="font-medium text-gray-700">
-                                              How do you want to use this story?
-                                            </p>
-                                            <p className="text-sm text-gray-600">
-                                              Tell me what this is for (e.g., "Turn this
-                                              into a brand post", "This is for Instagram",
-                                              "Make it more formal for LinkedIn", etc.)
-                                            </p>
-                                            <div className="pt-2">
-                                              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
-                                                <span className="text-xs">Selected:</span>
-                                                <span className="font-medium text-sm">
-                                                  {purpose}
-                                                </span>
-                                              </div>
-                                            </div>
-                                            <p className="text-xs text-gray-500">
-                                              I'll adapt the same story based on your
-                                              specific use case.
-                                            </p>
-                                          </div>
-                                        ),
-                                      };
-                                      setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
-                                      handleStoryPurpose(purpose);
-                                    }}
-                                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
-                                  >
-                                    Brand post
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const purpose = "This is for Instagram";
-                                      setUserPurpose(purpose);
-                                      setShowPurposeButtons(false);
-                                      // Update message to show only the selected button
-                                      const updatedMessage = {
-                                        ...messages[messages.length - 1],
-                                        content: (
-                                          <div className="space-y-3">
-                                            <p className="font-medium text-gray-700">
-                                              How do you want to use this story?
-                                            </p>
-                                            <p className="text-sm text-gray-600">
-                                              Tell me what this is for (e.g., "Turn this
-                                              into a brand post", "This is for Instagram",
-                                              "Make it more formal for LinkedIn", etc.)
-                                            </p>
-                                            <div className="pt-2">
-                                              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
-                                                <span className="text-xs">Selected:</span>
-                                                <span className="font-medium text-sm">
-                                                  {purpose}
-                                                </span>
-                                              </div>
-                                            </div>
-                                            <p className="text-xs text-gray-500">
-                                              I'll adapt the same story based on your
-                                              specific use case.
-                                            </p>
-                                          </div>
-                                        ),
-                                      };
-                                      setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
-                                      handleStoryPurpose(purpose);
-                                    }}
-                                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                                  >
-                                    Instagram
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const purpose =
-                                        "Make it more formal for LinkedIn";
-                                      setUserPurpose(purpose);
-                                      setShowPurposeButtons(false);
-                                      // Update message to show only the selected button
-                                      const updatedMessage = {
-                                        ...messages[messages.length - 1],
-                                        content: (
-                                          <div className="space-y-3">
-                                            <p className="font-medium text-gray-700">
-                                              How do you want to use this story?
-                                            </p>
-                                            <p className="text-sm text-gray-600">
-                                              Tell me what this is for (e.g., "Turn this
-                                              into a brand post", "This is for Instagram",
-                                              "Make it more formal for LinkedIn", etc.)
-                                            </p>
-                                            <div className="pt-2">
-                                              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
-                                                <span className="text-xs">Selected:</span>
-                                                <span className="font-medium text-sm">
-                                                  {purpose}
-                                                </span>
-                                              </div>
-                                            </div>
-                                            <p className="text-xs text-gray-500">
-                                              I'll adapt the same story based on your
-                                              specific use case.
-                                            </p>
-                                          </div>
-                                        ),
-                                      };
-                                      setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
-                                      handleStoryPurpose(purpose);
-                                    }}
-                                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                                  >
-                                    LinkedIn
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const purpose = "Educational content";
-                                      setUserPurpose(purpose);
-                                      setShowPurposeButtons(false);
-                                      // Update message to show only the selected button
-                                      const updatedMessage = {
-                                        ...messages[messages.length - 1],
-                                        content: (
-                                          <div className="space-y-3">
-                                            <p className="font-medium text-gray-700">
-                                              How do you want to use this story?
-                                            </p>
-                                            <p className="text-sm text-gray-600">
-                                              Tell me what this is for (e.g., "Turn this
-                                              into a brand post", "This is for Instagram",
-                                              "Make it more formal for LinkedIn", etc.)
-                                            </p>
-                                            <div className="pt-2">
-                                              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
-                                                <span className="text-xs">Selected:</span>
-                                                <span className="font-medium text-sm">
-                                                  {purpose}
-                                                </span>
-                                              </div>
-                                            </div>
-                                            <p className="text-xs text-gray-500">
-                                              I'll adapt the same story based on your
-                                              specific use case.
-                                            </p>
-                                          </div>
-                                        ),
-                                      };
-                                      setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
-                                      handleStoryPurpose(purpose);
-                                    }}
-                                    className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                                  >
-                                    Educational
-                                  </button>
-                                </div>
-                              )}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <button
+                      onClick={() =>
+                        handleStoryExpansionWithStory(
+                          "expand",
+                          generatedStory,
+                          ccnData,
+                        )
+                      }
+                      className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Maximize2 size={16} />
+                      Expand this
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleStoryExpansionWithStory(
+                          "gentler",
+                          generatedStory,
+                          ccnData,
+                        )
+                      }
+                      className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Zap size={16} />
+                      Make it gentler
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleStoryExpansionWithStory(
+                          "harsher",
+                          generatedStory,
+                          ccnData,
+                        )
+                      }
+                      className="px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Zap size={16} />
+                      Make it harsher
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleStoryExpansionWithStory(
+                          "60-second",
+                          generatedStory,
+                          ccnData,
+                        )
+                      }
+                      className="px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Film size={16} />
+                      60-second version
+                    </button>
+                  </div>
 
-                              <p className="text-xs text-gray-500">
-                                I'll adapt the same story based on your
-                                specific use case.
-                              </p>
-                            </div>
-                          ),
-                          timestamp: new Date(),
-                          type: "question" as const,
-                        },
-                      ]);
-                      setCurrentStep("story-purpose");
-                    }}
-                    className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
-                  >
-                    Continue with this story →
-                  </button>
+                  <div className="pt-4 border-t">
+                    <p className="text-sm text-gray-600 mb-3">
+                      Or continue with this story as-is:
+                    </p>
+                    <button
+                      onClick={() => {
+                        // Show purpose options
+                        setMessages((prev) => [
+                          ...prev,
+                          {
+                            id: prev.length + 1,
+                            sender: "system" as const,
+                            content: (
+                              <div className="space-y-3">
+                                <p className="font-medium text-gray-700">
+                                  How do you want to use this story?
+                                </p>
+                                <p className="text-sm text-gray-600">
+                                  Tell me what this is for (e.g., "Turn this
+                                  into a brand post", "This is for Instagram",
+                                  "Make it more formal for LinkedIn", etc.)
+                                </p>
+                                {showPurposeButtons && (
+                                  <div className="flex flex-wrap gap-2 pt-2">
+                                    <button
+                                      onClick={() => {
+                                        const purpose =
+                                          "Turn this into a brand post";
+                                        setUserPurpose(purpose);
+                                        setShowPurposeButtons(false);
+                                        const updatedMessage = {
+                                          ...messages[messages.length - 1],
+                                          content: (
+                                            <div className="space-y-3">
+                                              <p className="font-medium text-gray-700">
+                                                How do you want to use this story?
+                                              </p>
+                                              <p className="text-sm text-gray-600">
+                                                Tell me what this is for (e.g., "Turn this
+                                                into a brand post", "This is for Instagram",
+                                                "Make it more formal for LinkedIn", etc.)
+                                              </p>
+                                              <div className="pt-2">
+                                                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
+                                                  <span className="text-xs">Selected:</span>
+                                                  <span className="font-medium text-sm">
+                                                    {purpose}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                              <p className="text-xs text-gray-500">
+                                                I'll adapt the same story based on your
+                                                specific use case.
+                                              </p>
+                                            </div>
+                                          ),
+                                        };
+                                        setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                        handleStoryPurpose(purpose);
+                                      }}
+                                      className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
+                                    >
+                                      Brand post
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const purpose = "This is for Instagram";
+                                        setUserPurpose(purpose);
+                                        setShowPurposeButtons(false);
+                                        const updatedMessage = {
+                                          ...messages[messages.length - 1],
+                                          content: (
+                                            <div className="space-y-3">
+                                              <p className="font-medium text-gray-700">
+                                                How do you want to use this story?
+                                              </p>
+                                              <p className="text-sm text-gray-600">
+                                                Tell me what this is for (e.g., "Turn this
+                                                into a brand post", "This is for Instagram",
+                                                "Make it more formal for LinkedIn", etc.)
+                                              </p>
+                                              <div className="pt-2">
+                                                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
+                                                  <span className="text-xs">Selected:</span>
+                                                  <span className="font-medium text-sm">
+                                                    {purpose}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                              <p className="text-xs text-gray-500">
+                                                I'll adapt the same story based on your
+                                                specific use case.
+                                              </p>
+                                            </div>
+                                          ),
+                                        };
+                                        setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                        handleStoryPurpose(purpose);
+                                      }}
+                                      className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                                    >
+                                      Instagram
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const purpose =
+                                          "Make it more formal for LinkedIn";
+                                        setUserPurpose(purpose);
+                                        setShowPurposeButtons(false);
+                                        const updatedMessage = {
+                                          ...messages[messages.length - 1],
+                                          content: (
+                                            <div className="space-y-3">
+                                              <p className="font-medium text-gray-700">
+                                                How do you want to use this story?
+                                              </p>
+                                              <p className="text-sm text-gray-600">
+                                                Tell me what this is for (e.g., "Turn this
+                                                into a brand post", "This is for Instagram",
+                                                "Make it more formal for LinkedIn", etc.)
+                                              </p>
+                                              <div className="pt-2">
+                                                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
+                                                  <span className="text-xs">Selected:</span>
+                                                  <span className="font-medium text-sm">
+                                                    {purpose}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                              <p className="text-xs text-gray-500">
+                                                I'll adapt the same story based on your
+                                                specific use case.
+                                              </p>
+                                            </div>
+                                          ),
+                                        };
+                                        setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                        handleStoryPurpose(purpose);
+                                      }}
+                                      className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                                    >
+                                      LinkedIn
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const purpose = "Educational content";
+                                        setUserPurpose(purpose);
+                                        setShowPurposeButtons(false);
+                                        const updatedMessage = {
+                                          ...messages[messages.length - 1],
+                                          content: (
+                                            <div className="space-y-3">
+                                              <p className="font-medium text-gray-700">
+                                                How do you want to use this story?
+                                              </p>
+                                              <p className="text-sm text-gray-600">
+                                                Tell me what this is for (e.g., "Turn this
+                                                into a brand post", "This is for Instagram",
+                                                "Make it more formal for LinkedIn", etc.)
+                                              </p>
+                                              <div className="pt-2">
+                                                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
+                                                  <span className="text-xs">Selected:</span>
+                                                  <span className="font-medium text-sm">
+                                                    {purpose}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                              <p className="text-xs text-gray-500">
+                                                I'll adapt the same story based on your
+                                                specific use case.
+                                              </p>
+                                            </div>
+                                          ),
+                                        };
+                                        setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                        handleStoryPurpose(purpose);
+                                      }}
+                                      className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                                    >
+                                      Educational
+                                    </button>
+                                  </div>
+                                )}
+
+                                <p className="text-xs text-gray-500">
+                                  I'll adapt the same story based on your
+                                  specific use case.
+                                </p>
+                              </div>
+                            ),
+                            timestamp: new Date(),
+                            type: "question" as const,
+                          },
+                        ]);
+                        setCurrentStep("story-purpose");
+                      }}
+                      className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
+                    >
+                      Continue with this story →
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ),
-          timestamp: new Date(),
-          type: "generated" as const,
-        },
-      ];
+            ),
+            timestamp: new Date(),
+            type: "generated" as const,
+          },
+        ];
 
-      return newMessages;
-    });
-
-    // Set step to story-generated (which will show expansion options)
-    setCurrentStep("story-generated");
-  } catch (error) {
-    console.error("❌ Story generation error:", error);
-
-    // Remove loading message and show error
-    setMessages((prev) => {
-      const filtered = prev.filter((msg) => {
-        if (typeof msg.content === "string") {
-          return !msg.content.includes("Shaping your story");
-        }
-        try {
-          const contentStr = JSON.stringify(msg.content);
-          return !contentStr.includes("Shaping your story");
-        } catch {
-          return true;
-        }
+        return newMessages;
       });
 
-      return [
-        ...filtered,
-        {
-          id: filtered.length + 1,
-          sender: "system",
-          content: (
-            <div className="space-y-6">
-              <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
-                <p>
-                  I had trouble shaping your story. Let's try a different
-                  approach:
-                </p>
+      setCurrentStep("story-generated");
+    } catch (error) {
+      console.error("❌ Story generation error:", error);
+
+      // Remove loading message and show error
+      setMessages((prev) => {
+        const filtered = prev.filter((msg) => {
+          if (typeof msg.content === "string") {
+            return !msg.content.includes("Shaping your story");
+          }
+          try {
+            const contentStr = JSON.stringify(msg.content);
+            return !contentStr.includes("Shaping your story");
+          } catch {
+            return true;
+          }
+        });
+
+        return [
+          ...filtered,
+          {
+            id: filtered.length + 1,
+            sender: "system",
+            content: (
+              <div className="space-y-6">
+                <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
+                  <p>
+                    I had trouble shaping your story. Let's try a different
+                    approach:
+                  </p>
+                </div>
+                <div className="space-y-4">
+                  <button
+                    onClick={() => setCurrentStep("entry")}
+                    className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
+                  >
+                    Start Over
+                  </button>
+                </div>
               </div>
-              <div className="space-y-4">
-                <button
-                  onClick={() => setCurrentStep("entry")}
-                  className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
-                >
-                  Start Over
-                </button>
-              </div>
-            </div>
-          ),
-          timestamp: new Date(),
-          type: "response",
-        },
-      ];
-    });
-  } finally {
-    setIsGenerating(false);
-  }
-};
+            ),
+            timestamp: new Date(),
+            type: "response",
+          },
+        ];
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   // Character detection function
   const detectCharacters = async (storyData: GeneratedStory) => {
@@ -1934,11 +1793,10 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
     }
   };
 
-  // Step 2: Understanding Confirmation (triggers story)
+  // Step 2: Understanding Confirmation
   const handleUnderstandingConfirm = async (ccnData?: CCNData) => {
     console.log("handleUnderstandingConfirm called with:", ccnData);
 
-    // Use the passed ccnData parameter first, then fall back to state
     const dataToUse = ccnData || confirmedCCNData;
 
     if (!dataToUse) {
@@ -1954,7 +1812,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
         "response",
       );
 
-      // Go back to entry
       setCurrentStep("entry");
       addMessage(
         "system",
@@ -1991,172 +1848,174 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
   };
 
   // Story Expansion with direct story parameter
-  const handleStoryExpansionWithStory = async (
-    expansionType: "expand" | "gentler" | "harsher" | "60-second",
-    storyToExpand: GeneratedStory,
-    ccnData?: CCNData,
-  ) => {
-    console.log("handleStoryExpansionWithStory called:", {
-      expansionType,
-      storyToExpand,
-      storyTitle: storyToExpand.metadata?.title,
-      ccnData,
-    });
+// Step: Story Expansion with direct story parameter
+const handleStoryExpansionWithStory = async (
+  expansionType: "expand" | "gentler" | "harsher" | "60-second",
+  storyToExpand: GeneratedStory,
+  ccnData?: CCNData,
+) => {
+  console.log("handleStoryExpansionWithStory called:", {
+    expansionType,
+    storyToExpand,
+    storyTitle: storyToExpand.metadata?.title,
+    ccnData,
+  });
 
-    if (!storyToExpand || !storyToExpand.story) {
-      console.error("No valid story provided for expansion");
-      addMessage(
-        "system",
-        <div className="text-red-600">
-          Error: Invalid story provided for expansion.
-        </div>,
-        "response",
-      );
-      return;
-    }
-
-    // Use provided ccnData, or fall back to available CCN data
-    const expansionCCNData = ccnData ||
-      confirmedCCNData ||
-      ccnInterpretation || {
-        emotion: storyToExpand.metadata?.tone?.toLowerCase() || "meaningful",
-        scene: "a moment",
-        seedMoment: originalUserInput || "personal experience",
-        audience: "those who need to hear it",
-        intentSummary:
-          storyToExpand.metadata?.title || "A meaningful moment to share",
-        pathway: "emotion-first",
-        rawAnalysis: storyToExpand.story,
-      };
-
-    setIsGenerating(true);
-
-    // Add user selection message
+  if (!storyToExpand || !storyToExpand.story) {
+    console.error("No valid story provided for expansion");
     addMessage(
-      "user",
-      <div className="flex items-center gap-2">
-        <Type size={16} />
-        <span className="font-medium">
-          {expansionType === "expand" && "Expand this"}
-          {expansionType === "gentler" && "Make it gentler"}
-          {expansionType === "harsher" && "Make it harsher"}
-          {expansionType === "60-second" && "Create 60-second version"}
-        </span>
-      </div>,
-      "selection",
-    );
-
-    const loadingId = addMessage(
       "system",
-      <div className="flex items-center gap-2">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-        <span>Shaping your story...</span>
+      <div className="text-red-600">
+        Error: Invalid story provided for expansion.
       </div>,
       "response",
     );
+    return;
+  }
 
-    try {
-      console.log(
-        "Sending expansion request for story:",
-        storyToExpand.metadata?.title,
-      );
+  // Create a complete semantic extraction object for the API
+  // Use the provided ccnData or fall back to confirmedCCNData
+  const expansionCCNData = ccnData || confirmedCCNData || {
+    emotion: storyToExpand.metadata?.tone?.toLowerCase() || "meaningful",
+    scene: "a moment",
+    seedMoment: originalUserInput || "personal experience",
+    audience: "those who need to hear it",
+    intentSummary: storyToExpand.metadata?.title || "A meaningful moment to share",
+    pathway: "emotion-first",
+    rawAnalysis: storyToExpand.story,
+  };
 
-      const res = await fetch("/api/generateStory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          market,
-          semanticExtraction: {
-            emotion: expansionCCNData.emotion,
-            scene: expansionCCNData.scene,
-            seedMoment: expansionCCNData.seedMoment,
-            audience: expansionCCNData.audience,
-            intentSummary: expansionCCNData.intentSummary,
-            pathway: expansionCCNData.pathway,
-            rawAnalysis: expansionCCNData.rawAnalysis || storyToExpand.story,
-          },
-          brand: brandGuide ? { name: brandName, ...brandGuide } : undefined,
-          requestType: "expansion",
-          expansionType: expansionType,
-          currentStory: storyToExpand.story,
-          originalContext: originalUserInput,
-        }),
-      });
+  // Build the semantic extraction object with all required fields
+  const semanticExtraction = {
+    // New fields required by the API
+    pathway: expansionCCNData.pathway || "assumption-first",
+    baselineStance: expansionCCNData.baselineStance || 
+                   (expansionCCNData.emotion ? `${expansionCCNData.emotion} perspective` : "pragmatic, expects reliability"),
+    toneConstraints: expansionCCNData.toneConstraints || 
+                    (expansionCCNData.emotion ? [expansionCCNData.emotion, "restrained"] : ["observational", "restrained"]),
+    prohibitions: expansionCCNData.prohibitions || getProhibitionsFromEmotion(expansionCCNData.emotion),
+    audience: expansionCCNData.audience || "those who need to hear it",
+    intentSummary: expansionCCNData.intentSummary || "A meaningful moment to share",
+    hasBrandContext: expansionCCNData.hasBrandContext || false,
+    productCategory: expansionCCNData.productCategory || null,
+    
+    // Legacy fields for compatibility
+    emotion: expansionCCNData.emotion,
+    scene: expansionCCNData.scene,
+    seedMoment: expansionCCNData.seedMoment,
+    rawAnalysis: expansionCCNData.rawAnalysis || storyToExpand.story,
+  };
 
-      if (!res.ok) {
-        throw new Error(`API error: ${res.status}`);
-      }
+  setIsGenerating(true);
 
-      const data = await res.json();
+  // Add user selection message
+  addMessage(
+    "user",
+    <div className="flex items-center gap-2">
+      <Type size={16} />
+      <span className="font-medium">
+        {expansionType === "expand" && "Expand this"}
+        {expansionType === "gentler" && "Make it gentler"}
+        {expansionType === "harsher" && "Make it harsher"}
+        {expansionType === "60-second" && "Create 60-second version"}
+      </span>
+    </div>,
+    "selection",
+  );
 
-      if (!data.success) {
-        throw new Error(data.error || "Unknown error");
-      }
+  const loadingId = addMessage(
+    "system",
+    <div className="flex items-center gap-2">
+      <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+      <span>Shaping your story...</span>
+    </div>,
+    "response",
+  );
 
-      const expandedStory: GeneratedStory = {
-        story:
-          data.expandedStory ||
-          data.story ||
-          data.microStory ||
-          storyToExpand.story,
-        beatSheet: data.beatSheet || storyToExpand.beatSheet || [],
-        metadata: data.metadata || {
-          title: `${
-            storyToExpand.metadata?.title || "Story"
-          } - ${expansionType}`,
-          market,
-          archetype: storyToExpand.metadata?.archetype || "Unknown",
-          tone: storyToExpand.metadata?.tone || "Cinematic",
-          totalBeats: data.beatSheet?.length || 0,
-          estimatedDuration: expansionType === "60-second" ? "60s" : "30s",
-        },
-      };
+  try {
+    console.log(
+      "Sending expansion request for story:",
+      storyToExpand.metadata?.title,
+    );
+    console.log("Semantic extraction data:", {
+      baselineStance: semanticExtraction.baselineStance,
+      toneConstraints: semanticExtraction.toneConstraints,
+      prohibitions: semanticExtraction.prohibitions,
+      pathway: semanticExtraction.pathway,
+    });
 
-      // Update the main story state with the expanded version
-      setStory(expandedStory);
+    const res = await fetch("/api/generateStory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        semanticExtraction: semanticExtraction,
+        brand: brandGuide ? { name: brandName, ...brandGuide } : undefined,
+        requestType: "expansion",
+        expansionType: expansionType,
+        currentStory: storyToExpand.story,
+        originalContext: originalUserInput,
+      }),
+    });
 
-      // Remove loading message
-      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
+    if (!res.ok) {
+      throw new Error(`API error: ${res.status}`);
+    }
 
-      // Show expanded story
-      addMessage(
-        "system",
-        <div className="space-y-6">
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-6 rounded-r-lg">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-lg text-blue-800">
-                {expandedStory.metadata.title}
-              </h3>
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                {expansionType === "60-second"
-                  ? "60s version"
-                  : expansionType === "expand"
-                    ? "Expanded"
-                    : expansionType === "gentler"
-                      ? "Gentler"
-                      : "Harsher"}
-              </span>
-            </div>
-            <div className="text-gray-800 whitespace-pre-line leading-relaxed">
-              {expandedStory.story}
-            </div>
+    const data = await res.json();
+
+    if (!data.success) {
+      throw new Error(data.error || "Unknown error");
+    }
+
+    const expandedStory: GeneratedStory = {
+      story:
+        data.expandedStory ||
+        data.story ||
+        data.microStory ||
+        storyToExpand.story,
+      beatSheet: data.beatSheet || storyToExpand.beatSheet || [],
+      metadata: data.metadata || {
+        title: `${
+          storyToExpand.metadata?.title || "Story"
+        } - ${expansionType}`,
+        archetype: storyToExpand.metadata?.archetype || "Unknown",
+        tone: storyToExpand.metadata?.tone || "Cinematic",
+        totalBeats: data.beatSheet?.length || 0,
+        estimatedDuration: expansionType === "60-second" ? "60s" : "30s",
+      },
+    };
+
+    // Update the main story state with the expanded version
+    setStory(expandedStory);
+
+    // Remove loading message
+    setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
+
+    // Show expanded story
+    addMessage(
+      "system",
+      <div className="space-y-6">
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-6 rounded-r-lg">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-lg text-blue-800">
+              {expandedStory.metadata.title}
+            </h3>
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+              {expansionType === "60-second"
+                ? "60s version"
+                : expansionType === "expand"
+                  ? "Expanded"
+                  : expansionType === "gentler"
+                    ? "Gentler"
+                    : "Harsher"}
+            </span>
           </div>
-
-          {/* Ask for purpose after expansion */}
-          <div className="space-y-3">
-            <p className="font-medium text-gray-700">
-              How do you want to use this expanded story?
-            </p>
-            <p className="text-sm text-gray-600">
-              Tell me what this is for (e.g., "brand post", "Instagram",
-              "LinkedIn", etc.)
-            </p>
+          <div className="text-gray-800 whitespace-pre-line leading-relaxed">
+            {expandedStory.story}
           </div>
-        </div>,
-        "generated",
-      );
-      addMessage(
-        "system",
+        </div>
+        
+        {/* Ask for purpose after expansion */}
         <div className="space-y-3">
           <p className="font-medium text-gray-700">
             How do you want to use this expanded story?
@@ -2171,7 +2030,7 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
                 const purpose = "Turn this into a brand post";
                 setUserPurpose(purpose);
                 handleStoryPurpose(purpose);
-                 setShowPurposeButtons(false);
+                setShowPurposeButtons(false);
               }}
               className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
             >
@@ -2182,7 +2041,7 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
                 const purpose = "This is for Instagram";
                 setUserPurpose(purpose);
                 handleStoryPurpose(purpose);
-                 setShowPurposeButtons(false);
+                setShowPurposeButtons(false);
               }}
               className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
             >
@@ -2193,75 +2052,84 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
                 const purpose = "Make it more formal for LinkedIn";
                 setUserPurpose(purpose);
                 handleStoryPurpose(purpose);
-                 setShowPurposeButtons(false);
+                setShowPurposeButtons(false);
               }}
               className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
             >
               LinkedIn
             </button>
           </div>
-        </div>,
-        "question",
-      );
+        </div>
+      </div>,
+      "generated",
+    );
 
-      // Set current step to purpose for the expanded story
-      setCurrentStep("story-purpose");
-    } catch (error) {
-      console.error("Expansion error:", error);
+    // Set current step to purpose for the expanded story
+    setCurrentStep("story-purpose");
+  } catch (error) {
+    console.error("Expansion error:", error);
 
-      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
+    setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
 
-      addMessage(
-        "system",
+    addMessage(
+      "system",
+      <div className="space-y-4">
         <div className="text-red-600 p-4 bg-red-50 rounded-lg">
           <p>Failed to expand story. Please try again.</p>
           <p className="text-sm mt-1">
             Error: {error instanceof Error ? error.message : "Unknown error"}
           </p>
-        </div>,
-        "response",
-      );
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              // Show the original story again
+              setCurrentStep("story-generated");
+              addMessage(
+                "system",
+                <div className="text-gray-600">
+                  You can continue with the original story.
+                </div>,
+                "response",
+              );
+            }}
+            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg"
+          >
+            Back to Story
+          </button>
+          <button
+            onClick={() => {
+              setUserPurpose("");
+              setCurrentStep("story-purpose");
+              addMessage(
+                "system",
+                <div className="space-y-3">
+                  <p className="font-medium text-gray-700">
+                    How do you want to use the original story?
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Tell me what this is for (e.g., "brand post", "Instagram",
+                    "LinkedIn", etc.)
+                  </p>
+                </div>,
+                "question",
+              );
+            }}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            Continue with Original
+          </button>
+        </div>
+      </div>,
+      "response",
+    );
 
-      // If expansion fails, still ask for purpose with original story
-      setCurrentStep("story-purpose");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  // Step 3a: Brand Asset Upload (legacy - not used in new flow)
-  const handleBrandUpload = async (assets: BrandAssets | null) => {
-    setBrandGuide(assets);
-
-    if (assets) {
-      addMessage(
-        "user",
-        <div className="flex items-center gap-2">
-          <Upload size={16} className="text-green-600" />
-          <span className="font-medium">Brand assets uploaded</span>
-        </div>,
-        "selection",
-      );
-    }
-
-    await simulateTyping(800);
-
-    // Get the latest CCN data from state
-    const ccnData = confirmedCCNData;
-    if (ccnData) {
-      triggerStoryGeneration(ccnData);
-    } else {
-      // If no CCN data, go back to entry
-      setCurrentStep("entry");
-      addMessage(
-        "system",
-        <div>
-          <p>Please describe your moment again:</p>
-        </div>,
-        "question",
-      );
-    }
-  };
+    // If expansion fails, still ask for purpose with original story
+    setCurrentStep("story-purpose");
+  } finally {
+    setIsGenerating(false);
+  }
+};
 
   // Step 6a: Video Option
   const handleVideoOption = async () => {
@@ -2294,7 +2162,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
   };
 
   // Step: Generate Images
-  // Step: Generate Images - UPDATED with single API call
   const handleGenerateImages = async () => {
     if (!story) return;
 
@@ -2325,14 +2192,12 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
       );
 
       try {
-        // Detect characters in the story
         const charRes = await fetch("/api/detectCharacters", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             story: story.story,
             beatSheet: story.beatSheet,
-            market,
           }),
         });
 
@@ -2342,7 +2207,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
           setMainCharacters(charData.characters || []);
           setCharacterSceneMap(charData.characterSceneMap || {});
 
-          // Update story with character-enriched beatSheet
           const updatedStory: GeneratedStory = {
             ...story,
             beatSheet: charData.updatedBeatSheet || story.beatSheet,
@@ -2354,10 +2218,8 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
 
           setStory(updatedStory);
 
-          // Remove analysis message
           setMessages((prev) => prev.filter((msg) => msg.id !== analysisId));
 
-          // Show character summary
           addMessage(
             "system",
             <div className="space-y-4">
@@ -2396,7 +2258,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
             "response",
           );
         } else {
-          // Remove analysis message on error
           setMessages((prev) => prev.filter((msg) => msg.id !== analysisId));
           addMessage(
             "system",
@@ -2448,14 +2309,11 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
           )
             .map(Number)
             .filter((sceneIdx) => sceneIdx < index)
-            .sort((a, b) => b - a); // Get most recent
+            .sort((a, b) => b - a);
 
           if (previousScenes.length > 0) {
             previousImageUrl =
               generatedCharacterImages[characterId][previousScenes[0]];
-            console.log(
-              `Using previous image for ${characterId} in scene ${index}`,
-            );
           }
         }
 
@@ -2463,7 +2321,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
           sceneDescription: scene.description,
           visualCues: scene.visualCues,
           tone: story.metadata.tone,
-          market,
           brandSafe: true,
           brandPalette: brandGuide?.palette || [],
           beatIndex: index,
@@ -2490,7 +2347,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
           storyMetadata: {
             title: story.metadata.title,
             tone: story.metadata.tone,
-            market: story.metadata.market,
             mainCharacters: mainCharacters,
           },
         }),
@@ -2765,7 +2621,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
               {failedScenes.length > 0 && (
                 <button
                   onClick={async () => {
-                    // Retry only failed scenes using the new batch endpoint
                     const retryScenes = failedScenes.map((index) => ({
                       ...scenesData[index],
                       beatIndex: index,
@@ -2794,7 +2649,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
                             storyMetadata: {
                               title: story.metadata.title,
                               tone: story.metadata.tone,
-                              market: story.metadata.market,
                             },
                           }),
                         },
@@ -2912,7 +2766,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           story,
-          market,
           tone: story.metadata.tone,
           template,
         }),
@@ -3078,9 +2931,8 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
       switch (format) {
         case "json":
           data = {
-            version: "p2-revised-lite",
+            version: "universal-narrative",
             timestamp: new Date().toISOString(),
-            market,
             mode: userMode,
             brandApplied: !!brandGuide,
             brand: brandName || null,
@@ -3102,20 +2954,19 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
               },
             },
           };
-          filename = `narrative-${market}-${Date.now()}.json`;
+          filename = `universal-narrative-${Date.now()}.json`;
           mimeType = "application/json";
           break;
 
         case "pdf":
           data = "PDF export would be generated here";
-          filename = `story-${market}-${Date.now()}.pdf`;
+          filename = `story-${Date.now()}.pdf`;
           mimeType = "application/pdf";
           break;
 
         case "csv":
           const csvData = [
             ["Field", "Value"],
-            ["Market", market],
             ["Title", story?.metadata.title || ""],
             ["Emotion", ccnData.emotion],
             ["Scene", ccnData.scene],
@@ -3129,7 +2980,7 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
             .map((row) => row.join(","))
             .join("\n");
           data = csvData;
-          filename = `story-data-${market}-${Date.now()}.csv`;
+          filename = `story-data-${Date.now()}.csv`;
           mimeType = "text/csv";
           break;
       }
@@ -3292,6 +3143,7 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
                       e.preventDefault();
                       if (userInput.trim()) {
                         handleEntrySubmit(userInput);
+                        setOriginalUserInput(userInput)
                       }
                     }
                   }}
@@ -3348,7 +3200,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
                 <div>
                   <button
                     onClick={() => {
-                      // Skip adaptation and go directly to story options
                       setCurrentStep("story-generated");
                       addMessage(
                         "system",
@@ -3364,16 +3215,11 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
                   </button>
                 </div>
               </div>
-
-              {/* <p className="text-xs text-gray-500">
-      I'll adapt the same story based on your specific use case.
-    </p> */}
             </div>
           </div>
         );
 
       case "brand-details":
-        // Minimal input section for brand-details (optional fallback)
         return (
           <div className="p-4">
             <div className="space-y-4">
@@ -3387,7 +3233,6 @@ const triggerStoryGeneration = async (ccnData: CCNData) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
                         if (brandName.trim()) {
-                          // Trigger brand adaptation
                           adaptStoryWithBrand(userPurpose);
                         }
                       }

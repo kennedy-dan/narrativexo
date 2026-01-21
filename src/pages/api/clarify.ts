@@ -1,131 +1,226 @@
 import { OpenAI } from 'openai';
 import { NextApiRequest, NextApiResponse } from 'next';
-import { CCNResponseRevised, Market } from '@/types';
+import { CCNResponseRevised } from '@/types';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// Market detection function
-async function detectMarketFromText(text: string): Promise<Market> {
-  const prompt = `
-Analyze this text and determine if there's a clear cultural or geographical market context.
+// ============================================================================
+// INPUT VALIDATION & QUALITY ASSESSMENT
+// ============================================================================
 
-TEXT TO ANALYZE:
-"${text}"
-
-INSTRUCTIONS:
-1. Look for clear cultural markers: language patterns, slang, local references, place names, cultural context
-2. If there are NO clear cultural markers, return "ng" (default)
-3. If there are ambiguous or mixed signals, return "ng" (default)
-4. Only return a specific market code if the text clearly belongs to one of these cultures:
-
-MARKET CODES:
-- "ng": Nigerian culture (Nigerian Pidgin, Yoruba/Igbo words, Naija slang, Lagos/Abuja references, jollof, suya, "wetin", "abi", "chai", "wahala")
-- "uk": British culture (British slang, UK place names, British cultural references, "mate", "bloody", "pub", "queue", "football")
-- "fr": French culture (French language, French cultural references, "bonjour", "merci", "paris", "baguette", "café", "voilà")
-
-EXAMPLES:
-- "Wetin dey happen for Lagos this morning?" → "ng"
-- "I was at the pub in London yesterday" → "uk"
-- "Le café était délicieux à Paris" → "fr"
-- "I woke up feeling inspired today" → "ng" (default)
-- "Everything is changing in my life" → "ng" (default)
-
-RETURN ONLY ONE OF: "ng", "uk", OR "fr"
-`;
-
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Using mini for cost efficiency
-      messages: [
-        { 
-          role: "system", 
-          content: "You are a cultural analyzer. You detect clear cultural markers in text. Return only the market code." 
-        },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.3,
-      max_tokens: 5,
-    });
-
-    const marketCode = completion.choices[0].message.content?.trim().toLowerCase() as Market;
+// Helper: Calculate input quality score (0-1)
+function calculateInputQuality(input: string): number {
+  if (!input || input.trim().length === 0) return 0;
+  
+  const trimmed = input.trim();
+  const words = trimmed.split(/\s+/).filter(word => word.length > 0);
+  
+  // Very brief input (single word or short phrase)
+  if (words.length <= 2) {
+    // Check if it's a complete thought
+    const isCompleteThought = /[.!?]$/.test(trimmed) || 
+      trimmed.toLowerCase().includes('i ') ||
+      trimmed.toLowerCase().includes('my ') ||
+      trimmed.toLowerCase().includes('we ') ||
+      trimmed.length > 20;
     
-    // Validate the response
-    const validMarkets: Market[] = ['ng', 'uk', 'fr'];
-    if (validMarkets.includes(marketCode)) {
-      return marketCode;
-    }
-    
-    return 'ng'; // Default fallback
-  } catch (error) {
-    console.error('Market detection error:', error);
-    return 'ng'; // Default fallback on error
+    return isCompleteThought ? 0.3 : 0.1;
   }
+  
+  // Base score from word count (sigmoid curve)
+  const wordScore = 1 / (1 + Math.exp(-(words.length - 5) / 3));
+  
+  // Penalize for very short words
+  const avgWordLength = words.reduce((sum, word) => sum + word.length, 0) / words.length;
+  const lengthScore = Math.min(avgWordLength / 6, 1);
+  
+  // Check for meaningful content vs filler words
+  const fillerWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were']);
+  const meaningfulWords = words.filter(word => 
+    !fillerWords.has(word.toLowerCase()) && 
+    word.length > 2
+  );
+  const meaningfulScore = Math.min(meaningfulWords.length / Math.max(words.length, 1), 1);
+  
+  // Syntactic completeness (has subject and verb)
+  const hasSubjectVerb = /(I|we|you|he|she|it|they|this|that)\s+(am|is|are|was|were|have|has|had|do|does|did|will|would|can|could|should|must)/i.test(trimmed) ||
+    trimmed.includes(' ') && trimmed.length > 15;
+  
+  const completenessScore = hasSubjectVerb ? 1 : 0.5;
+  
+  // Final score (weighted average)
+  const finalScore = (wordScore * 0.3) + (lengthScore * 0.2) + (meaningfulScore * 0.3) + (completenessScore * 0.2);
+  
+  return Math.min(Math.max(finalScore, 0.1), 0.95); // Clamp between 0.1 and 0.95
 }
 
-// Semantic extraction function
-async function performSemanticExtraction(userInput: string, market: Market) {
-  const marketTemplates = {
-    ng: { archetypes: ['Against All Odds', 'Heritage Hero', 'Community Builder'] },
-    uk: { archetypes: ['Underdog Fighter', 'Legacy Keeper', 'Modern Pioneer'] },
-    fr: { archetypes: ['Résilience Créative', 'Élégance Culturelle', 'Solidarité Humaniste'] }
-  };
+// Helper: Create low-confidence fallback for insufficient input
+function createLowConfidenceFallback(input: string, qualityScore: number): CCNResponseRevised {
+  const confidence = Math.max(0.1, qualityScore * 0.4); // Scale confidence with quality
   
-  const marketTemplate = marketTemplates[market] || marketTemplates.ng;
+  // Determine if we should ask for clarification
+  const needsClarification = qualityScore < 0.4 || input.length < 10;
+  
+  return {
+    success: true,
+    interpretation: {
+      pathway: "assumption-first",
+      baselineStance: qualityScore < 0.3 ? 
+        "insufficient context - please provide more details" : 
+        "general, practical perspective",
+      toneConstraints: qualityScore < 0.3 ? 
+        ["neutral", "generic"] : 
+        ["practical", "straightforward"],
+      prohibitions: qualityScore < 0.3 ? 
+        ["cannot determine without more context"] : 
+        ["overly emotional language", "exaggeration"],
+      audience: qualityScore < 0.3 ? 
+        "cannot determine audience with current input" : 
+        "general audience",
+      intentSummary: qualityScore < 0.3 ? 
+        "Please provide more details about what you're trying to express." : 
+        `Express "${input}" in a practical way.`,
+      hasBrandContext: false,
+      productCategory: null,
+      confidence: confidence,
+      confidenceScores: {
+        pathway: confidence,
+        stance: confidence,
+        tone: confidence,
+        audience: confidence
+      },
+      emotion: "neutral",
+      scene: qualityScore < 0.3 ? "insufficient context" : "general context",
+      seedMoment: input,
+      understandingPreview: qualityScore < 0.3 ? 
+        "I need more information to understand your intent. Could you please elaborate?" : 
+        `Based on limited input: "${input}".`,
+      rawAnalysis: qualityScore < 0.3 ? 
+        `Input too brief: "${input}". Please provide more context.` : 
+        `Minimal input: "${input}". Keeping tone neutral and practical.`,
+      inferredNeed: qualityScore < 0.3 ? "more information required" : "practical expression",
+      inferredArchetype: qualityScore < 0.3 ? "Undetermined" : "Generic Narrator",
+      inferredTone: "Neutral",
+      inferredContext: qualityScore < 0.3 ? "Need more details" : "General communication",
+      clarifications: []
+    },
+    requiresClarification: needsClarification,
+    clarificationQuestion: needsClarification ? {
+      question: "Could you tell me more about what you're trying to express?",
+      field: "intent"
+    } : null,
+    understandingPreview: qualityScore < 0.3 ? 
+      "I need more information to understand your intent. Could you please elaborate?" : 
+      `Based on limited input: "${input}".`
+  };
+}
 
+// Helper: Detect if input is likely a brand/product context
+function detectBrandContext(input: string): { hasBrandContext: boolean; productCategory: string | null } {
+  const lowerInput = input.toLowerCase();
+  
+  // Common brand/product indicators
+  const brandIndicators = [
+    'brand', 'company', 'business', 'organization', 'startup', 'enterprise',
+    'product', 'service', 'offering', 'solution',
+    'marketing', 'campaign', 'advert', 'commercial', 'promotion',
+    'sell', 'selling', 'sales', 'promote', 'advertise',
+    'customer', 'client', 'consumer', 'audience', 'target market',
+    'launch', 'release', 'introduce', 'announce'
+  ];
+  
+  const hasBrand = brandIndicators.some(indicator => lowerInput.includes(indicator));
+  
+  // Product categories
+  const productCategories = [
+    { terms: ['appliance', 'washing machine', 'refrigerator', 'oven', 'dishwasher'], category: 'home appliance' },
+    { terms: ['car', 'vehicle', 'automobile', 'truck', 'suv'], category: 'automotive' },
+    { terms: ['phone', 'smartphone', 'mobile', 'device'], category: 'electronics' },
+    { terms: ['laptop', 'computer', 'tablet', 'tech'], category: 'computers' },
+    { terms: ['software', 'app', 'application', 'platform', 'saas'], category: 'software' },
+    { terms: ['shoes', 'clothing', 'apparel', 'fashion', 'wear'], category: 'fashion' },
+    { terms: ['food', 'restaurant', 'meal', 'recipe', 'ingredient'], category: 'food & beverage' },
+    { terms: ['service', 'consulting', 'agency', 'firm'], category: 'professional services' }
+  ];
+  
+  let productCategory: string | null = null;
+  for (const category of productCategories) {
+    if (category.terms.some(term => lowerInput.includes(term))) {
+      productCategory = category.category;
+      break;
+    }
+  }
+  
+  return { hasBrandContext: hasBrand, productCategory };
+}
+
+// ============================================================================
+// AI-POWERED TONE ANALYSIS (Only for sufficient input)
+// ============================================================================
+
+async function performToneFocusedExtraction(userInput: string, qualityScore: number) {
+  // Adjust temperature based on input quality
+  const temperature = qualityScore < 0.5 ? 0.7 : 0.3;
+  
   const prompt = `
-You are the Cognitive Clarifier Node (CCN) for Narratives.XO. Analyze this user input with empathy and intuition.
+CRITICAL CONTEXT: Input quality score: ${qualityScore.toFixed(2)} (0=low, 1=high)
 
 USER INPUT:
 "${userInput}"
 
-TASK:
-1. Analyze the emotional tone and pathway
-2. Extract key semantic elements
-3. Write a brief raw analysis in first-person conversational tone
+ANALYSIS INSTRUCTIONS:
 
-SEMANTIC EXTRACTION:
-- pathway: emotion-first, scene-first, story-seed, or audience-led
-- emotion: primary emotion(s)
-- scene: setting or implied scene  
-- seedMoment: core story seed/fragment
-- audience: explicit or inferred audience
-- intentSummary: 1-2 sentence summary
+1. FIRST, ASSESS INPUT SUFFICIENCY:
+- If input is very brief (< 3 meaningful words) or unclear, RETURN GENERIC CONSTRAINTS
+- Only provide specific constraints if input clearly indicates tone requirements
+- When uncertain, err on the side of generic/neutral
 
-For each extraction, provide a confidence score 0-1 based on clarity.
-If ANY confidence score is below 0.7, suggest ONE clarifying question.
+2. TONE CONSTRAINT IDENTIFICATION (Only if clear from input):
+- What tone MUST the story maintain?
+- Base this ONLY on explicit language in the input
+- Examples: "don't sound corporate" → ["casual", "authentic"], "serious topic" → ["respectful", "measured"]
 
-RAW ANALYSIS (in first person, conversational):
-Write a brief analysis starting with phrases like:
-- "This feels like it's about..."
-- "This sounds like..."
-- "I'm hearing..."
-- "This gives me the sense of..."
-- "What I'm picking up is..."
+3. PROHIBITION IDENTIFICATION (Only if clear from input):
+- What MUST the story ABSOLUTELY AVOID?
+- Only list prohibitions if explicitly mentioned or strongly implied
+- Examples: "no fluff" → ["flowery language", "exaggeration"]
 
-Keep it conversational, empathetic, and human-like.
+4. CONFIDENCE SCORING:
+- Pathway confidence: How clear is the entry point?
+- Stance confidence: How clear is the audience perspective?
+- Tone confidence: How clear are the tone requirements?
+- Audience confidence: How clear is the target audience?
+- Scale: 0.1 (completely guessing) to 0.9 (very clear)
+
+5. CRITICAL RULES:
+- NO fabricating constraints from insufficient input
+- If input is vague, return generic/neutral constraints
+- Confidence scores MUST reflect input clarity
+- When in doubt, lower all confidence scores
 
 Return ONLY valid JSON in this structure:
 {
-  "pathway": "emotion-first | scene-first | story-seed | audience-led",
-  "emotion": "extracted emotion(s)",
-  "scene": "extracted setting/scene",
-  "seedMoment": "core story seed/fragment",
-  "audience": "explicit or inferred audience",
-  "intentSummary": "1-2 sentence summary",
+  "pathway": "assumption-first" | "constraint-first" | "audience-first" | "function-first",
+  "baselineStance": "string describing audience starting point (be realistic)",
+  "toneConstraints": ["array", "of", "tone", "elements"] or ["neutral", "generic"] if unclear,
+  "prohibitions": ["array", "of", "forbidden", "elements"] or ["overly emotional"] if unclear,
+  "audience": "realistic audience description based on input",
+  "intentSummary": "1-2 sentence summary that reflects input specificity",
+  "hasBrandContext": false,
+  "productCategory": null,
+  "confidence": 0.XX,
   "confidenceScores": {
-    "pathway": 0.85,
-    "emotion": 0.85,
-    "scene": 0.85,
-    "audience": 0.85
-  },
-  "clarificationQuestion": {
-    "question": "Clarifying question (if any confidence < 0.7)",
-    "field": "emotion | scene | audience | intent"
-  },
-  "rawAnalysis": "Your conversational first-person analysis here..."
+    "pathway": 0.XX,
+    "stance": 0.XX,
+    "tone": 0.XX,
+    "audience": 0.XX
+  }
 }
+
+IMPORTANT: If input is just "${userInput}" (${userInput.split(/\s+/).length} words), 
+be EXTREMELY conservative with constraints and confidence.
 `;
 
   try {
@@ -134,12 +229,20 @@ Return ONLY valid JSON in this structure:
       messages: [
         { 
           role: "system", 
-          content: "You are an empathetic, intuitive story analyst. You understand human emotions and moments. Write in a warm, conversational, first-person tone. Return only valid JSON." 
+          content: `You are a conservative tone analysis engine. You prioritize accuracy over specificity.
+
+RULES:
+1. Only extract constraints that are CLEARLY indicated in the input
+2. For brief/vague input, return generic/neutral constraints
+3. Confidence scores MUST reflect input clarity (0.1-0.9)
+4. Never fabricate specific constraints from insufficient input
+5. When uncertain, say "generic" or "neutral"
+6. Base everything ONLY on what the user actually said`
         },
         { role: "user", content: prompt }
       ],
       response_format: { type: "json_object" },
-      temperature: 0.7,
+      temperature: temperature,
     });
 
     const content = completion.choices[0].message.content;
@@ -147,149 +250,56 @@ Return ONLY valid JSON in this structure:
     
     const parsed = JSON.parse(content);
     
-    // Ensure pathway is valid
-    const validPathways = ["emotion-first", "scene-first", "story-seed", "audience-led"] as const;
-    if (!validPathways.includes(parsed.pathway as any)) {
-      parsed.pathway = "emotion-first";
+    // Validate and adjust confidence based on input quality
+    const maxConfidence = Math.min(0.9, qualityScore * 1.2); // Cap confidence based on quality
+    parsed.confidence = Math.min(parsed.confidence || 0.5, maxConfidence);
+    
+    // Adjust individual scores
+    if (parsed.confidenceScores) {
+      Object.keys(parsed.confidenceScores).forEach(key => {
+        parsed.confidenceScores[key] = Math.min(parsed.confidenceScores[key], maxConfidence);
+      });
     }
+    
+    // Detect brand context
+    const brandInfo = detectBrandContext(userInput);
+    parsed.hasBrandContext = brandInfo.hasBrandContext;
+    parsed.productCategory = brandInfo.productCategory;
     
     return parsed;
   } catch (error) {
-    console.error('Semantic extraction error:', error);
+    console.error('Tone extraction error:', error);
     throw error;
   }
 }
 
-// Validate pathway
-function validatePathway(pathway: string): "emotion-first" | "scene-first" | "story-seed" | "audience-led" {
-  const validPathways = ["emotion-first", "scene-first", "story-seed", "audience-led"] as const;
-  if (validPathways.includes(pathway as any)) {
-    return pathway as "emotion-first" | "scene-first" | "story-seed" | "audience-led";
+// Helper: Generate appropriate preview
+function generateTonePreview(interpretation: any, input: string): string {
+  const wordCount = input.split(/\s+/).length;
+  
+  if (wordCount <= 2) {
+    return `Based on brief input: "${input}". More details would help.`;
   }
-  return "emotion-first";
-}
-
-// Generate conversational understanding preview
-function generateConversationalPreview(interpretation: any, overallConfidence: number, isClarificationResponse: boolean): string {
-  const emotion = interpretation.emotion?.toLowerCase() || "something meaningful";
-  const scene = interpretation.scene?.toLowerCase() || "a moment";
-  const seed = interpretation.seedMoment?.toLowerCase() || "personal experience";
-  const audience = interpretation.audience?.toLowerCase() || "those who need to hear this";
   
-  const startingPhrases = [
-    "I feel like...",
-    "It sounds like...",
-    "I'm hearing...",
-    "What I'm picking up is...",
-    "This gives me the sense that...",
-    "From what you're saying...",
-    "What stands out to me is...",
-    "I sense that..."
-  ];
-  
-  const phrase = startingPhrases[Math.floor(Math.random() * startingPhrases.length)];
-  
-  if (overallConfidence < 0.5) {
-    return `${phrase} this might be about ${emotion} in ${scene}.`;
-  } else if (overallConfidence < 0.7) {
-    return `${phrase} a ${emotion} moment in ${scene} about ${seed}.`;
-  } else {
-    if (isClarificationResponse) {
-      return `${phrase} ${emotion} is at the heart of this moment in ${scene}. It's about ${seed} for ${audience}.`;
-    } else {
-      return `${phrase} this is a ${emotion} moment in ${scene}, centered around ${seed} for ${audience}.`;
-    }
+  if (interpretation.confidence < 0.4) {
+    return `I'm not entirely sure about your intent with "${input}". Could you elaborate?`;
   }
-}
-
-// Helper functions
-function determineArchetypeFromPathway(pathway: string): string {
-  const archetypeMap: Record<string, string> = {
-    'emotion-first': 'Against All Odds',
-    'scene-first': 'Community Builder',
-    'story-seed': 'Heritage Hero',
-    'audience-led': 'Modern Pioneer'
-  };
-  return archetypeMap[pathway] || 'Against All Odds';
-}
-
-function determineToneFromEmotion(emotion: string): string {
-  const emotionLower = emotion.toLowerCase();
   
-  if (emotionLower.includes('hopeful') || emotionLower.includes('inspired') || emotionLower.includes('uplifting')) 
-    return 'Cinematic';
-  if (emotionLower.includes('uncertain') || emotionLower.includes('vulnerable') || emotionLower.includes('tender')) 
-    return 'Heartfelt';
-  if (emotionLower.includes('joyful') || emotionLower.includes('playful') || emotionLower.includes('lighthearted')) 
-    return 'Playful';
-  if (emotionLower.includes('anxious') || emotionLower.includes('defiant') || emotionLower.includes('intense')) 
-    return 'Defiant';
-  if (emotionLower.includes('melancholy') || emotionLower.includes('nostalgic') || emotionLower.includes('reflective')) 
-    return 'Heartfelt';
-  if (emotionLower.includes('energetic') || emotionLower.includes('dynamic') || emotionLower.includes('vibrant')) 
-    return 'Cinematic';
+  const constraints = interpretation.toneConstraints?.join(', ') || 'neutral';
+  const prohibitions = interpretation.prohibitions?.[0] || 'overly emotional language';
   
-  return 'Cinematic';
+  return `Using ${constraints} tone. Avoiding ${prohibitions}.`;
 }
 
-function getOptionsForField(field: string): string[] {
-  const optionsMap: Record<string, string[]> = {
-    'emotion': ['hopeful', 'uncertain', 'inspired', 'anxious', 'joyful', 'melancholy', 'vulnerable', 'defiant'],
-    'scene': ['urban setting', 'natural environment', 'indoor space', 'public place', 'private moment', 'transitional space'],
-    'audience': ['individuals facing change', 'community members', 'young professionals', 'creative thinkers', 'people at crossroads'],
-    'intent': ['to inspire', 'to comfort', 'to challenge', 'to connect', 'to celebrate', 'to reflect']
-  };
-  return optionsMap[field] || ['Please clarify'];
-}
+// ============================================================================
+// MAIN HANDLER
+// ============================================================================
 
-function mapFieldToLegacy(field: string): 'need' | 'archetype' | 'tone' | 'context' {
-  const mapping: Record<string, 'need' | 'archetype' | 'tone' | 'context'> = {
-    'emotion': 'need',
-    'scene': 'context',
-    'audience': 'context',
-    'intent': 'context'
-  };
-  return mapping[field] || 'context';
-}
-
-// Create fallback response
-function createFallbackResponse(market: Market): CCNResponseRevised {
-  return {
-    success: true,
-    interpretation: {
-      pathway: "emotion-first",
-      emotion: "meaningful",
-      scene: "a personal moment",
-      seedMoment: "something important to you",
-      audience: "people who care",
-      intentSummary: "You're sharing something meaningful from your experience.",
-      confidence: 0.5,
-      confidenceScores: {
-        pathway: 0.5,
-        emotion: 0.5,
-        scene: 0.5,
-        audience: 0.5
-      },
-      market,
-      understandingPreview: "I feel you're describing something meaningful that matters to you.",
-      rawAnalysis: "I sense there's something important here, but I need to understand it better.",
-      inferredNeed: "Personal Experience",
-      inferredArchetype: determineArchetypeFromPathway("emotion-first"),
-      inferredTone: "Cinematic",
-      inferredContext: "A personal moment to be shared",
-      clarifications: []
-    },
-    requiresClarification: false,
-    clarificationQuestion: null,
-    understandingPreview: "I feel you're describing something meaningful that matters to you."
-  };
-}
-
-// Main handler
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<CCNResponseRevised | { error: string }>
 ) {
+  // Only allow POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -302,6 +312,7 @@ export default async function handler(
       previousAnswer 
     } = req.body;
 
+    // Validate request body
     if (!userInput || typeof userInput !== 'string') {
       return res.status(400).json({ 
         error: 'Valid user input is required' 
@@ -309,72 +320,97 @@ export default async function handler(
     }
 
     const trimmedInput = userInput.trim();
-    if (trimmedInput.length < 3) {
-      return res.status(200).json(createFallbackResponse('ng'));
+    
+    // Reject empty input
+    if (trimmedInput.length === 0) {
+      return res.status(400).json({ 
+        error: 'Input cannot be empty' 
+      });
     }
 
-    // Detect market from user input
-    const detectedMarket = await detectMarketFromText(trimmedInput);
-    console.log(`Detected market from text: ${detectedMarket}`);
+    // Calculate input quality
+    const qualityScore = calculateInputQuality(trimmedInput);
+    
+    console.log(`Input: "${trimmedInput}" (${trimmedInput.length} chars, ${trimmedInput.split(/\s+/).length} words) - Quality: ${qualityScore.toFixed(2)}`);
 
-    // Combine input with clarification answer if provided
+    // For very low quality input, return immediate fallback
+    if (qualityScore < 0.2) {
+      console.log('Very low quality input, returning generic fallback');
+      return res.status(200).json(createLowConfidenceFallback(trimmedInput, qualityScore));
+    }
+
+    // Combine with clarification if provided
     const combinedInput = previousClarification && previousAnswer 
       ? `${trimmedInput} (Regarding ${previousClarification}: ${previousAnswer})`
       : trimmedInput;
 
-    // Perform semantic extraction
-    const interpretation = await performSemanticExtraction(combinedInput, detectedMarket);
-    
-    // Calculate overall confidence
-    const confidenceScores = Object.values(interpretation.confidenceScores || {}) as number[];
-    const overallConfidence = confidenceScores.length > 0 
-      ? confidenceScores.reduce((a, b) => a + b, 0) / confidenceScores.length
-      : 0.5;
-    
-    interpretation.confidence = overallConfidence;
+    // For moderate quality input (0.2-0.5), consider using AI but with caution
+    let interpretation;
+    if (qualityScore >= 0.3) {
+      try {
+        interpretation = await performToneFocusedExtraction(combinedInput, qualityScore);
+      } catch (aiError) {
+        console.error('AI analysis failed, using fallback:', aiError);
+        interpretation = createLowConfidenceFallback(trimmedInput, qualityScore).interpretation;
+      }
+    } else {
+      // For low quality but not terrible input, use conservative analysis
+      interpretation = createLowConfidenceFallback(trimmedInput, qualityScore).interpretation;
+    }
+
+    // Generate preview
+    const understandingPreview = generateTonePreview(interpretation, trimmedInput);
     
     // Determine if clarification is needed
-    const requiresClarification = !isClarificationResponse && overallConfidence < 0.7;
-    
-    // Generate conversational understanding preview
-    const understandingPreview = generateConversationalPreview(interpretation, overallConfidence, isClarificationResponse);
+    const needsClarification = qualityScore < 0.4 || interpretation.confidence < 0.5;
     
     // Prepare response
     const response: CCNResponseRevised = {
       success: true,
       interpretation: {
         ...interpretation,
-        confidence: overallConfidence,
-        market: detectedMarket,
+        // Ensure legacy fields are populated
+        emotion: interpretation.toneConstraints?.join(', ') || 'neutral',
+        scene: interpretation.scene || 'general context',
+        seedMoment: trimmedInput,
+        audience: interpretation.audience,
+        intentSummary: interpretation.intentSummary,
+        confidence: interpretation.confidence,
+        confidenceScores: interpretation.confidenceScores || {
+          pathway: interpretation.confidence,
+          stance: interpretation.confidence,
+          tone: interpretation.confidence,
+          audience: interpretation.confidence
+        },
         understandingPreview,
-        inferredNeed: interpretation.emotion || "Personal Experience",
-        inferredArchetype: determineArchetypeFromPathway(interpretation.pathway),
-        inferredTone: determineToneFromEmotion(interpretation.emotion),
+        rawAnalysis: interpretation.rawAnalysis || `Analysis based on: "${trimmedInput}"`,
+        inferredNeed: 'tone-appropriate expression',
+        inferredArchetype: interpretation.toneConstraints?.includes('generic') ? 'Generic Narrator' : 'Practical Narrator',
+        inferredTone: interpretation.toneConstraints?.[0] || 'Neutral',
         inferredContext: interpretation.intentSummary,
-        clarifications: requiresClarification ? [{
-          question: interpretation.clarificationQuestion?.question || "Could you tell me more about what you're feeling?",
-          options: getOptionsForField(interpretation.clarificationQuestion?.field || "emotion"),
-          field: mapFieldToLegacy(interpretation.clarificationQuestion?.field || "emotion")
-        }] : []
+        clarifications: []
       },
-      requiresClarification,
-      clarificationQuestion: requiresClarification ? interpretation.clarificationQuestion || {
-        question: "Could you tell me more about what you're feeling or experiencing?",
-        field: "emotion"
+      requiresClarification: needsClarification,
+      clarificationQuestion: needsClarification ? {
+        question: "Could you tell me more about what you're trying to express?",
+        field: "intent"
       } : null,
       understandingPreview
     };
 
-    console.log(`✅ CCN analysis complete: Market=${detectedMarket}, Confidence=${overallConfidence.toFixed(2)}, Clarification=${requiresClarification}`);
+    console.log(`Analysis complete - Confidence: ${interpretation.confidence}, Clarification needed: ${needsClarification}`);
 
     return res.status(200).json(response);
 
   } catch (error) {
     console.error('CCN analysis error:', error);
     
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    // Return a safe, low-confidence fallback for any unexpected errors
+    const safeFallback = createLowConfidenceFallback(
+      req.body?.userInput?.substring(0, 50) || 'unknown input', 
+      0.1
+    );
     
-    // Return a fallback response instead of error
-    return res.status(200).json(createFallbackResponse('ng'));
+    return res.status(200).json(safeFallback);
   }
 }

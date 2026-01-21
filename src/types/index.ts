@@ -1,63 +1,104 @@
 // ============================================================================
-// NARRATIVES.XO PROTOTYPE 2 - TYPE DEFINITIONS
-// Updated to match P2 documentation structure
+// NARRATIVES.XO - TONE-CONSTRAINED TYPES
+// Constraint-based approach instead of emotional interpretation
 // ============================================================================
 
-// Market Types
-export type Market = 'ng' | 'uk' | 'fr';
-
 // Entry Pathways
-export type EntryPathway = 'emotion' | 'audience' | 'scene' | 'seed';
+export type EntryPathway = 'assumption' | 'audience' | 'constraints' | 'function';
+
+// Tone Constraint Types
+export interface SemanticExtraction {
+  // NEW: Constraint-based fields
+  pathway: "assumption-first" | "constraint-first" | "audience-first" | "function-first";
+  baselineStance: string; // e.g., "skeptical of marketing promises"
+  toneConstraints: string[]; // e.g., ["dry", "observational", "restrained"]
+  prohibitions: string[]; // e.g., ["warmth", "comfort language", "emotional reassurance"]
+  audience: string;
+  intentSummary: string;
+  
+  // Brand context
+  hasBrandContext?: boolean;
+  productCategory?: string;
+  
+  // Confidence
+  confidence?: number;
+  confidenceScores?: {
+    pathway: number;
+    stance: number;
+    tone: number;
+    audience: number;
+  };
+  
+  // Legacy fields for backward compatibility (optional)
+  emotion?: string;
+  scene?: string;
+  seedMoment?: string;
+  rawAnalysis?: string;
+}
 
 // CCN Types
 export interface CCNInput {
   userInput: string;
   entryPathway?: EntryPathway;
-  market?: Market;
-}export interface CharacterDescription {
-  id: string; // e.g., "main_character_1", "supporting_1"
+}
+
+export interface CharacterDescription {
+  id: string;
   name?: string;
-  age?: string; // e.g., "mid-20s", "30s", "elderly"
+  age?: string;
   gender?: string;
   ethnicity?: string;
-  keyFeatures: string[]; // Distinctive features
+  keyFeatures: string[];
   appearance: {
-    hair: string; // "curly black hair", "blonde braids", "bald"
-    eyes: string; // "brown eyes", "blue eyes", "glasses"
-    build: string; // "slender", "athletic", "average build"
-    distinctive: string[]; // ["mole on left cheek", "scar on eyebrow", "tattoo on neck"]
+    hair: string;
+    eyes: string;
+    build: string;
+    distinctive: string[];
   };
   clothingStyle?: string;
-  expressions?: string[]; // Common expressions
-  referenceDescription: string; // Generated descriptive string
+  expressions?: string[];
+  referenceDescription: string;
 }
+
 export interface CCNInterpretationRevised {
-  pathway: "emotion-first" | "scene-first" | "story-seed" | "audience-led";
-  emotion: string;
-  scene: string;
-  seedMoment: string;
+  // Core constraint fields
+  pathway: "assumption-first" | "constraint-first" | "audience-first" | "function-first";
+  baselineStance: string;
+  toneConstraints: string[];
+  prohibitions: string[];
   audience: string;
   intentSummary: string;
-  confidence: number; // 0-1
+  
+  // Brand context
+  hasBrandContext?: boolean;
+  productCategory?: string | null;
+  
+  // Confidence
+  confidence: number;
   confidenceScores: {
     pathway: number;
-    emotion: number;
-    scene: number;
+    stance: number;
+    tone: number;
     audience: number;
   };
-  clarificationQuestion?: {
-    question: string;
-    field: 'emotion' | 'scene' | 'audience' | 'intent';
-  };
-  market: Market;
+  
+  // UI/Display fields
   understandingPreview: string;
   rawAnalysis: string;
-  // Legacy fields for backward compatibility
+  
+  // Legacy fields for compatibility
+  emotion?: string;
+  scene?: string;
+  seedMoment?: string;
   inferredNeed?: string;
   inferredArchetype?: string;
   inferredTone?: string;
   inferredContext?: string;
   clarifications?: ClarificationQuestion[];
+  clarificationQuestion?: {
+    question: string;
+    field: 'emotion' | 'scene' | 'audience' | 'intent' | 'brand-context' | 'tone';
+  };
 }
 
 export interface CCNResponseRevised {
@@ -71,51 +112,10 @@ export interface CCNResponseRevised {
   understandingPreview?: string;
 }
 
-
-export interface CCNInterpretation {
-  inferredNeed: string;
-  inferredArchetype: string;
-  inferredTone: string;
-  inferredContext: string;
-  confidence: number; // 0-1
-  clarifications: ClarificationQuestion[];
-  market: Market;
-  rawAnalysis: string;
-}
-
 export interface ClarificationQuestion {
   question: string;
   options: string[];
-  field: 'need' | 'archetype' | 'tone' | 'context';
-}
-
-export interface CCNResponse {
-  success: boolean;
-  interpretation: CCNInterpretation;
-  requiresClarification: boolean;
-}
-
-export interface ClarificationResponse {
-  clarificationType: 'need' | 'archetype' | 'tone' | 'context';
-  selectedOption: string;
-  previousInterpretation: CCNInterpretation;
-}
-
-// Market & Tone Configuration
-export interface MarketTone {
-  name: string;
-  keywords: string[];
-  archetypeLinks: string[];
-  visualDescriptors: string[];
-}
-
-export interface MarketData {
-  market: string;
-  tones: MarketTone[];
-  compliance: {
-    wcag: string;
-    strap: boolean;
-  };
+  field: 'need' | 'archetype' | 'tone' | 'context' | 'constraints';
 }
 
 // Brand Assets
@@ -125,36 +125,41 @@ export interface BrandAssets {
   brandSafe?: boolean;
 }
 
-// Scene/Beat Structure (P2 Standard)
+// Scene/Beat Structure
 export interface Scene {
-  beat: string;              // "Opening Image", "Setup", "Catalyst", etc.
-  description: string;       // Scene narrative (2-3 sentences)
-  visualCues: string[];      // Specific visual elements for image generation
-  emotion?: string;          // Primary emotion of this beat
-  duration?: string;         // Estimated duration (e.g., "5s")
-    characterId?: string; // Reference to which character
-  characterEmotion?: string; // Emotion in this scene
-  characterAction?: string; // What character is doing
-    shotType?: "close-up" | "medium-shot" | "wide-shot" | "extreme-close-up";
-
+  beat: string;
+  description: string;
+  visualCues: string[];
+  emotion?: string;
+  duration?: string;
+  characterId?: string;
+  characterEmotion?: string;
+  characterAction?: string;
+  shotType?: "close-up" | "medium-shot" | "wide-shot" | "extreme-close-up";
 }
 
-// Story Structure (P2 Format)
+// Story Structure
 export interface GeneratedStory {
-  story: string;             // Full narrative as prose (150-200 words)
-  beatSheet: Scene[];        // Structured scene breakdown (3-6 beats)
+  story: string;
+  beatSheet: Scene[];
   metadata: {
-    title: string;           // Story title
-    archetype: string;       // Story archetype
-    tone: string;            // Tone name
-    totalBeats: number;      // Number of scenes
+    title: string;
+    archetype: string;
+    tone: string;
+    totalBeats: number;
     estimatedDuration: string;
-    market: string // Total duration (e.g., "30s")
-       mainCharacters?: CharacterDescription[];
+    mainCharacters?: CharacterDescription[];
     characterRelationships?: string[];
     settings?: string[];
+    
+    // Brand context
+    isBrandStory?: boolean;
+    productCategory?: string;
+    
+    // Constraint info for tracking
+    appliedConstraints?: string[];
+    enforcedProhibitions?: string[];
   };
-  
 }
 
 // Video Script Structure
@@ -180,18 +185,17 @@ export interface VideoScript {
 // Image Generation Types
 export interface GenerateImageRequest {
   sceneDescription: string;
-  visualCues?: string[];     // NEW: From beat.visualCues
+  visualCues?: string[];
   tone: string;
-  market: Market;
   brandSafe?: boolean;
   brandPalette?: string[];
   template?: string;
-  beatIndex?: number;        // NEW: Position in beatSheet
-  beat?: string;             // NEW: Beat name (e.g., "Opening Image")
-    characterDescription?: CharacterDescription;
-  previousCharacterImage?: string; // URL of previous generated image
-  characterConsistencySeed?: number; // Seed for stable generation
-  isSameCharacter?: boolean; // Is this the same character as previous scene?
+  beatIndex?: number;
+  beat?: string;
+  characterDescription?: CharacterDescription;
+  previousCharacterImage?: string;
+  characterConsistencySeed?: number;
+  isSameCharacter?: boolean;
 }
 
 export interface GenerateImageResponse {
@@ -202,45 +206,46 @@ export interface GenerateImageResponse {
   beatIndex?: number;
 }
 
-export interface ImageGenerationOptions {
-  quality?: 'standard' | 'hd';
-  style?: 'vivid' | 'natural';
-  size?: '1024x1024' | '1792x1024' | '1024x1792';
-}
-
-// Story Generation Request/Response
+// Story Generation Request/Response - COMPLETELY UPDATED
 export interface GenerateStoryRequest {
-  market: Market;
-  need: string;
-  archetype: string;
-  tone: string;
-  context: string;
+  semanticExtraction: SemanticExtraction;
   brand?: {
     name: string;
     palette?: string[];
     fonts?: string[];
   };
+  requestType?: string;
+  purpose?: string;
+  currentStory?: string;
+  originalContext?: string;
+  skipBrand?: boolean;
 }
 
 export interface GenerateStoryResponse {
   success: boolean;
-  story: string;             // Full narrative prose
-  beatSheet: Scene[];        // Structured beats
+  story: string;
+  beatSheet: Scene[];
   metadata: {
     title: string;
-    market: Market;
     archetype: string;
     tone: string;
     totalBeats: number;
     estimatedDuration: string;
+    
+    // Brand context
+    isBrandStory?: boolean;
+    productCategory?: string;
+    
+    // Constraint tracking
+    appliedConstraints?: string[];
+    enforcedProhibitions?: string[];
+    originalSubject?: string;
   };
-  toneConfig?: MarketTone;   // Optional: tone configuration used
 }
 
 // Video Script Generation
 export interface GenerateVideoScriptRequest {
   story: GeneratedStory;
-  market: Market;
   tone: string;
   template: string;
 }
@@ -250,45 +255,26 @@ export interface GenerateVideoScriptResponse {
   videoScript: VideoScript;
 }
 
-// Export Audit Data
-export interface ExportAuditData {
-  narrative: {
-    market: Market;
-    need: string;
-    archetype: string;
-    tone: string;
-    context: string;
-    brand: {
-      name: string;
-      palette?: string[];
-      fonts?: string[];
-      brandSafe?: boolean;
-    } | null;
-    story: GeneratedStory | null;
-    videoScript: VideoScript | null;
-    template: string;
-    generatedImages: { [key: string]: string };
-    timestamp: string;
-  };
-}
-
-// Mode Types (Creator, Agency, Brand)
+// Mode Types
 export type UserMode = 'creator' | 'agency' | 'brand';
 
-// Legacy/Compatibility Types (can be removed if not used elsewhere)
-export interface NarrativeMap {
-  need: string;
-  archetype: string;
-  tone: string;
-  locale: string;
-  brandApplied: boolean;
-  promptFragments: string[];
-}
-
-// DEPRECATED: Use Scene instead
-export interface StoryScene {
-  beat: string;
-  description: string;
-  visualCues: string[];
-}
-
+// CCN Data for state management
+export type CCNData = {
+  // Constraint-based fields
+  baselineStance: string;
+  toneConstraints: string[];
+  prohibitions: string[];
+  audience: string;
+  intentSummary: string;
+  pathway: string;
+  
+  // Brand context
+  hasBrandContext?: boolean;
+  productCategory?: string;
+  
+  // Legacy fields for transition
+  emotion?: string;
+  scene?: string;
+  seedMoment?: string;
+  rawAnalysis?: string;
+};

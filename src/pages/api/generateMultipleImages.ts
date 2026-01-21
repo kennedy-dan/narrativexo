@@ -1,4 +1,3 @@
-// pages/api/generateMultipleImages.ts
 import { NextApiRequest, NextApiResponse } from 'next';
 import { OpenAI } from 'openai';
 
@@ -13,7 +12,6 @@ interface SceneRequest {
   sceneDescription: string;
   visualCues: string[];
   tone: string;
-  market: string;
   brandSafe: boolean;
   brandPalette: string[];
   beatIndex: number;
@@ -32,7 +30,6 @@ interface GenerateMultipleImagesRequest {
   storyMetadata: {
     title: string;
     tone: string;
-    market: string;
     mainCharacters?: any[];
   };
 }
@@ -81,16 +78,11 @@ export default async function handler(
 
     const results: ImageResult[] = [];
     
-    // Process scenes sequentially to avoid rate limiting
+    // Process scenes sequentially
     for (let i = 0; i < scenes.length; i++) {
       const scene = scenes[i];
       
       try {
-        // Load market tones
-        const marketTones = require('@/lib/marketTone.json');
-        const marketData = marketTones[scene.market] || marketTones.ng;
-        const toneConfig = marketData.tones.find((t: any) => t.name === scene.tone);
-
         // Generate consistent seed for character
         let characterSeed: number | undefined;
         if (scene.characterDescription?.id) {
@@ -102,27 +94,20 @@ export default async function handler(
           }
         }
 
-        // Build character-specific prompt
+        // Build character-specific prompt (if applicable)
         let characterPrompt = '';
         if (scene.characterDescription) {
           const char = scene.characterDescription;
           characterPrompt = `
-CHARACTER CONSISTENCY REQUIREMENTS:
-MAIN CHARACTER: ${char.name || 'Primary character'}
+UNIVERSAL CHARACTER REQUIREMENTS:
+MAIN CHARACTER: Universal human figure
 - Age: ${char.age || 'adult'}
-- Gender: ${char.gender || 'person'}
-- Ethnicity: ${char.ethnicity || 'appropriate to ' + scene.market}
-- Hair: ${char.appearance?.hair || 'natural hair appropriate to ethnicity'}
-- Eyes: ${char.appearance?.eyes || 'expressive eyes'}
+- Features: Ethnically ambiguous, universal appearance
 - Build: ${char.appearance?.build || 'average build'}
-- Distinctive features: ${char.appearance?.distinctive?.join(', ') || 'none'}
-- Clothing style: ${char.clothingStyle || 'context-appropriate clothing'}
+- Distinctive features: Minimal, universal
 
-CHARACTER REFERENCE IMAGE: Use the exact same facial structure, features, and appearance as previous scenes.
-Maintain identical: face shape, eye shape, nose, mouth, and distinctive features.
-Only change: expression, angle, lighting, and clothing as appropriate for this scene.
-
-CRITICAL: This must be the SAME PERSON as in previous images. Do not change their fundamental appearance.
+CHARACTER CONSISTENCY: Maintain same basic appearance across scenes.
+Focus on emotional expression rather than specific features.
 `;
         }
 
@@ -130,43 +115,52 @@ CRITICAL: This must be the SAME PERSON as in previous images. Do not change thei
         let visualCuesInstruction = '';
         if (scene.visualCues && scene.visualCues.length > 0) {
           visualCuesInstruction = `
-REQUIRED VISUAL ELEMENTS:
-${scene.visualCues.map((cue, i) => `${i + 1}. ${cue}`).join('\n')}
+UNIVERSAL VISUAL ELEMENTS:
+${scene.visualCues.filter(cue => !cue.includes('specific')).map((cue, i) => `${i + 1}. ${cue}`).join('\n')}
 `;
         }
 
-        // Build market-specific style
-        const marketStyle = getMarketStyle(scene.market);
+        // Get shot type and composition
         const shotType = getShotType(scene.beatIndex);
         const compositionGuide = getCompositionGuide(scene.beatIndex);
 
-        // Enhanced prompt with character consistency
+        // UNIVERSAL prompt (NO cultural references)
         const prompt = `
-Create a cinematic image for: ${scene.beat}
+Create a UNIVERSAL, culturally-neutral cinematic image.
 
-SCENE: ${scene.sceneDescription}
+CRITICAL RULES:
+- NO specific cultural elements
+- NO identifiable locations
+- NO traditional/cultural clothing
+- NO specific ethnic features
+- Use UNIVERSAL, neutral setting
+- Represent diverse, ambiguous features
+- Focus on emotion and composition
+
+SCENE: ${scene.beat}
+DESCRIPTION: ${scene.sceneDescription}
 ${visualCuesInstruction}
 
 ${characterPrompt}
 
-MARKET & CULTURE: ${scene.market.toUpperCase()}
-Cultural authenticity: ${marketStyle}
-Ensure facial features are ethnically/culturally appropriate for ${scene.market}.
+UNIVERSAL GUIDELINES:
+- Features: Ethnically ambiguous, diverse representation
+- Setting: Neutral, could be anywhere in the world
+- Clothing: Modern, universal styles
+- Environment: Timeless, non-specific
 
 VISUAL STYLE: ${scene.tone}
-Style descriptors: ${toneConfig?.visualDescriptors?.join(', ') || 'cinematic, authentic, emotional'}
+Style: Cinematic, emotional, universal
 Shot type: ${shotType}
+Composition: ${compositionGuide}
 
 TECHNICAL:
 - Format: ${template} (${size})
 - Lighting: Professional cinematic lighting appropriate for mood
-- Composition: ${compositionGuide}
-- Facial consistency: IDENTICAL character appearance across all scenes
 - No text or logos in image
 - Safe margins for overlays
 
-
-EMOTION: Capture the emotional essence while maintaining character consistency.
+EMOTION: Capture universal human emotion.
 `.trim();
 
         console.log(`🖼️ Generating image ${i + 1}/${scenes.length}: "${scene.beat}"`);
@@ -197,7 +191,7 @@ EMOTION: Capture the emotional essence while maintaining character consistency.
 
         console.log(`✅ Generated image ${i + 1}/${scenes.length}`);
 
-        // Small delay between requests to avoid rate limiting (500ms)
+        // Small delay between requests
         if (i < scenes.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
@@ -210,8 +204,6 @@ EMOTION: Capture the emotional essence while maintaining character consistency.
           beatIndex: scene.beatIndex,
           beat: scene.beat
         });
-        
-        // Continue with next scene even if one fails
       }
     }
 
@@ -244,31 +236,23 @@ EMOTION: Capture the emotional essence while maintaining character consistency.
 }
 
 // Helper functions
-function getMarketStyle(market: string): string {
-  const styles: { [key: string]: string } = {
-    'ng': 'Nigerian features, warm skin tones, authentic African clothing and hairstyles',
-    'uk': 'British features, diverse ethnicities, urban UK fashion and settings',
-    'fr': 'European features, French elegance, sophisticated style and settings'
-  };
-  return styles[market] || 'authentic local features';
-}
-
 function getShotType(beatIndex: number): string {
   const shotTypes = [
-    'establishing wide shot',
-    'medium shot showing character',
-    'close-up on face showing emotion',
-    'medium shot with action',
-    'close-up detail shot',
-    'wide concluding shot'
+    'establishing wide shot of universal setting',
+    'medium shot showing emotion',
+    'close-up on face showing universal emotion',
+    'medium shot with symbolic action',
+    'close-up detail shot of meaningful object',
+    'wide concluding shot with universal perspective'
   ];
   return shotTypes[beatIndex % shotTypes.length];
 }
 
 function getCompositionGuide(beatIndex: number): string {
-  if (beatIndex === 0) return 'Rule of thirds, establishing scene, show environment';
-  if (beatIndex === 1) return 'Medium shot, character centered, focus on expression';
-  return 'Dynamic framing, appropriate for scene emotion';
+  if (beatIndex === 0) return 'Rule of thirds, establishing scene, show universal environment';
+  if (beatIndex === 1) return 'Medium shot, character centered, focus on universal expression';
+  if (beatIndex === 2) return 'Close-up, intense emotion, shallow depth of field';
+  return 'Dynamic framing, appropriate for universal emotion';
 }
 
 function hashStringToNumber(str: string): number {
