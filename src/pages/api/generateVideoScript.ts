@@ -7,10 +7,10 @@ const openai = new OpenAI({
 });
 
 interface GenerateVideoScriptRequest {
-  story: GeneratedStory;  // ✅ Use P2 structure
-  market: string;
+  story: GeneratedStory;
   tone: string;
   template?: string;
+  market?: string;  // Optional
 }
 
 export default async function handler(
@@ -24,9 +24,9 @@ export default async function handler(
   try {
     const { 
       story, 
-      market, 
       tone, 
-      template = 'instagram-reel' 
+      template = 'instagram-reel',
+      market  // Optional - don't default
     }: GenerateVideoScriptRequest = req.body;
 
     // Validate input
@@ -47,28 +47,36 @@ export default async function handler(
 
     const targetDuration = templateDurations[template] || 30;
 
-    // Build market-specific context
-    const marketContext: { [key: string]: string } = {
-      'ng': 'Nigerian English, energetic pacing, street slang where appropriate, "No wahala" spirit',
-      'uk': 'British English, authentic working-class voice, pub culture references if relevant',
-      'fr': 'Formal French narration, measured pacing, cultural sophistication'
-    };
-
     // Build structured scene breakdown for prompt
     const sceneBreakdown = story.beatSheet.map((scene, idx) => 
       `Scene ${idx + 1} - ${scene.beat} (${scene.duration || '5s'}):
 Description: ${scene.description}
-Visual Cues: ${scene.visualCues.join(', ')}
+Visual Cues: ${scene.visualCues?.join(', ') || 'None specified'}
 Emotion: ${scene.emotion || 'Neutral'}`
     ).join('\n\n');
+
+    // Build prompt without market if not provided
+    let marketContext = '';
+    let marketHeader = '';
+    
+    if (market && typeof market === 'string' && market.trim()) {
+      const marketLower = market.toLowerCase().trim();
+      const marketContexts: { [key: string]: string } = {
+        'ng': 'Nigerian English, energetic pacing, street slang where appropriate, "No wahala" spirit',
+        'uk': 'British English, authentic working-class voice, pub culture references if relevant',
+        'fr': 'Formal French narration, measured pacing, cultural sophistication'
+      };
+      
+      marketContext = marketContexts[marketLower] || `${marketLower.toUpperCase()} cultural context`;
+      marketHeader = `Market: ${market.toUpperCase()} (${marketContext})\n`;
+    }
 
     const prompt = `
 You are a professional video director creating a video script for ${template.toUpperCase()} format (${targetDuration} seconds target).
 
 STORY DETAILS:
-Title: "${story.metadata.title}"
-Market: ${market.toUpperCase()} (${marketContext[market] || marketContext['ng']})
-Tone: ${tone}
+Title: "${story.metadata?.title || 'Untitled Story'}"
+${marketHeader}Tone: ${tone}
 Full Narrative: ${story.story}
 
 SCENE BREAKDOWN:
@@ -111,7 +119,7 @@ CRITICAL REQUIREMENTS:
 3. Shot durations should match or be close to the beat durations provided
 4. Total duration of all shots must equal ${targetDuration} seconds (±2s acceptable)
 5. Voice-over timing must not overlap awkwardly - leave natural pauses
-6. Use ${market}-appropriate language and cultural references in narration
+${market ? `6. Use ${market.toLowerCase()}-appropriate language and cultural references in narration\n` : '6. Use neutral, universally understandable language in narration\n'}
 7. Shot descriptions must be specific and actionable for video editors
 8. Include camera movements (pan, zoom, tracking, static) in shot descriptions
 9. Visual details should reference the visualCues from each beat
@@ -119,7 +127,7 @@ CRITICAL REQUIREMENTS:
 Create a compelling, emotionally engaging video script that tells this story effectively in ${targetDuration} seconds.
 `;
 
-    console.log(`🎬 Generating ${targetDuration}s video script for ${market}/${tone}`);
+    console.log(`🎬 Generating ${targetDuration}s video script${market ? ` for ${market}` : ''} with tone: ${tone}`);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -131,7 +139,7 @@ Create a compelling, emotionally engaging video script that tells this story eff
         { role: "user", content: prompt }
       ],
       response_format: { type: "json_object" },
-      temperature: 0.7  // Slightly more consistent than creative
+      temperature: 0.7
     });
 
     const content = completion.choices[0].message.content;
@@ -163,7 +171,7 @@ Create a compelling, emotionally engaging video script that tells this story eff
       videoScript,
       metadata: {
         template,
-        market,
+        market: market || null,
         tone,
         targetDuration,
         actualDuration: videoScript.totalDuration,

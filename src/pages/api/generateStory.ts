@@ -1,437 +1,201 @@
+// /api/generateStory.ts
 import { OpenAI } from 'openai';
 import { NextApiRequest, NextApiResponse } from 'next';
-import { GenerateStoryRequest, GenerateStoryResponse, Scene } from '@/types';
+import { 
+  GenerateStoryRequest, 
+  GenerateStoryResponse, 
+  Scene,
+  MeaningContract 
+} from '@/types';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// Helper: Extract subject from user context
-function extractSubjectFromContext(context?: string): string {
-  if (!context) return "the described scenario";
-  
-  // Simple keyword extraction
-  const subjects = [
-    'meeting', 'conversation', 'discussion', 'gathering', 'workshop', 'session',
-    'event', 'experience', 'moment', 'situation', 'occasion', 'happening',
-    'product', 'device', 'machine', 'appliance', 'tool', 'equipment',
-    'person', 'people', 'individual', 'team', 'group', 'colleague',
-    'place', 'location', 'space', 'environment', 'setting',
-    'story', 'narrative', 'account', 'description', 'report'
-  ];
-  
-  const lowerContext = context.toLowerCase();
-  const foundSubjects = subjects.filter(subject => lowerContext.includes(subject));
-  
-  return foundSubjects.length > 0 
-    ? foundSubjects.slice(0, 2).join(' / ')
-    : "the described scenario";
-}
+// ============================================================================
+// HELPER FUNCTIONS (UPDATED FOR MEANING-BASED SYSTEM)
+// ============================================================================
 
-// Helper: Extract key elements
-function extractKeyElements(context?: string): string {
-  if (!context) return "- Maintain the core scenario";
+function generateTitleFromMeaning(meaningContract: MeaningContract): string {
+  const { interpretedMeaning, seedMoment } = meaningContract;
+  const { emotionalState, coreTheme } = interpretedMeaning;
   
-  // Extract key phrases (simple approach)
-  const sentences = context.split(/[.!?]+/).filter(s => s.trim().length > 10);
-  const keyElements = sentences.slice(0, 3).map((sentence, index) => 
-    `- ${sentence.trim()}`
-  ).join('\n');
-  
-  return keyElements || "- Maintain the core scenario";
-}
-
-// Generate title based on constraints AND content
-function generateTitleFromConstraints(
-  baselineStance: string, 
-  hasBrandContext: boolean = false, 
-  productCategory?: string,
-  originalContext?: string
-): string {
-  
-  // First, try to extract a title from the original context
-  if (originalContext) {
-    const firstSentence = originalContext.split(/[.!?]+/)[0]?.trim();
+  // Try to extract title from seed moment
+  if (seedMoment) {
+    const firstSentence = seedMoment.split(/[.!?]+/)[0]?.trim();
     if (firstSentence && firstSentence.length < 60) {
       return firstSentence;
     }
   }
   
-  // Fall back to constraint-based titles
-  if (hasBrandContext && productCategory) {
-    const brandTitles: Record<string, string[]> = {
-      'washing machine': ['Expected to Break', 'No Promises, Just Function', 'The Unsentimental Machine', 'Cold Wash, Cold Facts', 'Simply Runs'],
-      'car': ['Point A to B', 'No Frills Transport', 'The Functional Drive', 'Gets You There'],
-      'phone': ['Connection, Not Emotion', 'Signal Available', 'Basic Function', 'Utilitarian Device'],
-      'appliance': ['Does the Job', 'Expected Performance', 'No Drama Operation', 'Functional Component'],
-      'default': ['As Advertised', 'Performs as Stated', 'No Exaggeration', 'Basic Function']
-    };
-    
-    const category = Object.keys(brandTitles).find(key => productCategory.includes(key)) || 'default';
-    const options = brandTitles[category];
-    return options[Math.floor(Math.random() * options.length)];
-  }
-  
-  // Constraint-based titles
-  const constraintTitles: Record<string, string[]> = {
-    'skeptical': ['Without Optimism', 'Cynical Observation', 'Realistic Assessment', 'Unvarnished View'],
-    'pragmatic': ['Practical Consideration', 'Functional Assessment', 'Utilitarian View', 'No Nonsense'],
-    'cynical': ['Through Skeptical Eyes', 'Assume the Worst', 'Doubt First', 'Cynical Baseline'],
-    'realistic': ['As It Is', 'Unadorned Reality', 'Plain Facts', 'Basic Truth'],
-    'functional': ['For the Purpose', 'Does the Job', 'Serves the Need', 'Practical Use'],
-    'observational': ['Noted', 'Observed', 'Recorded', 'Documented'],
-    'dry': ['Stated', 'Reported', 'Declared', 'Announced']
+  // Meaning-based titles
+  const titleMap: Record<string, string[]> = {
+    'positive': ['A Good Moment', 'Something Good', 'Positive Feeling', 'A Bright Spot'],
+    'negative': ['A Difficult Moment', 'Something Heavy', 'A Challenge', 'A Rough Patch'],
+    'complex': ['A Complex Feeling', 'Mixed Emotions', 'Layered Experience', 'Nuanced Moment'],
+    'ambiguous': ['An Uncertain Moment', 'Something Unclear', 'A Question', 'Unsure'],
+    'layered': ['A Layered Moment', 'Multiple Layers', 'Complex Experience', 'Depth']
   };
   
-  const stanceKey = Object.keys(constraintTitles).find(key => 
-    baselineStance.toLowerCase().includes(key)
-  ) || 'functional';
-  
-  const options = constraintTitles[stanceKey] || ['Observational Note'];
+  const options = titleMap[emotionalState] || ['A Moment'];
   return options[Math.floor(Math.random() * options.length)];
 }
 
-// Extract beats while preserving context
-function extractBeatsFromStory(
-  story: string, 
-  toneConstraints: string[] = [], 
-  productCategory?: string,
-  originalContext?: string
-): Scene[] {
-  const lines = story.split('\n').filter(line => 
-    line.trim() && 
-    !line.startsWith('Title:') && 
-    !line.startsWith('Beat ') &&
-    line.trim().length > 10
-  );
+function extractBeatsFromStory(story: string, meaningContract: MeaningContract): Scene[] {
+  const sentences = story.split(/[.!?]+/).filter(s => s.trim().length > 10);
   
-  // Get subject from original context to inform beat names
-  const subject = extractSubjectFromContext(originalContext);
+  const beatNames = getBeatNamesFromMeaning(meaningContract);
   
-  // Context-aware beat names
-  const getBeatNames = (subject: string) => {
-    if (subject.includes('meeting') || subject.includes('discussion')) {
-      return [
-        'The Gathering',
-        'The Exchange',
-        'The Outcome',
-        'The Assessment',
-        'The Conclusion'
-      ];
-    }
-    if (subject.includes('product') || subject.includes('device')) {
-      return [
-        'The Introduction',
-        'The Function',
-        'The Performance',
-        'The Result',
-        'The Evaluation'
-      ];
-    }
-    if (subject.includes('person') || subject.includes('people')) {
-      return [
-        'The Presence',
-        'The Action',
-        'The Effect',
-        'The Consequence',
-        'The Observation'
-      ];
-    }
-    // Generic constraint-based beat names
-    return [
-      'The Premise',
-      'The Observation', 
-      'The Function',
-      'The Result',
-      'The Assessment'
-    ];
-  };
-  
-  const beatNames = getBeatNames(subject);
-  
-  return lines.slice(0, 5).map((line, index) => {
-    // Context-aware visual cues
-    let visualCues = ['Neutral setting', 'Functional environment'];
-    
-    if (productCategory) {
-      switch(true) {
-        case productCategory.includes('washing machine'):
-          visualCues = ['Laundry area', 'Machine operation', 'Clean results', 'No embellishment', 'Simple interface'];
-          break;
-        case productCategory.includes('car'):
-          visualCues = ['Road view', 'Dashboard indicators', 'Destination arrival', 'Basic transport', 'Functional interior'];
-          break;
-        default:
-          visualCues = ['Product in use', 'Expected performance', 'Functional outcome', 'No decoration'];
-      }
-    } else if (subject.includes('meeting')) {
-      visualCues = ['Conference room', 'Neutral decor', 'Participants seated', 'Documentation visible'];
-    } else if (subject.includes('person')) {
-      visualCues = ['Individual present', 'Neutral expression', 'Functional posture', 'Simple attire'];
-    }
-    
-    // Add constraint-based visual cues
-    if (toneConstraints.includes('dry') || toneConstraints.includes('minimal')) {
-      visualCues.push('Minimal decoration', 'Simple composition');
-    }
-    if (toneConstraints.includes('observational')) {
-      visualCues.push('Objective view', 'Neutral perspective');
-    }
+  return sentences.slice(0, 5).map((sentence, index) => {
+    const visualCues = extractVisualCuesFromMeaning(sentence, meaningContract);
     
     return {
       beat: beatNames[index] || `Point ${index + 1}`,
-      description: line.trim(),
-      visualCues: visualCues.slice(0, 4), // Limit to 4 cues
-      emotion: 'neutral',
+      description: sentence.trim(),
+      visualCues: visualCues.slice(0, 4),
+      emotion: meaningContract.interpretedMeaning.emotionalState,
       duration: '5s',
-      shotType: index === 0 ? 'wide-shot' : 
-                index === 1 ? 'medium-shot' : 
-                index === 2 ? 'close-up' : 
-                index === 3 ? 'extreme-close-up' : 'medium-shot'
+      // Remove shotType as it's a format assumption (XO principle)
     };
   });
 }
 
-// Determine tone from constraints
-function determineStoryTone(toneConstraints: string[] = []): string {
-  if (toneConstraints.length === 0) {
-    return 'Neutral, Observational';
+function getBeatNamesFromMeaning(meaningContract: MeaningContract): string[] {
+  const { interpretedMeaning } = meaningContract;
+  
+  if (interpretedMeaning.narrativeTension.includes('contrast')) {
+    return ['The Setup', 'The Contrast', 'The Tension', 'The Realization', 'The Outcome'];
   }
   
-  // Map constraints to tone descriptors
-  const constraintMap: Record<string, string> = {
-    'dry': 'Dry, Minimal',
-    'observational': 'Observational, Objective',
-    'restrained': 'Restrained, Controlled',
-    'flat': 'Flat, Unemotional',
-    'minimal': 'Minimal, Sparse',
-    'functional': 'Functional, Practical',
-    'pragmatic': 'Pragmatic, Realistic',
-    'cynical': 'Cynical, Skeptical',
-    'skeptical': 'Skeptical, Doubting',
-    'witty': 'Witty, Clever',
-    'ironic': 'Ironic, Understated',
-    'matter-of-fact': 'Matter-of-fact',
-    'unemotional': 'Unemotional, Detached'
-  };
+  if (interpretedMeaning.narrativeTension.includes('desire')) {
+    return ['The Want', 'The Distance', 'The Approach', 'The Reality', 'The Acceptance'];
+  }
   
-  const primaryTones = toneConstraints
-    .map(constraint => constraintMap[constraint])
-    .filter(Boolean)
-    .slice(0, 2);
-    
-  return primaryTones.join(', ') || 'Neutral, Observational';
+  if (interpretedMeaning.emotionalDirection === 'inward') {
+    return ['The Feeling', 'The Reflection', 'The Understanding', 'The Integration', 'The Growth'];
+  }
+  
+  // Generic beat names based on emotional state
+  return [
+    'The Beginning',
+    'The Development', 
+    'The Turning',
+    'The Realization',
+    'The After'
+  ];
 }
 
-// Determine archetype from constraints and stance
-function determineArchetype(
-  pathway: string, 
-  baselineStance: string, 
-  prohibitions: string[] = []
-): string {
+function extractVisualCuesFromMeaning(sentence: string, meaningContract: MeaningContract): string[] {
+  const { interpretedMeaning } = meaningContract;
+  const cues: string[] = [];
   
-  // Check for specific prohibitions first
-  if (prohibitions.some(p => p.includes('warmth') || p.includes('comfort'))) {
-    return 'Functional Realist';
-  }
-  if (prohibitions.some(p => p.includes('emotional') || p.includes('sentiment'))) {
-    return 'Unsentimental Observer';
-  }
-  if (prohibitions.some(p => p.includes('cinematic') || p.includes('poetic'))) {
-    return 'Restrained Documentarian';
-  }
-  
-  // Check stance
-  const stanceLower = baselineStance.toLowerCase();
-  if (stanceLower.includes('skeptical') || stanceLower.includes('cynical')) {
-    return 'Skeptical Analyst';
-  }
-  if (stanceLower.includes('pragmatic') || stanceLower.includes('practical')) {
-    return 'Practical Assessor';
-  }
-  if (stanceLower.includes('functional') || stanceLower.includes('utilitarian')) {
-    return 'Utilitarian Narrator';
+  // Add cues based on emotional state
+  switch (interpretedMeaning.emotionalState) {
+    case 'positive':
+      cues.push('gentle lighting', 'warm colors', 'open composition', 'soft edges');
+      break;
+    case 'negative':
+      cues.push('subdued lighting', 'cool colors', 'contained space', 'strong shadows');
+      break;
+    case 'complex':
+      cues.push('mixed lighting', 'layered composition', 'textured surfaces', 'depth of field');
+      break;
+    default:
+      cues.push('neutral lighting', 'clear composition', 'simple framing', 'balanced elements');
   }
   
-  // Default based on pathway
-  const archetypeMap: Record<string, string> = {
-    'assumption-first': 'Assumption-Based Reporter',
-    'constraint-first': 'Constraint-Respecting Writer',
-    'audience-first': 'Audience-Aware Communicator',
-    'function-first': 'Function-Focused Describer'
-  };
+  // Add cues based on tension
+  if (interpretedMeaning.narrativeTension.includes('contrast')) {
+    cues.push('juxtaposed elements', 'divided frame', 'conflicting directions');
+  }
   
-  return archetypeMap[pathway] || 'Constraint-Aware Writer';
+  if (interpretedMeaning.emotionalDirection === 'inward') {
+    cues.push('close perspective', 'subjective view', 'internal focus');
+  }
+  
+  return cues;
 }
 
-// Build constraint-based prompt with CONTEXT PRESERVATION
-// In /api/generateStory.ts
+// ============================================================================
+// PROMPT BUILDING (UPDATED FOR MEANING-BASED SYSTEM)
+// ============================================================================
 
-function buildConstraintPrompt(
-  semanticExtraction: any, 
-  brand?: any, 
-  skipBrand?: boolean,
-  originalContext?: string
-): string {
-  const { 
-    baselineStance, 
-    toneConstraints = [], 
-    prohibitions = [], 
-    audience, 
-    intentSummary,
-    hasBrandContext,
-    productCategory
-  } = semanticExtraction;
-  
-  const brandName = brand?.name ? `for ${brand.name}` : 'for a brand';
-  const productRef = productCategory ? `(${productCategory})` : '';
-  
-  const prohibitionList = prohibitions.length > 0 
-    ? `ABSOLUTELY AVOID: ${prohibitions.join(', ')}.` 
-    : 'Avoid emotional exaggeration and sentimentality.';
-  
-  const toneRequirement = toneConstraints.length > 0
-    ? `Maintain this exact tone throughout: ${toneConstraints.join(', ')}.`
-    : 'Use a neutral, observational tone.';
-  
-  const userSubject = extractSubjectFromContext(originalContext);
-  const userKeyElements = extractKeyElements(originalContext);
+function buildMeaningBasedPrompt(meaningContract: MeaningContract, originalInput?: string): string {
+  const { interpretedMeaning, certaintyMode, seedMoment } = meaningContract;
+  const { emotionalState, emotionalDirection, narrativeTension, intentCategory, coreTheme } = interpretedMeaning;
   
   return `
-CONSTRAINT-BASED STORY NARRATION:
-You are NARRATING a story to the audience, applying specific tone constraints.
+STORY GENERATION FROM MEANING:
 
-USER'S ORIGINAL DESCRIPTION:
-"${originalContext || 'No specific context provided.'}"
+USER'S ORIGINAL WORDS:
+"${originalInput || seedMoment}"
 
-KEY ELEMENTS TO PRESERVE FROM USER'S DESCRIPTION:
-${userKeyElements}
+WHAT I UNDERSTAND FROM THIS:
+- Emotional quality: ${emotionalState}
+- Emotional direction: ${emotionalDirection}
+- Narrative tension: ${narrativeTension}
+- What you seem to want to do: ${intentCategory}
+- Core theme: ${coreTheme}
 
-CRITICAL NARRATION REQUIREMENTS:
-1. This MUST BE A NARRATED STORY, not an essay or analysis
-2. Tell it as if you're speaking directly to the audience
-3. Use narrative techniques: scene-setting, progression, observation
-4. Keep it flowing like a story being told, not a product review
-5. Maintain: ${baselineStance} perspective throughout
+CERTAINTY LEVEL: ${certaintyMode}
 
-TONE CONSTRAINTS TO APPLY:
-1. REQUIRED TONE: ${toneRequirement}
-2. PROHIBITIONS: ${prohibitionList}
-3. TARGET AUDIENCE: ${audience}
-4. PRIMARY INTENT: ${intentSummary}
+HOW TO WRITE THIS STORY:
+1. Start from "${seedMoment.substring(0, 50)}..."
+2. Let the ${emotionalState} feeling inform the atmosphere
+3. Explore the tension of ${narrativeTension}
+4. Honor the ${intentCategory} intent
+5. Touch on the theme of ${coreTheme}
+6. Write simply, directly, without decoration
 
-${productCategory ? `SPECIFIC PRODUCT CONTEXT: ${productCategory}` : ''}
-${hasBrandContext ? `BRAND CONTEXT: Creating content ${brandName} ${productRef}` : ''}
+RULES (XO principles):
+- No applying tone rules or prohibitions
+- No archetypes or narrator personas
+- Let the story emerge naturally from the meaning
+- If ${certaintyMode === 'reflection-only' ? 'stay reflective' : 'proceed with humility'}
 
-NARRATION RULES:
-1. BEGIN by establishing a scene or situation
-2. UNFOLD the narrative with observations and progression
-3. USE narrative flow: "This is the story of...", "Let me tell you about...", "Here's what happened..."
-4. DESCRIBE what unfolds, not just what exists
-5. SHOW, don't just tell - but within the constrained tone
-6. CREATE narrative movement from beginning to observation to outcome
-7. END with a narrative conclusion, not just an analysis
-
-WHAT TO AVOID:
-1. NO academic or analytical language
-2. NO product review format
-3. NO detached observation without narrative flow
-4. NO bullet-point style facts
-5. NO journalistic reporting style
-
-EXAMPLE OF NARRATION FORMAT:
-- "Let me tell you about the time..."
-- "There was this moment when..."
-- "This is what unfolded..."
-- "The story goes like this..."
-
-STRUCTURE YOUR NARRATION (6-10 lines):
-1. Set the scene: Begin the narrative
-2. Introduce what happens or what's observed
-3. Describe the progression or unfolding
-4. Note how people/react/respond (if applicable)
-5. Show the outcome or realization
-6. Conclude the narrative arc
-
-FINAL INSTRUCTION:
-Write a narrated story (not an essay) that:
-1. Preserves: ${userSubject}
-2. Applies tone: ${toneConstraints.join(', ')}
-3. Tells it as a STORY with narrative flow
-4. Speaks to the audience as if telling them a story
-5. Avoids all prohibited elements
-
-Narrated Story (begin with narrative opening):
+Write a micro story (3-5 sentences):
 `;
 }
 
-// Build expansion prompt with context preservation
-function buildConstraintExpansionPrompt(
-  currentStory: string | undefined,
-  requestType: string,
-  purpose: string | undefined,
-  semanticExtraction: any,
-  brand?: any,
-  skipBrand?: boolean,
-  originalContext?: string
+function buildExpansionPrompt(
+  currentStory: string,
+  meaningContract: MeaningContract,
+  purpose?: string
 ): string {
-  const { 
-    baselineStance, 
-    toneConstraints = [], 
-    prohibitions = [], 
-    audience 
-  } = semanticExtraction;
-  
-  const prohibitionList = prohibitions.length > 0 
-    ? `Continue avoiding: ${prohibitions.join(', ')}` 
-    : 'Continue avoiding emotional exaggeration.';
-  
-  // Extract user's subject
-  const userSubject = extractSubjectFromContext(originalContext);
+  const { interpretedMeaning, seedMoment } = meaningContract;
   
   return `
-EXPANDING A NARRATED STORY:
+EXPANDING A STORY WHILE HONORING ITS MEANING:
 
-ORIGINAL USER DESCRIPTION:
-"${originalContext || 'No original context provided.'}"
+ORIGINAL USER INPUT:
+"${seedMoment}"
 
-SUBJECT TO PRESERVE: ${userSubject}
+CURRENT STORY (to expand):
+"${currentStory}"
 
-CURRENT STORY TO EXPAND:
-"${currentStory?.substring(0, 300) || 'No current story provided.'}..."
+MEANING TO HONOR:
+- Emotional quality: ${interpretedMeaning.emotionalState}
+- Narrative tension: ${interpretedMeaning.narrativeTension}
+- Intent: ${interpretedMeaning.intentCategory}
+- Theme: ${interpretedMeaning.coreTheme}
 
-EXPANSION REQUEST: ${requestType === 'expansion' ? 'Expand this story' : `Adapt for: ${purpose}`}
+${purpose ? `EXPANSION PURPOSE: ${purpose}` : 'Expand this story naturally'}
 
-NARRATION REQUIREMENTS FOR EXPANSION:
-1. MAINTAIN NARRATIVE VOICE: This is a story being told, not an essay
-2. ENHANCE the narrative flow, not just add more facts
-3. EXPAND the storytelling elements: scene details, progression, observations
-4. STRENGTHEN the narrative arc
-5. KEEP it feeling like a story being narrated
+EXPANSION RULES:
+1. Stay true to the original emotional quality
+2. Deepen exploration of the narrative tension
+3. Expand naturally, don't change direction
+4. Add detail, not new meaning
+5. Maintain the same level of certainty/tentativeness
 
-CONSTRAINT REMINDERS (MUST MAINTAIN):
-- Original user context: "${userSubject}"
-- Baseline assumption/perspective: ${baselineStance}
-- Required tone: ${toneConstraints.join(', ') || 'neutral, observational'}
-- Prohibitions: ${prohibitionList}
-- Target audience: ${audience}
-
-HOW TO EXPAND NARRATIVELY:
-1. Add more narrative detail to existing story beats
-2. Enhance scene-setting and atmosphere (within tone constraints)
-3. Develop the narrative progression more fully
-4. Add subtle narrative observations that fit the tone
-5. Make it feel more like a complete story being told
-6. Maintain conversational/narrative flow
-
-
-${brand?.name && !skipBrand ? `MAINTAIN brand voice without adding sentimentality.` : ''}
-
-Expanded narrated story (begin directly, maintaining narrative voice):
+Expand the story (add 2-3 sentences):
 `;
 }
 
-// Main handler
+// ============================================================================
+// MAIN HANDLER (UPDATED FOR NEW TYPES)
+// ============================================================================
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<GenerateStoryResponse | { error: string }>
@@ -442,70 +206,65 @@ export default async function handler(
 
   try {
     const { 
-      semanticExtraction,
-      brand,
+      meaningContract,
+      originalInput,
+      currentStory,
       requestType = 'micro-story',
       purpose,
-      currentStory,
-      originalContext,  // CRITICAL: This must be passed from frontend
+      brandContext,
       skipBrand
     }: GenerateStoryRequest = req.body;
 
-    if (!semanticExtraction) {
+    // Validate request
+    if (!meaningContract) {
       return res.status(400).json({ 
         success: false,
-        error: 'Semantic extraction data is required' 
+        error: 'Meaning contract is required' 
       });
     }
 
     console.log('📦 Received story generation request:', {
-      pathway: semanticExtraction.pathway,
-      baselineStance: semanticExtraction.baselineStance,
-      toneConstraints: semanticExtraction.toneConstraints,
-      prohibitions: semanticExtraction.prohibitions,
-      hasBrandContext: semanticExtraction.hasBrandContext,
-      productCategory: semanticExtraction.productCategory,
-      originalContextLength: originalContext?.length || 0
+      emotionalState: meaningContract.interpretedMeaning.emotionalState,
+      narrativeTension: meaningContract.interpretedMeaning.narrativeTension,
+      certaintyMode: meaningContract.certaintyMode,
+      confidence: meaningContract.confidence
     });
 
-    // Validate we have original context for non-expansion requests
-    if (!currentStory && !originalContext && requestType === 'micro-story') {
-      console.warn('⚠️ No original context provided for new story generation');
+    // Check if we should even generate a story
+    if (meaningContract.certaintyMode === 'clarification-needed') {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot generate story: meaning requires clarification'
+      });
     }
 
     // Determine prompt
     let storyPrompt = '';
     let systemMessage = '';
     
-    if (requestType === 'expansion' || requestType === 'purpose-adaptation') {
-      storyPrompt = buildConstraintExpansionPrompt(
-        currentStory, 
-        requestType, 
-        purpose, 
-        semanticExtraction, 
-        brand, 
-        skipBrand,
-        originalContext
-      );
-      systemMessage = `You expand constraint-based stories while maintaining the original subject matter and applying tone constraints. NO emotional addition, NO sentimentality, NO departure from original context.`;
+    if (requestType === 'expansion' && currentStory) {
+      storyPrompt = buildExpansionPrompt(currentStory, meaningContract, purpose);
+      systemMessage = `You expand stories while staying true to their original emotional meaning and narrative tension.`;
+    } else if (requestType === 'purpose-adaptation' && purpose) {
+      storyPrompt = `${buildMeaningBasedPrompt(meaningContract, originalInput)}\n\nAdapt for: ${purpose}`;
+      systemMessage = `You adapt stories for specific purposes while honoring their core meaning.`;
     } else {
-      storyPrompt = buildConstraintPrompt(
-        semanticExtraction, 
-        brand, 
-        skipBrand,
-        originalContext
-      );
-      systemMessage = `You write a story sequence of factual, standalone statements that describe observable conditions and outcomes.
-Do not optimize for narrative flow, elegance, or emotional coherence.
-Each sentence must be independently valid.
-.`;
+      storyPrompt = buildMeaningBasedPrompt(meaningContract, originalInput);
+      systemMessage = `You write simple, emergent stories that grow from emotional meaning, not from applied constraints.`;
     }
 
-    console.log(`📝 Generating ${requestType} story with constraints...`);
-    console.log(`📝 Original context subject: ${extractSubjectFromContext(originalContext)}`);
+    // Add brand context if provided (applied AFTER meaning)
+    if (brandContext?.name && !skipBrand) {
+      storyPrompt += `\n\nNote: This story is for ${brandContext.name}. Integrate this naturally, not forced.`;
+    }
+
+    // Adjust temperature based on certainty
+    const temperature = meaningContract.certaintyMode === 'reflection-only' ? 0.4 : 0.7;
+
+    console.log(`📝 Generating ${requestType} story from meaning...`);
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -516,34 +275,23 @@ Each sentence must be independently valid.
           content: storyPrompt
         }
       ],
-      temperature: 0.3, // Low temperature for constraint adherence
-      max_tokens: 400,
+      temperature,
+      max_tokens: 300,
     });
 
-    const storyContent = completion.choices[0].message.content;
+    const storyContent = completion.choices[0].message.content?.trim();
     
     if (!storyContent) {
       throw new Error('No story content generated');
     }
 
-    console.log('📖 Generated story (first 200 chars):', storyContent.substring(0, 200) + '...');
-    // console.log('📖 Does it match user context?', storyContent.toLowerCase().includes(extractSubjectFromContext(originalContext).toLowerCase()));
+    console.log('📖 Generated story:', storyContent.substring(0, 100) + '...');
 
     // Extract beats
-    const beats = extractBeatsFromStory(
-      storyContent, 
-      semanticExtraction.toneConstraints, 
-      semanticExtraction.productCategory,
-      originalContext
-    );
+    const beats = extractBeatsFromStory(storyContent, meaningContract);
     
     // Generate title
-    const title = generateTitleFromConstraints(
-      semanticExtraction.baselineStance, 
-      semanticExtraction.hasBrandContext, 
-      semanticExtraction.productCategory,
-      originalContext
-    );
+    const title = generateTitleFromMeaning(meaningContract);
     
     // Prepare response
     const response: GenerateStoryResponse = {
@@ -551,39 +299,85 @@ Each sentence must be independently valid.
       story: storyContent,
       beatSheet: beats,
       metadata: {
-        title: title,
-        archetype: determineArchetype(
-          semanticExtraction.pathway, 
-          semanticExtraction.baselineStance, 
-          semanticExtraction.prohibitions
-        ),
-        tone: determineStoryTone(semanticExtraction.toneConstraints),
-        totalBeats: beats.length,
-        estimatedDuration: `${beats.length * 5}s`,
-        // Context flags
-        ...(semanticExtraction.hasBrandContext && { isBrandStory: true }),
-        ...(semanticExtraction.productCategory && { productCategory: semanticExtraction.productCategory }),
-        // Constraint tracking
-        appliedConstraints: semanticExtraction.toneConstraints,
-        enforcedProhibitions: semanticExtraction.prohibitions,
-        // Add context preservation info
-        // contextPreserved: !!originalContext,
-        originalSubject: extractSubjectFromContext(originalContext)
+        // New meaning-based metadata
+        emotionalState: meaningContract.interpretedMeaning.emotionalState,
+        narrativeTension: meaningContract.interpretedMeaning.narrativeTension,
+        intentCategory: meaningContract.interpretedMeaning.intentCategory,
+        coreTheme: meaningContract.interpretedMeaning.coreTheme,
+        wordCount: storyContent.split(/\s+/).length,
+        
+        // Brand context (applied after meaning)
+        ...(brandContext?.name && !skipBrand && { 
+          isBrandStory: true,
+          brandName: brandContext.name 
+        }),
+        
+        // For compatibility with existing frontend
+        // title: title,
+        // Provide legacy fields but mark them as deprecated
+        // archetype: 'Emergent Narrator', // XO doesn't use archetypes
+        // tone: meaningContract.interpretedMeaning.emotionalState,
+        // totalBeats: beats.length,
+        // estimatedDuration: `${beats.length * 5}s`,
+        
+        // Remove constraint tracking fields (XO violation)
+        // appliedConstraints: [], // REMOVED - XO doesn't prescribe constraints
+        // enforcedProhibitions: [], // REMOVED - XO doesn't prohibit
+        // originalSubject: extractSubjectFromContext(originalInput) // REMOVED - format leakage
       }
     };
 
-    console.log(`✅ Constraint-based story generated: "${title}"`);
-    console.log(`✅ Subject preserved: ${response.metadata.originalSubject}`);
-    console.log(`✅ Tone applied: ${response.metadata.tone}`);
-
+    console.log(`✅ Story generated from meaning (${meaningContract.certaintyMode})`);
+    
     return res.status(200).json(response);
 
   } catch (error) {
-    console.error('Constraint story generation error:', error);
+    console.error('Story generation error:', error);
     
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to generate constraint-based story' 
+      error: error instanceof Error ? error.message : 'Failed to generate meaning-based story' 
     });
   }
+}
+
+// ============================================================================
+// ADAPTER FOR COMPATIBILITY WITH EXISTING FRONTEND
+// ============================================================================
+
+export function adaptLegacyRequestToMeaning(
+  legacyRequest: any
+): GenerateStoryRequest {
+  console.warn('⚠️ Using legacy adapter - consider updating frontend');
+  
+  // Extract meaning from legacy semantic extraction
+  const { semanticExtraction, originalContext, ...rest } = legacyRequest;
+  
+  // Create a mock meaning contract from legacy data
+  const mockMeaningContract: MeaningContract = {
+    interpretedMeaning: {
+      emotionalState: semanticExtraction.emotion?.toLowerCase() || 'neutral',
+      emotionalDirection: 'observational',
+      narrativeTension: semanticExtraction.baselineStance || 'expression of thought',
+      intentCategory: 'express',
+      coreTheme: semanticExtraction.intentSummary || 'human experience'
+    },
+    confidence: semanticExtraction.confidence || 0.5,
+    certaintyMode: semanticExtraction.confidence >= 0.7 ? 'tentative-commit' : 'reflection-only',
+    reversible: true,
+    safeToNarrate: (semanticExtraction.confidence || 0.5) >= 0.6,
+    provenance: {
+      source: 'ccn-interpretation',
+      riskLevel: 'medium',
+      distortionLikelihood: 1 - (semanticExtraction.confidence || 0.5),
+      risksAcknowledged: []
+    },
+    seedMoment: semanticExtraction.seedMoment || originalContext || 'unknown'
+  };
+  
+  return {
+    meaningContract: mockMeaningContract,
+    originalInput: originalContext,
+    ...rest
+  };
 }
