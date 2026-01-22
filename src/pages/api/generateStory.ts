@@ -140,7 +140,7 @@ WHAT I UNDERSTAND FROM THIS:
 CERTAINTY LEVEL: ${certaintyMode}
 
 HOW TO WRITE THIS STORY:
-1. Start from "${seedMoment.substring(0, 50)}..."
+1. Use "${seedMoment.substring(0, 50)}..." as INSPIRATION, not as the opening line
 2. Let the ${emotionalState} feeling inform the atmosphere
 3. Explore the tension of ${narrativeTension}
 4. Honor the ${intentCategory} intent
@@ -152,8 +152,9 @@ RULES (XO principles):
 - No archetypes or narrator personas
 - Let the story emerge naturally from the meaning
 - If ${certaintyMode === 'reflection-only' ? 'stay reflective' : 'proceed with humility'}
+- DO NOT start the story with the seed moment - use it as inspiration only
 
-Write a micro story (3-5 sentences):
+Write a micro story (3-5 sentences) that captures the essence of the meaning, not the literal words:
 `;
 }
 

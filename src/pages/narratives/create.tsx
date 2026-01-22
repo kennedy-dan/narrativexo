@@ -455,19 +455,7 @@ export default function Create() {
         if (data.interpretation.meaningContract) {
           setMeaningContract(data.interpretation.meaningContract);
           
-          addMessage(
-            "system",
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-green-600">
-                <Check size={16} />
-                <span className="font-medium">Understood your meaning</span>
-              </div>
-              <div className="text-sm text-gray-600">
-                Creating a story from your meaning...
-              </div>
-            </div>,
-            "response",
-          );
+       
           
           await simulateTyping(800);
           
@@ -553,7 +541,7 @@ export default function Create() {
     try {
       const storyRequestData = {
         meaningContract: contract,
-        originalInput: originalUserInput,
+        // originalInput: originalUserInput,
         requestType: "micro-story",
         brandContext: brandGuide ? { 
           name: brandName, 
@@ -947,22 +935,7 @@ export default function Create() {
               <span className="font-medium">optional</span> - you can skip and continue without it.
             </p>
             <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Brand Name
-                </label>
-                <input
-                  type="text"
-                  value={brandName}
-                  onChange={(e) => {
-                    setBrandName(e.target.value);
-                    e.target.focus();
-                  }}
-                  placeholder="Enter your brand name..."
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  autoFocus
-                />
-              </div>
+           
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1123,14 +1096,7 @@ export default function Create() {
           {/* Adapted Story Display */}
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 p-6 rounded-r-lg">
             <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-semibold text-lg text-green-800">
-                  {adaptedStory.metadata.title}
-                </h3>
-                <div className="text-sm text-green-600 mt-1">
-                  Adapted for: <span className="font-medium">{purpose}</span>
-                </div>
-              </div>
+            
               <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
                 Brand Adapted
               </div>
@@ -1295,15 +1261,7 @@ export default function Create() {
           {/* Adapted Story Display */}
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 p-6 rounded-r-lg">
             <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-semibold text-lg text-green-800">
-                  {adaptedStory.metadata.title}
-                </h3>
-                <div className="text-sm text-green-600 mt-1">
-                  Adapted for:{" "}
-                  <span className="font-medium">{purpose}</span>
-                </div>
-              </div>
+          
               <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
                 Adapted
               </div>
@@ -1435,9 +1393,7 @@ export default function Create() {
         <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 p-6 rounded-r-lg">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="font-semibold text-lg text-green-800">
-                {story.metadata.title}
-              </h3>
+          
               <div className="text-sm text-green-600 mt-1">
                 Ready for: <span className="font-medium">{purpose}</span>
                 <span className="text-xs text-gray-500 ml-2">
