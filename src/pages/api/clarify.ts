@@ -196,7 +196,7 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
   if (gibberishScore > 0.7) {
     risks.push('intent-misinterpretation');
     specificDoubt = 'possible gibberish or unclear meaning';
-    hypothesis = 'This might not be meaningful text — or I may be misreading it completely.';
+    hypothesis = 'This needs some clarification';
     confidentInterpretation = 'unclear meaning - may be gibberish';
   }
   
@@ -205,7 +205,7 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
   if (isInsufficient && !specificDoubt) {
     risks.push('insufficient-context');
     specificDoubt = 'insufficient context for clear interpretation';
-    hypothesis = 'This seems brief or standalone — I may be missing surrounding context.';
+    hypothesis = 'This needs some clarification';
     confidentInterpretation = 'brief statement - context needed';
   }
   

@@ -427,18 +427,12 @@ export default function Create() {
           addMessage(
             "system",
             <div className="space-y-4">
-              <div className="flex items-center gap-2 text-purple-600">
-                <Brain size={20} />
-                <span className="font-medium">To understand your meaning better...</span>
-              </div>
+            
               <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border-l-4 border-purple-500">
                 <div className="mb-2">
-                  <div className="text-sm font-medium text-purple-700">My hypothesis:</div>
                   <p className="text-gray-700">{data.clarification.hypothesis}</p>
                 </div>
-                <div className="text-sm text-purple-600 italic">
-                  {data.clarification.correctionInvitation}
-                </div>
+           
               </div>
               <p className="text-sm text-gray-500">
                 Type your clarification below to help me understand your intention.
@@ -665,19 +659,7 @@ export default function Create() {
                       <Zap size={16} />
                       Make it harsher
                     </button>
-                    <button
-                      onClick={() =>
-                        handleStoryExpansion(
-                          "60-second",
-                          generatedStory,
-                          contract
-                        )
-                      }
-                      className="px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-                    >
-                      <Film size={16} />
-                      60-second version
-                    </button>
+                 
                   </div>
 
                   <div className="pt-4 border-t">
@@ -1112,14 +1094,14 @@ export default function Create() {
               Your brand-adapted story is ready!
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <button
+            <div className="grid grid-cols-1 gap-3">
+              {/* <button
                 onClick={() => setCurrentStep("images")}
                 className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
               >
                 <ImageIcon size={18} />
                 Generate Images
-              </button>
+              </button> */}
               <button
                 onClick={() => handleVideoOption()}
                 className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -1277,14 +1259,14 @@ export default function Create() {
               Your adapted story is ready!
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <button
+            <div className="grid grid-cols-1  gap-3">
+              {/* <button
                 onClick={() => setCurrentStep("images")}
                 className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
               >
                 <ImageIcon size={18} />
                 Generate Images
-              </button>
+              </button> */}
               <button
                 onClick={() => handleVideoOption()}
                 className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -1343,14 +1325,14 @@ export default function Create() {
 
           {/* Show original story with options */}
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <button
+            <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
+              {/* <button
                 onClick={() => setCurrentStep("images")}
                 className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
               >
                 <ImageIcon size={18} />
                 Generate Images
-              </button>
+              </button> */}
               <button
                 onClick={() => handleVideoOption()}
                 className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -1416,14 +1398,14 @@ export default function Create() {
             Your story is ready! What would you like to do next?
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <button
+          <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
+            {/* <button
               onClick={() => setCurrentStep("images")}
               className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
             >
               <ImageIcon size={18} />
               Generate Images
-            </button>
+            </button> */}
             <button
               onClick={() => handleVideoOption()}
               className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -2441,12 +2423,12 @@ export default function Create() {
               <Download size={18} />
               Export Package
             </button>
-            <button
+            {/* <button
               onClick={() => handleGenerateImages()}
               className="px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               Generate Images Too
-            </button>
+            </button> */}
           </div>
         </div>,
         "generated",
@@ -2704,12 +2686,12 @@ export default function Create() {
           <div className="p-4 border-t">
             <div className="space-y-4">
               <div className="mb-3">
-                <p className="text-sm text-gray-600 mb-2">
+                {/* <p className="text-sm text-gray-600 mb-2">
                   {clarification?.hypothesis}
                 </p>
                 <p className="text-sm text-gray-500 italic">
                   {clarification?.correctionInvitation}
-                </p>
+                </p> */}
               </div>
 
               <div className="relative">
@@ -2870,14 +2852,14 @@ export default function Create() {
         return (
           <div className="p-4 ">
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <button
+              <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
+                {/* <button
                   onClick={() => setCurrentStep("images")}
                   className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
                 >
                   <ImageIcon size={18} />
                   Generate Images
-                </button>
+                </button> */}
                 <button
                   onClick={() => handleVideoOption()}
                   className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -2979,13 +2961,13 @@ export default function Create() {
                 <VideoIcon size={24} />
                 {isGenerating ? "Creating..." : "Generate Video Script"}
               </button>
-              <button
+              {/* <button
                 onClick={() => setCurrentStep("images")}
                 className="w-full px-6 py-4 border border-gray-300 rounded-xl hover:bg-gray-50 flex items-center justify-center gap-3"
               >
                 <ImageIcon size={24} />
                 Generate Images Instead
-              </button>
+              </button> */}
             </div>
           </div>
         );
