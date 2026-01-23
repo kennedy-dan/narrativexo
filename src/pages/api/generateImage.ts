@@ -22,7 +22,6 @@ export default async function handler(
       sceneDescription, 
       visualCues = [],
       tone, 
-      market, 
       brandSafe = true, 
       brandPalette = [],
       template = 'instagram-story',
@@ -39,7 +38,7 @@ export default async function handler(
 
     // Load market tones
     const marketTones = require('@/lib/marketTone.json');
-    const marketData = marketTones[market] || marketTones.ng;
+    const marketData = marketTones.ng;
     const toneConfig = marketData.tones.find((t: any) => t.name === tone);
 
     // ✅ CRITICAL: Generate consistent seed for character
@@ -62,7 +61,7 @@ CHARACTER CONSISTENCY REQUIREMENTS:
 MAIN CHARACTER: ${characterDescription.name || 'Primary character'}
 - Age: ${characterDescription.age || 'adult'}
 - Gender: ${characterDescription.gender || 'person'}
-- Ethnicity: ${characterDescription.ethnicity || 'appropriate to ' + market}
+- Ethnicity: ${characterDescription.ethnicity || 'appropriate to ' }
 - Hair: ${characterDescription.appearance?.hair || 'natural hair appropriate to ethnicity'}
 - Eyes: ${characterDescription.appearance?.eyes || 'expressive eyes'}
 - Build: ${characterDescription.appearance?.build || 'average build'}
@@ -107,9 +106,7 @@ ${visualCuesInstruction}
 
 ${characterPrompt}
 
-MARKET & CULTURE: ${market.toUpperCase()}
-Cultural authenticity: ${getMarketStyle(market)}
-Ensure facial features are ethnically/culturally appropriate for ${market}.
+÷
 
 VISUAL STYLE: ${tone}
 Style descriptors: ${toneConfig?.visualDescriptors?.join(', ') || 'cinematic, authentic, emotional'}
