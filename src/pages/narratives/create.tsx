@@ -523,7 +523,7 @@ export default function Create() {
       content: (
         <div className="flex items-center gap-2">
           <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-          <span>Shaping a story from your meaning...</span>
+          <span>Shaping a story...</span>
         </div>
       ),
       timestamp: new Date(),
