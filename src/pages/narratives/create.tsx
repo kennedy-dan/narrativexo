@@ -382,226 +382,180 @@ export default function Create() {
   // Step 1: Natural Story Start with XO Clarify
   // Step 1: Natural Story Start with XO Clarify
   // Step 1: Natural Story Start with XO Clarify
-  const handleEntrySubmit = async (
-    clarificationAnswer?: string,
-    isRewriteAttempt = false,
-  ) => {
-    const inputToSend = clarificationAnswer || userInput;
+// Step 1: Natural Story Start with XO Clarify
+const handleEntrySubmit = async (
+  clarificationAnswer?: string,
+  isRewriteAttempt = false,
+) => {
+  const inputToSend = clarificationAnswer || userInput;
 
-    if (!inputToSend.trim()) {
-      addMessage(
-        "system",
-        <div className="text-amber-600">
-          Please describe your moment first.
-        </div>,
-        "response",
-      );
-      return;
-    }
-
-    if (inputToSend.trim().length < 3) {
-      addMessage(
-        "system",
-        <div className="text-amber-600">
-          Please provide a bit more detail so I can understand your meaning
-          better.
-        </div>,
-        "response",
-      );
-      return;
-    }
-
-    // Show user message
-    const messageContent = (
-      <div className="p-3">
-        <p className="text-base font-medium">{inputToSend}</p>
-      </div>
+  if (!inputToSend.trim()) {
+    addMessage(
+      "system",
+      <div className="text-amber-600">
+        Please describe your moment first.
+      </div>,
+      "response",
     );
+    return;
+  }
 
-    addMessage("user", messageContent, "selection");
+  if (inputToSend.trim().length < 3) {
+    addMessage(
+      "system",
+      <div className="text-amber-600">
+        Please provide a bit more detail so I can understand your meaning better.
+      </div>,
+      "response",
+    );
+    return;
+  }
 
-    if (!clarificationAnswer && !isRewriteAttempt) {
-      setOriginalUserInput(inputToSend);
-      setUserInput("");
-    } else {
-      setUserInput("");
-    }
+  // Show user message
+  const messageContent = (
+    <div className="p-3">
+      <p className="text-base font-medium">{inputToSend}</p>
+    </div>
+  );
 
-    setIsGenerating(true);
+  addMessage("user", messageContent, "selection");
 
-    try {
-      const res = await fetch("/api/clarify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userInput: inputToSend,
-          isClarificationResponse: !!clarificationAnswer || isRewriteAttempt,
-          previousAnswer: clarificationAnswer,
-          isRewriteAttempt: isRewriteAttempt,
-        }),
-      });
+  if (!clarificationAnswer && !isRewriteAttempt) {
+    setOriginalUserInput(inputToSend);
+    setUserInput("");
+  } else {
+    setUserInput("");
+  }
 
-      const data = await res.json();
+  setIsGenerating(true);
 
-      if (data.success) {
-        setXOInterpretation(data.interpretation);
-        setMeaningContract(data.interpretation.meaningContract || null);
-        setUnderstandingPreview(data.understandingPreview || "");
+  try {
+    const res = await fetch("/api/clarify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userInput: inputToSend,
+        isClarificationResponse: !!clarificationAnswer || isRewriteAttempt,
+        previousAnswer: clarificationAnswer,
+        isRewriteAttempt: isRewriteAttempt,
+      }),
+    });
 
-        // Check if clarification is needed (unless this is a rewrite attempt)
-        if (
-          !isRewriteAttempt &&
-          data.needsClarification &&
-          data.clarification
-        ) {
-          setClarification(data.clarification);
+    const data = await res.json();
 
-          await simulateTyping(1200);
+    if (data.success) {
+      setXOInterpretation(data.interpretation);
+      setMeaningContract(data.interpretation.meaningContract || null);
+      setUnderstandingPreview(data.understandingPreview || "");
 
-          addMessage(
-            "system",
-            <div className="space-y-4">
-              <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border-l-4 border-purple-500">
-                <div className="mb-2">
-                  <p className="text-gray-700">
-                    {data.clarification.hypothesis}
-                  </p>
-                </div>
+      // Check if clarification is needed (unless this is a rewrite attempt)
+      if (
+        !isRewriteAttempt &&
+        data.needsClarification &&
+        data.clarification
+      ) {
+        setClarification(data.clarification);
+
+        await simulateTyping(1200);
+
+        addMessage(
+          "system",
+          <div className="space-y-4">
+            <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border-l-4 border-purple-500">
+              <div className="mb-2">
+                <p className="text-gray-700">
+                  {data.clarification.hypothesis}
+                </p>
               </div>
-              <p className="text-sm text-gray-500">
-                Type your clarification below to help me understand your
-                intention.
-              </p>
-            </div>,
-            "response",
-          );
+            </div>
+            <p className="text-sm text-gray-500">
+              Type your clarification below to help me understand your intention.
+            </p>
+          </div>,
+          "response",
+        );
 
-          setCurrentStep("clarification");
-          return;
-        }
+        setCurrentStep("clarification");
+        return;
+      }
 
-        // No clarification needed or this is a rewrite attempt
-        if (data.interpretation.meaningContract) {
-          setMeaningContract(data.interpretation.meaningContract);
+      // No clarification needed or this is a rewrite attempt
+      if (data.interpretation.meaningContract) {
+        setMeaningContract(data.interpretation.meaningContract);
 
-          // Check if safe to narrate OR if this is a rewrite attempt
-          if (
-            data.interpretation.meaningContract.safeToNarrate ||
-            isRewriteAttempt
-          ) {
-            // Safe to narrate OR rewrite attempt - proceed with story generation
-            await simulateTyping(800);
-            await triggerStoryGeneration(data.interpretation.meaningContract);
-          } else {
-            // Not safe to narrate (first attempt) - show understanding preview
-            await simulateTyping(800);
-
-            // Get understanding summary from contract or use understandingPreview from response
-            const contractSummary = getUnderstandingSummary(
-              data.interpretation.meaningContract,
-            );
-            const previewText =
-              contractSummary ||
-              data.understandingPreview ||
-              "I think I understand...";
-
-            addMessage(
-              "system",
-              <div className="space-y-4">
-                <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border-l-4 border-green-500">
-                  <p className="font-medium">{previewText}</p>
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() =>
-                      handlePreviewConfirmation(
-                        data.interpretation.meaningContract,
-                      )
-                    }
-                    className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all"
-                  >
-                    ✓ Yes, that's right
-                  </button>
-                  <button
-                    onClick={() => {
-                      setClarification(null);
-                      setIsRewriteMode(true);
-                      setCurrentStep("entry");
-                      addMessage(
-                        "system",
-                        <div className="space-y-4">
-                          <p className="font-medium">
-                            Please rewrite your message:
-                          </p>
-                          <p className="text-sm text-gray-500">
-                            I'll generate a story based on your rewrite, even if
-                            I'm not completely sure.
-                          </p>
-                        </div>,
-                        "question",
-                      );
-                    }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
-                  >
-                    Rewrite my message
-                  </button>
-                </div>
-              </div>,
-              "response",
-            );
-
-            setCurrentStep("understanding-preview");
-          }
+        // Check if safe to narrate OR if this is a rewrite attempt
+        if (
+          data.interpretation.meaningContract.safeToNarrate ||
+          isRewriteAttempt ||
+          !data.interpretation.meaningContract.safeToNarrate // Changed: Trigger even when safeToNarrate is false
+        ) {
+          // Trigger story generation regardless of safeToNarrate value
+          await simulateTyping(800);
+          await triggerStoryGeneration(data.interpretation.meaningContract);
+        } else {
+          // This block should now be unreachable since we're triggering regardless
+          // But keeping it as a fallback
+          await simulateTyping(800);
+          await triggerStoryGeneration(data.interpretation.meaningContract);
         }
       }
-    } catch (error) {
-      console.error("XO analysis error:", error);
-
-      await simulateTyping(800);
-
-      // Fallback: Try direct story generation with basic meaning contract
-      const fallbackContract: MeaningContract = {
-        interpretedMeaning: {
-          emotionalState: "neutral",
-          emotionalDirection: "observational",
-          narrativeTension: "expression of thought",
-          intentCategory: "express",
-          coreTheme: "human experience",
-        },
-        confidence: 0.5,
-        certaintyMode: "reflection-only",
-        reversible: true,
-        safeToNarrate: true,
-        provenance: {
-          source: "ccn-interpretation",
-          riskLevel: "medium",
-          distortionLikelihood: 0.5,
-          risksAcknowledged: [],
-        },
-        seedMoment: inputToSend,
-      };
-
-      addMessage(
-        "system",
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-amber-600">
-            <HelpCircle size={16} />
-            <span className="font-medium">Proceeding tentatively</span>
-          </div>
-          <div className="text-sm text-gray-600">
-            Creating a story based on your input...
-          </div>
-        </div>,
-        "response",
-      );
-
-      await simulateTyping(800);
-
-      await triggerStoryGeneration(fallbackContract);
-    } finally {
-      setIsGenerating(false);
     }
-  };
+  } catch (error) {
+    console.error("XO analysis error:", error);
+
+    await simulateTyping(800);
+
+    // Fallback: Try direct story generation with basic meaning contract
+    const fallbackContract: MeaningContract = {
+      interpretedMeaning: {
+        emotionalState: "neutral",
+        emotionalDirection: "observational",
+        narrativeTension: "expression of thought",
+        intentCategory: "express",
+        coreTheme: "human experience",
+      },
+      confidence: 0.5,
+      certaintyMode: "reflection-only",
+      reversible: true,
+      safeToNarrate: true,
+      provenance: {
+        source: "ccn-interpretation",
+        riskLevel: "medium",
+        distortionLikelihood: 0.5,
+        risksAcknowledged: [],
+      },
+      seedMoment: inputToSend,
+    };
+
+    addMessage(
+      "system",
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-amber-600">
+          <HelpCircle size={16} />
+          <span className="font-medium">Proceeding tentatively</span>
+        </div>
+        <div className="text-sm text-gray-600">
+          Creating a story based on your input...
+        </div>
+      </div>,
+      "response",
+    );
+
+    await simulateTyping(800);
+
+    await triggerStoryGeneration(fallbackContract);
+  } finally {
+    setIsGenerating(false);
+  }
+};
+
+// Remove the handlePreviewConfirmation function since we won't use it anymore
+// const handlePreviewConfirmation = async (contract: MeaningContract) => {
+//   // This function is no longer needed
+// };
+
+// Also remove the understanding-preview case from renderInputSection since we're not using it
+// We only need to handle the case where we trigger story generation directly
   // Add this function to handle the rewrite submission
   const handleRewriteSubmit = () => {
     if (!userInput.trim() || userInput.trim().length < 3) {
@@ -620,23 +574,7 @@ export default function Create() {
     setIsRewriteMode(false); // Reset rewrite mode after submission
   };
 
-  // Update the rewrite button in the understanding-preview message
-  // Change the button to call handleRewriteSubmit instead
 
-  // Handle preview confirmation (user says "Yes, that's right")
-  const handlePreviewConfirmation = async (contract: MeaningContract) => {
-    addMessage(
-      "user",
-      <div className="flex items-center gap-2">
-        <Check size={16} className="text-green-600" />
-        <span className="font-medium">Yes, that's right</span>
-      </div>,
-      "selection",
-    );
-
-    await simulateTyping(800);
-    await triggerStoryGeneration(contract);
-  };
 
   // Trigger Story Generation with Meaning Contract
   const triggerStoryGeneration = async (contract: MeaningContract) => {
@@ -2227,360 +2165,356 @@ export default function Create() {
     }
   };
 
-  const renderInputSection = () => {
-    if (isGenerating) return null;
+const renderInputSection = () => {
+  if (isGenerating) return null;
 
-    switch (currentStep) {
-      case "entry":
-        return (
-          <div className="p-4 fixed bottom-0 left-[27%] right-0">
-            <div className="space-y-4">
-              <div className="relative">
+  switch (currentStep) {
+    case "entry":
+      return (
+        <div className="p-4 fixed bottom-0 left-[27%] right-0">
+          <div className="space-y-4">
+            <div className="relative">
+              <textarea
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (userInput.trim() && userInput.trim().length >= 3) {
+                      if (isRewriteMode) {
+                        handleRewriteSubmit();
+                      } else {
+                        handleEntrySubmit();
+                      }
+                    }
+                  }
+                }}
+                placeholder={
+                  isRewriteMode
+                    ? "Rewrite your message here..."
+                    : "Describe your moment in your own words..."
+                }
+                className="w-[80%] h-32 p-4 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+              <button
+                onClick={() => {
+                  if (isRewriteMode) {
+                    handleRewriteSubmit();
+                  } else {
+                    handleEntrySubmit();
+                  }
+                }}
+                disabled={!userInput.trim() || userInput.trim().length < 3}
+                className="absolute right-56 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                title={isRewriteMode ? "Send rewrite" : "Share my moment"}
+              >
+                <Send size={18} />
+              </button>
+            </div>
+            {isRewriteMode && (
+              <p className="text-sm text-gray-500 pl-4">
+                I'll generate a story based on your rewrite, even if I'm not completely sure.
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    case "clarification":
+      return (
+        <div className="p-4 border-t">
+          <div className="space-y-4">
+            <div className="mb-3">
+              <p className="text-sm text-gray-600 mb-2">
+                {clarification?.hypothesis}
+              </p>
+              <p className="text-sm text-gray-500 italic">
+                {clarification?.correctionInvitation}
+              </p>
+            </div>
+
+            <div className="relative">
+              <textarea
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (userInput.trim()) {
+                      handleEntrySubmit(userInput);
+                      setOriginalUserInput(userInput);
+                    }
+                  }
+                }}
+                placeholder="Type your clarification here..."
+                className="w-full h-24 p-3 pr-12 pb-12 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+              <button
+                onClick={() => handleEntrySubmit(userInput)}
+                disabled={!userInput.trim()}
+                className="absolute right-3 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                title="Submit clarification"
+              >
+                <Send size={18} />
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+
+    // Removed "understanding-preview" case since we're triggering story generation directly
+
+    case "story-purpose":
+      return (
+        <div className="p-4">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="relative flex-1">
                 <textarea
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
+                  value={userPurpose}
+                  onChange={(e) => setUserPurpose(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      if (userInput.trim() && userInput.trim().length >= 3) {
-                        if (isRewriteMode) {
-                          handleRewriteSubmit();
-                        } else {
-                          handleEntrySubmit();
-                        }
+                      if (
+                        userPurpose.trim() &&
+                        userPurpose.trim().length >= 3
+                      ) {
+                        handleStoryPurpose(userPurpose);
                       }
                     }
                   }}
-                  placeholder={
-                    isRewriteMode
-                      ? "Rewrite your message here..."
-                      : "Describe your moment in your own words..."
-                  }
-                  className="w-[80%] h-32 p-4 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Describe your purpose... (e.g., 'Turn this into a brand post', 'This is for Instagram', 'Make it more formal for LinkedIn', etc.)"
+                  className="w-full h-24 p-3 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
+                <button
+                  onClick={() => handleStoryPurpose(userPurpose)}
+                  disabled={
+                    !userPurpose.trim() || userPurpose.trim().length < 3
+                  }
+                  className="absolute right-3 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  title="Adapt story"
+                >
+                  <Sparkles size={18} />
+                </button>
+              </div>
+              <div>
                 <button
                   onClick={() => {
-                    if (isRewriteMode) {
-                      handleRewriteSubmit();
-                    } else {
-                      handleEntrySubmit();
-                    }
+                    setCurrentStep("story-generated");
+                    addMessage(
+                      "system",
+                      <div className="text-gray-600">
+                        You can continue with the story as is.
+                      </div>,
+                      "response",
+                    );
                   }}
-                  disabled={!userInput.trim() || userInput.trim().length < 3}
-                  className="absolute right-56 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  title={isRewriteMode ? "Send rewrite" : "Share my moment"}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 whitespace-nowrap self-start"
                 >
-                  <Send size={18} />
+                  Skip
                 </button>
               </div>
-              {isRewriteMode && (
-                <p className="text-sm text-gray-500 pl-4">
-                  I'll generate a story based on your rewrite, even if I'm not
-                  completely sure.
-                </p>
-              )}
             </div>
           </div>
-        );
-      case "clarification":
-        return (
-          <div className="p-4 border-t">
-            <div className="space-y-4">
-              <div className="mb-3">
-                <p className="text-sm text-gray-600 mb-2">
-                  {clarification?.hypothesis}
-                </p>
-                <p className="text-sm text-gray-500 italic">
-                  {clarification?.correctionInvitation}
-                </p>
-              </div>
+        </div>
+      );
 
-              <div className="relative">
-                <textarea
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
+    case "brand-details":
+      return (
+        <div className="p-4">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={brandName}
+                  onChange={(e) => setBrandName(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if (e.key === "Enter") {
                       e.preventDefault();
-                      if (userInput.trim()) {
-                        handleEntrySubmit(userInput);
-                        setOriginalUserInput(userInput);
+                      if (brandName.trim()) {
+                        adaptStoryWithBrand(userPurpose);
                       }
                     }
                   }}
-                  placeholder="Type your clarification here..."
-                  className="w-full h-24 p-3 pr-12 pb-12 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Enter your brand name..."
+                  className="w-full h-[100px] p-3 pr-12 border border-gray-300 rounded-3xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
                 <button
-                  onClick={() => handleEntrySubmit(userInput)}
-                  disabled={!userInput.trim()}
-                  className="absolute right-3 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  title="Submit clarification"
-                >
-                  <Send size={18} />
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "understanding-preview":
-        // This is handled in the message flow, not in input section
-        return null;
-
-      case "story-purpose":
-        return (
-          <div className="p-4">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1">
-                  <textarea
-                    value={userPurpose}
-                    onChange={(e) => setUserPurpose(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        if (
-                          userPurpose.trim() &&
-                          userPurpose.trim().length >= 3
-                        ) {
-                          handleStoryPurpose(userPurpose);
-                        }
-                      }
-                    }}
-                    placeholder="Describe your purpose... (e.g., 'Turn this into a brand post', 'This is for Instagram', 'Make it more formal for LinkedIn', etc.)"
-                    className="w-full h-24 p-3 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                  <button
-                    onClick={() => handleStoryPurpose(userPurpose)}
-                    disabled={
-                      !userPurpose.trim() || userPurpose.trim().length < 3
-                    }
-                    className="absolute right-3 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                    title="Adapt story"
-                  >
-                    <Sparkles size={18} />
-                  </button>
-                </div>
-                <div>
-                  <button
-                    onClick={() => {
-                      setCurrentStep("story-generated");
+                  onClick={async () => {
+                    if (!brandName.trim()) {
                       addMessage(
                         "system",
-                        <div className="text-gray-600">
-                          You can continue with the story as is.
+                        <div className="text-amber-600">
+                          Please enter a brand name to continue.
                         </div>,
                         "response",
                       );
-                    }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 whitespace-nowrap self-start"
-                  >
-                    Skip
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "brand-details":
-        return (
-          <div className="p-4">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    value={brandName}
-                    onChange={(e) => setBrandName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        if (brandName.trim()) {
-                          adaptStoryWithBrand(userPurpose);
-                        }
-                      }
-                    }}
-                    placeholder="Enter your brand name..."
-                    className="w-full h-[100px] p-3 pr-12 border border-gray-300 rounded-3xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                  <button
-                    onClick={async () => {
-                      if (!brandName.trim()) {
-                        addMessage(
-                          "system",
-                          <div className="text-amber-600">
-                            Please enter a brand name to continue.
-                          </div>,
-                          "response",
-                        );
-                        return;
-                      }
-                      await adaptStoryWithBrand(userPurpose);
-                    }}
-                    disabled={!brandName.trim()}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                    title="Continue with brand"
-                  >
-                    <svg
-                      className="w-4 h-4"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 5l7 7-7 7"
-                      />
-                    </svg>
-                  </button>
-                </div>
-                <div>
-                  <button
-                    onClick={async () => {
-                      await adaptStoryWithoutBrand(userPurpose);
-                    }}
-                    className="px-4 h-fit py-2 border border-gray-300 rounded-lg hover:bg-gray-50 whitespace-nowrap"
-                  >
-                    Skip
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "story-generated":
-        return (
-          <div className="p-4 ">
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-3">
-                <button
-                  onClick={() => handleVideoOption()}
-                  className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                      return;
+                    }
+                    await adaptStoryWithBrand(userPurpose);
+                  }}
+                  disabled={!brandName.trim()}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  title="Continue with brand"
                 >
-                  <VideoIcon size={18} />
-                  Generate Video Script
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
                 </button>
               </div>
-              <button
-                onClick={() => {
-                  if (!story?.story) return;
-                  const blob = new Blob([story.story], {
-                    type: "text/plain",
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `story-${Date.now()}.txt`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-
-                  addMessage(
-                    "system",
-                    <div className="text-green-600">
-                      ✓ Story exported as text file.
-                    </div>,
-                    "response",
-                  );
-                }}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Export Story as Text
-              </button>
-            </div>
-          </div>
-        );
-
-      case "images":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="space-y-4">
-              <button
-                onClick={handleGenerateImages}
-                disabled={isGenerating}
-                className="w-full px-6 py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
-              >
-                <ImageIcon size={24} />
-                {isGenerating ? "Generating..." : "Generate All Images"}
-              </button>
-              <p className="text-sm text-gray-500 text-center">
-                Creates visuals for all {story?.beatSheet.length || "story"}{" "}
-                scenes
-              </p>
-            </div>
-          </div>
-        );
-
-      case "images-complete":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600">
-                Your images are ready! What would you like to do next?
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
                 <button
-                  onClick={() => setCurrentStep("video-option")}
-                  className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+                  onClick={async () => {
+                    await adaptStoryWithoutBrand(userPurpose);
+                  }}
+                  className="px-4 h-fit py-2 border border-gray-300 rounded-lg hover:bg-gray-50 whitespace-nowrap"
                 >
-                  <VideoIcon size={18} />
-                  Create Video Script
-                </button>
-                <button
-                  onClick={() => setCurrentStep("export")}
-                  className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                >
-                  <Download size={18} />
-                  Export Package
+                  Skip
                 </button>
               </div>
-              <button
-                onClick={() => openImageModal(0)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                View Image Gallery Again
-              </button>
             </div>
           </div>
-        );
+        </div>
+      );
 
-      case "video-option":
-        return (
-          <div className="p-4 border-t bg-white">
-            <div className="space-y-4">
+    case "story-generated":
+      return (
+        <div className="p-4 ">
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3">
               <button
-                onClick={handleGenerateVideoScript}
-                disabled={isGenerating}
-                className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
+                onClick={() => handleVideoOption()}
+                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
               >
-                <VideoIcon size={24} />
-                {isGenerating ? "Creating..." : "Generate Video Script"}
+                <VideoIcon size={18} />
+                Generate Video Script
               </button>
             </div>
-          </div>
-        );
-
-      case "export":
-        return (
-          <div className="p-4 border-t bg-white">
             <button
-              onClick={handleExport}
-              className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg flex items-center justify-center gap-3 text-lg font-medium"
+              onClick={() => {
+                if (!story?.story) return;
+                const blob = new Blob([story.story], {
+                  type: "text/plain",
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `story-${Date.now()}.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                addMessage(
+                  "system",
+                  <div className="text-green-600">
+                    ✓ Story exported as text file.
+                  </div>,
+                  "response",
+                );
+              }}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
             >
-              <Share2 size={24} />
-              Export Your Story
+              Export Story as Text
             </button>
           </div>
-        );
+        </div>
+      );
 
-      default:
-        return null;
-    }
-  };
+    case "images":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-4">
+            <button
+              onClick={handleGenerateImages}
+              disabled={isGenerating}
+              className="w-full px-6 py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
+            >
+              <ImageIcon size={24} />
+              {isGenerating ? "Generating..." : "Generate All Images"}
+            </button>
+            <p className="text-sm text-gray-500 text-center">
+              Creates visuals for all {story?.beatSheet.length || "story"} scenes
+            </p>
+          </div>
+        </div>
+      );
+
+    case "images-complete":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Your images are ready! What would you like to do next?
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <button
+                onClick={() => setCurrentStep("video-option")}
+                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <VideoIcon size={18} />
+                Create Video Script
+              </button>
+              <button
+                onClick={() => setCurrentStep("export")}
+                className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <Download size={18} />
+                Export Package
+              </button>
+            </div>
+            <button
+              onClick={() => openImageModal(0)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              View Image Gallery Again
+            </button>
+          </div>
+        </div>
+      );
+
+    case "video-option":
+      return (
+        <div className="p-4 border-t bg-white">
+          <div className="space-y-4">
+            <button
+              onClick={handleGenerateVideoScript}
+              disabled={isGenerating}
+              className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-3 text-lg font-medium"
+            >
+              <VideoIcon size={24} />
+              {isGenerating ? "Creating..." : "Generate Video Script"}
+            </button>
+          </div>
+        </div>
+      );
+
+    case "export":
+      return (
+        <div className="p-4 border-t bg-white">
+          <button
+            onClick={handleExport}
+            className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg flex items-center justify-center gap-3 text-lg font-medium"
+          >
+            <Share2 size={24} />
+            Export Your Story
+          </button>
+        </div>
+      );
+
+    default:
+      return null;
+  }
+};
 
   const imageGalleryData =
     story?.beatSheet
