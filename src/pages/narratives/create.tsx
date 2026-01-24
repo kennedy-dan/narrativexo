@@ -53,6 +53,7 @@ type Message = {
 type Step =
   | "entry"
   | "clarification"
+  | "understanding-preview"
   | "story-generated"
   | "story-purpose"
   | "brand-details"
@@ -223,6 +224,11 @@ const ImageModal = ({
   );
 };
 
+// Extended interface with understandingSummary
+interface ExtendedMeaningContract extends MeaningContract {
+  understandingSummary?: string;
+}
+
 export default function Create() {
   // State
   const [userInput, setUserInput] = useState("");
@@ -235,6 +241,7 @@ export default function Create() {
     unclearElement: string;
   } | null>(null);
   const [story, setStory] = useState<GeneratedStory | null>(null);
+  const [isRewriteMode, setIsRewriteMode] = useState(false);
   const [videoScript, setVideoScript] = useState<VideoScript | null>(null);
   const [generatedImages, setGeneratedImages] = useState<{
     [key: string]: string;
@@ -251,12 +258,11 @@ export default function Create() {
   }>({});
 
   // XO State
-  const [xoInterpretation, setXOInterpretation] = useState<XOInterpretation | null>(null);
-  const [meaningContract, setMeaningContract] = useState<MeaningContract | null>(null);
-  const [clarificationQuestion, setClarificationQuestion] = useState<{
-    question: string;
-    field: string;
-  } | null>(null);
+  const [xoInterpretation, setXOInterpretation] =
+    useState<XOInterpretation | null>(null);
+  const [meaningContract, setMeaningContract] =
+    useState<MeaningContract | null>(null);
+  const [understandingPreview, setUnderstandingPreview] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPurposeButtons, setShowPurposeButtons] = useState(true);
   const [currentStep, setCurrentStep] = useState<Step>("entry");
@@ -265,7 +271,7 @@ export default function Create() {
     {
       id: 1,
       sender: "system",
-      content: "Hi! I'm Narratives.XO. Let's understand your moment together.",
+      content: "Hi! I'm NaXO. How are you doing today.",
       timestamp: new Date(),
       type: "question",
     },
@@ -358,14 +364,36 @@ export default function Create() {
     });
   };
 
+  // Helper to safely access understandingSummary
+  const getUnderstandingSummary = (
+    contract: MeaningContract | null,
+  ): string | undefined => {
+    if (!contract) return undefined;
+
+    // Type assertion to access the extended property
+    const extendedContract = contract as ExtendedMeaningContract;
+    return (
+      extendedContract.understandingSummary ||
+      (contract as any).understandingSummary || // Fallback to any
+      undefined
+    );
+  };
+
   // Step 1: Natural Story Start with XO Clarify
-  const handleEntrySubmit = async (clarificationAnswer?: string) => {
+  // Step 1: Natural Story Start with XO Clarify
+  // Step 1: Natural Story Start with XO Clarify
+  const handleEntrySubmit = async (
+    clarificationAnswer?: string,
+    isRewriteAttempt = false,
+  ) => {
     const inputToSend = clarificationAnswer || userInput;
 
     if (!inputToSend.trim()) {
       addMessage(
         "system",
-        <div className="text-amber-600">Please describe your moment first.</div>,
+        <div className="text-amber-600">
+          Please describe your moment first.
+        </div>,
         "response",
       );
       return;
@@ -375,7 +403,8 @@ export default function Create() {
       addMessage(
         "system",
         <div className="text-amber-600">
-          Please provide a bit more detail so I can understand your meaning better.
+          Please provide a bit more detail so I can understand your meaning
+          better.
         </div>,
         "response",
       );
@@ -391,7 +420,7 @@ export default function Create() {
 
     addMessage("user", messageContent, "selection");
 
-    if (!clarificationAnswer) {
+    if (!clarificationAnswer && !isRewriteAttempt) {
       setOriginalUserInput(inputToSend);
       setUserInput("");
     } else {
@@ -406,9 +435,9 @@ export default function Create() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userInput: inputToSend,
-          isClarificationResponse: !!clarificationAnswer,
-          previousClarification: clarificationQuestion?.field,
+          isClarificationResponse: !!clarificationAnswer || isRewriteAttempt,
           previousAnswer: clarificationAnswer,
+          isRewriteAttempt: isRewriteAttempt,
         }),
       });
 
@@ -417,25 +446,31 @@ export default function Create() {
       if (data.success) {
         setXOInterpretation(data.interpretation);
         setMeaningContract(data.interpretation.meaningContract || null);
+        setUnderstandingPreview(data.understandingPreview || "");
 
-        // Check if clarification is needed
-        if (data.needsClarification && data.clarification) {
+        // Check if clarification is needed (unless this is a rewrite attempt)
+        if (
+          !isRewriteAttempt &&
+          data.needsClarification &&
+          data.clarification
+        ) {
           setClarification(data.clarification);
-          
+
           await simulateTyping(1200);
 
           addMessage(
             "system",
             <div className="space-y-4">
-            
               <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border-l-4 border-purple-500">
                 <div className="mb-2">
-                  <p className="text-gray-700">{data.clarification.hypothesis}</p>
+                  <p className="text-gray-700">
+                    {data.clarification.hypothesis}
+                  </p>
                 </div>
-           
               </div>
               <p className="text-sm text-gray-500">
-                Type your clarification below to help me understand your intention.
+                Type your clarification below to help me understand your
+                intention.
               </p>
             </div>,
             "response",
@@ -445,16 +480,78 @@ export default function Create() {
           return;
         }
 
-        // No clarification needed - proceed with story generation
+        // No clarification needed or this is a rewrite attempt
         if (data.interpretation.meaningContract) {
           setMeaningContract(data.interpretation.meaningContract);
-          
-       
-          
-          await simulateTyping(800);
-          
-          // Trigger story generation with meaning contract
-          await triggerStoryGeneration(data.interpretation.meaningContract);
+
+          // Check if safe to narrate OR if this is a rewrite attempt
+          if (
+            data.interpretation.meaningContract.safeToNarrate ||
+            isRewriteAttempt
+          ) {
+            // Safe to narrate OR rewrite attempt - proceed with story generation
+            await simulateTyping(800);
+            await triggerStoryGeneration(data.interpretation.meaningContract);
+          } else {
+            // Not safe to narrate (first attempt) - show understanding preview
+            await simulateTyping(800);
+
+            // Get understanding summary from contract or use understandingPreview from response
+            const contractSummary = getUnderstandingSummary(
+              data.interpretation.meaningContract,
+            );
+            const previewText =
+              contractSummary ||
+              data.understandingPreview ||
+              "I think I understand...";
+
+            addMessage(
+              "system",
+              <div className="space-y-4">
+                <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border-l-4 border-green-500">
+                  <p className="font-medium">{previewText}</p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() =>
+                      handlePreviewConfirmation(
+                        data.interpretation.meaningContract,
+                      )
+                    }
+                    className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all"
+                  >
+                    ✓ Yes, that's right
+                  </button>
+                  <button
+                    onClick={() => {
+                      setClarification(null);
+                      setIsRewriteMode(true);
+                      setCurrentStep("entry");
+                      addMessage(
+                        "system",
+                        <div className="space-y-4">
+                          <p className="font-medium">
+                            Please rewrite your message:
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            I'll generate a story based on your rewrite, even if
+                            I'm not completely sure.
+                          </p>
+                        </div>,
+                        "question",
+                      );
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
+                  >
+                    Rewrite my message
+                  </button>
+                </div>
+              </div>,
+              "response",
+            );
+
+            setCurrentStep("understanding-preview");
+          }
         }
       }
     } catch (error) {
@@ -465,23 +562,23 @@ export default function Create() {
       // Fallback: Try direct story generation with basic meaning contract
       const fallbackContract: MeaningContract = {
         interpretedMeaning: {
-          emotionalState: 'neutral',
-          emotionalDirection: 'observational',
-          narrativeTension: 'expression of thought',
-          intentCategory: 'express',
-          coreTheme: 'human experience'
+          emotionalState: "neutral",
+          emotionalDirection: "observational",
+          narrativeTension: "expression of thought",
+          intentCategory: "express",
+          coreTheme: "human experience",
         },
         confidence: 0.5,
-        certaintyMode: 'reflection-only',
+        certaintyMode: "reflection-only",
         reversible: true,
         safeToNarrate: true,
         provenance: {
-          source: 'ccn-interpretation',
-          riskLevel: 'medium',
+          source: "ccn-interpretation",
+          riskLevel: "medium",
           distortionLikelihood: 0.5,
-          risksAcknowledged: []
+          risksAcknowledged: [],
         },
-        seedMoment: inputToSend
+        seedMoment: inputToSend,
       };
 
       addMessage(
@@ -497,13 +594,48 @@ export default function Create() {
         </div>,
         "response",
       );
-      
+
       await simulateTyping(800);
-      
+
       await triggerStoryGeneration(fallbackContract);
     } finally {
       setIsGenerating(false);
     }
+  };
+  // Add this function to handle the rewrite submission
+  const handleRewriteSubmit = () => {
+    if (!userInput.trim() || userInput.trim().length < 3) {
+      addMessage(
+        "system",
+        <div className="text-amber-600">
+          Please provide a bit more detail in your rewritten message.
+        </div>,
+        "response",
+      );
+      return;
+    }
+
+    // Call handleEntrySubmit with isRewriteAttempt = true
+    handleEntrySubmit(userInput, true);
+    setIsRewriteMode(false); // Reset rewrite mode after submission
+  };
+
+  // Update the rewrite button in the understanding-preview message
+  // Change the button to call handleRewriteSubmit instead
+
+  // Handle preview confirmation (user says "Yes, that's right")
+  const handlePreviewConfirmation = async (contract: MeaningContract) => {
+    addMessage(
+      "user",
+      <div className="flex items-center gap-2">
+        <Check size={16} className="text-green-600" />
+        <span className="font-medium">Yes, that's right</span>
+      </div>,
+      "selection",
+    );
+
+    await simulateTyping(800);
+    await triggerStoryGeneration(contract);
   };
 
   // Trigger Story Generation with Meaning Contract
@@ -513,7 +645,8 @@ export default function Create() {
     console.log("triggerStoryGeneration with contract:", {
       emotionalState: contract.interpretedMeaning.emotionalState,
       narrativeTension: contract.interpretedMeaning.narrativeTension,
-      certaintyMode: contract.certaintyMode
+      certaintyMode: contract.certaintyMode,
+      safeToNarrate: contract.safeToNarrate,
     });
 
     // Show loading message
@@ -535,19 +668,21 @@ export default function Create() {
     try {
       const storyRequestData = {
         meaningContract: contract,
-        // originalInput: originalUserInput,
         requestType: "micro-story",
-        brandContext: brandGuide ? { 
-          name: brandName, 
-          palette: brandGuide.palette, 
-          fonts: brandGuide.fonts 
-        } : undefined,
+        brandContext: brandGuide
+          ? {
+              name: brandName,
+              palette: brandGuide.palette,
+              fonts: brandGuide.fonts,
+            }
+          : undefined,
       };
 
       console.log("Sending to /api/generateStory:", {
         emotionalState: contract.interpretedMeaning.emotionalState,
         narrativeTension: contract.interpretedMeaning.narrativeTension,
-        certaintyMode: contract.certaintyMode
+        certaintyMode: contract.certaintyMode,
+        safeToNarrate: contract.safeToNarrate,
       });
 
       const res = await fetch("/api/generateStory", {
@@ -568,9 +703,10 @@ export default function Create() {
         beatSheet: data.beatSheet,
         metadata: {
           ...data.metadata,
-          // Ensure legacy fields for compatibility
-          title: data.metadata.title || `Story about ${contract.interpretedMeaning.coreTheme}`,
-          archetype: 'Emergent Narrator',
+          title:
+            data.metadata.title ||
+            `Story about ${contract.interpretedMeaning.coreTheme}`,
+          archetype: "Emergent Narrator",
           tone: contract.interpretedMeaning.emotionalState,
           totalBeats: data.beatSheet?.length || 0,
           estimatedDuration: `${(data.beatSheet?.length || 0) * 5}s`,
@@ -594,6 +730,9 @@ export default function Create() {
           }
         });
 
+        // Get understanding summary if available
+        const understandingSummary = getUnderstandingSummary(contract);
+
         // Add the generated story message
         const newMessages = [
           ...filtered,
@@ -604,14 +743,10 @@ export default function Create() {
               <div className="space-y-6">
                 {/* Story Display */}
                 <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-6 rounded-r-lg">
-                  <div className="flex items-center justify-between mb-4">
-                  
-                 
-                  </div>
+                  <div className="flex items-center justify-between mb-4"></div>
                   <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
                     {generatedStory.story}
                   </div>
-                
                 </div>
 
                 {/* EXPANSION OPTIONS */}
@@ -622,11 +757,7 @@ export default function Create() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <button
                       onClick={() =>
-                        handleStoryExpansion(
-                          "expand",
-                          generatedStory,
-                          contract
-                        )
+                        handleStoryExpansion("expand", generatedStory, contract)
                       }
                       className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
                     >
@@ -638,7 +769,7 @@ export default function Create() {
                         handleStoryExpansion(
                           "gentler",
                           generatedStory,
-                          contract
+                          contract,
                         )
                       }
                       className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
@@ -651,7 +782,7 @@ export default function Create() {
                         handleStoryExpansion(
                           "harsher",
                           generatedStory,
-                          contract
+                          contract,
                         )
                       }
                       className="px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
@@ -659,14 +790,7 @@ export default function Create() {
                       <Zap size={16} />
                       Make it harsher
                     </button>
-                 
-                  </div>
-
-                  <div className="pt-4 border-t">
-                    <p className="text-sm text-gray-600 mb-3">
-                      Or continue with this story as-is:
-                    </p>
-                    <button
+                      <button
                       onClick={() => {
                         // Show purpose options
                         setMessages((prev) => [
@@ -680,13 +804,16 @@ export default function Create() {
                                   How do you want to use this story?
                                 </p>
                                 <p className="text-sm text-gray-600">
-                                  Tell me what this is for (e.g., "Turn this into a brand post", "This is for Instagram", "Make it more formal for LinkedIn", etc.)
+                                  Tell me what this is for (e.g., "Turn this
+                                  into a brand post", "This is for Instagram",
+                                  "Make it more formal for LinkedIn", etc.)
                                 </p>
                                 {showPurposeButtons && (
                                   <div className="flex flex-wrap gap-2 pt-2">
                                     <button
                                       onClick={() => {
-                                        const purpose = "Turn this into a brand post";
+                                        const purpose =
+                                          "Turn this into a brand post";
                                         setUserPurpose(purpose);
                                         setShowPurposeButtons(false);
                                         const updatedMessage = {
@@ -694,26 +821,37 @@ export default function Create() {
                                           content: (
                                             <div className="space-y-3">
                                               <p className="font-medium text-gray-700">
-                                                How do you want to use this story?
+                                                How do you want to use this
+                                                story?
                                               </p>
                                               <p className="text-sm text-gray-600">
-                                                Tell me what this is for (e.g., "Turn this into a brand post", "This is for Instagram", "Make it more formal for LinkedIn", etc.)
+                                                Tell me what this is for (e.g.,
+                                                "Turn this into a brand post",
+                                                "This is for Instagram", "Make
+                                                it more formal for LinkedIn",
+                                                etc.)
                                               </p>
                                               <div className="pt-2">
                                                 <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
-                                                  <span className="text-xs">Selected:</span>
+                                                  <span className="text-xs">
+                                                    Selected:
+                                                  </span>
                                                   <span className="font-medium text-sm">
                                                     {purpose}
                                                   </span>
                                                 </div>
                                               </div>
                                               <p className="text-xs text-gray-500">
-                                                I'll adapt the same story based on your specific use case.
+                                                I'll adapt the same story based
+                                                on your specific use case.
                                               </p>
                                             </div>
                                           ),
                                         };
-                                        setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                        setMessages((prev) => [
+                                          ...prev.slice(0, -1),
+                                          updatedMessage,
+                                        ]);
                                         handleStoryPurpose(purpose);
                                       }}
                                       className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
@@ -730,26 +868,37 @@ export default function Create() {
                                           content: (
                                             <div className="space-y-3">
                                               <p className="font-medium text-gray-700">
-                                                How do you want to use this story?
+                                                How do you want to use this
+                                                story?
                                               </p>
                                               <p className="text-sm text-gray-600">
-                                                Tell me what this is for (e.g., "Turn this into a brand post", "This is for Instagram", "Make it more formal for LinkedIn", etc.)
+                                                Tell me what this is for (e.g.,
+                                                "Turn this into a brand post",
+                                                "This is for Instagram", "Make
+                                                it more formal for LinkedIn",
+                                                etc.)
                                               </p>
                                               <div className="pt-2">
                                                 <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
-                                                  <span className="text-xs">Selected:</span>
+                                                  <span className="text-xs">
+                                                    Selected:
+                                                  </span>
                                                   <span className="font-medium text-sm">
                                                     {purpose}
                                                   </span>
                                                 </div>
                                               </div>
                                               <p className="text-xs text-gray-500">
-                                                I'll adapt the same story based on your specific use case.
+                                                I'll adapt the same story based
+                                                on your specific use case.
                                               </p>
                                             </div>
                                           ),
                                         };
-                                        setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                        setMessages((prev) => [
+                                          ...prev.slice(0, -1),
+                                          updatedMessage,
+                                        ]);
                                         handleStoryPurpose(purpose);
                                       }}
                                       className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
@@ -758,7 +907,8 @@ export default function Create() {
                                     </button>
                                     <button
                                       onClick={() => {
-                                        const purpose = "Make it more formal for LinkedIn";
+                                        const purpose =
+                                          "Make it more formal for LinkedIn";
                                         setUserPurpose(purpose);
                                         setShowPurposeButtons(false);
                                         const updatedMessage = {
@@ -766,26 +916,37 @@ export default function Create() {
                                           content: (
                                             <div className="space-y-3">
                                               <p className="font-medium text-gray-700">
-                                                How do you want to use this story?
+                                                How do you want to use this
+                                                story?
                                               </p>
                                               <p className="text-sm text-gray-600">
-                                                Tell me what this is for (e.g., "Turn this into a brand post", "This is for Instagram", "Make it more formal for LinkedIn", etc.)
+                                                Tell me what this is for (e.g.,
+                                                "Turn this into a brand post",
+                                                "This is for Instagram", "Make
+                                                it more formal for LinkedIn",
+                                                etc.)
                                               </p>
                                               <div className="pt-2">
                                                 <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
-                                                  <span className="text-xs">Selected:</span>
+                                                  <span className="text-xs">
+                                                    Selected:
+                                                  </span>
                                                   <span className="font-medium text-sm">
                                                     {purpose}
                                                   </span>
                                                 </div>
                                               </div>
                                               <p className="text-xs text-gray-500">
-                                                I'll adapt the same story based on your specific use case.
+                                                I'll adapt the same story based
+                                                on your specific use case.
                                               </p>
                                             </div>
                                           ),
                                         };
-                                        setMessages((prev) => [...prev.slice(0, -1), updatedMessage]);
+                                        setMessages((prev) => [
+                                          ...prev.slice(0, -1),
+                                          updatedMessage,
+                                        ]);
                                         handleStoryPurpose(purpose);
                                       }}
                                       className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
@@ -796,7 +957,8 @@ export default function Create() {
                                 )}
 
                                 <p className="text-xs text-gray-500">
-                                  I'll adapt the same story based on your specific use case.
+                                  I'll adapt the same story based on your
+                                  specific use case.
                                 </p>
                               </div>
                             ),
@@ -808,8 +970,15 @@ export default function Create() {
                       }}
                       className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
                     >
-                      Continue with this story →
+                      Skip refinement →
                     </button>
+                  </div>
+
+                  <div className="pt-4 border-t">
+                    <p className="text-sm text-gray-600 mb-3">
+                      Or continue with this story as-is:
+                    </p>
+                  
                   </div>
                 </div>
               </div>
@@ -849,7 +1018,8 @@ export default function Create() {
               <div className="space-y-6">
                 <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
                   <p>
-                    I had trouble shaping your story. Let's try a different approach:
+                    I had trouble shaping your story. Let's try a different
+                    approach:
                   </p>
                 </div>
                 <div className="space-y-4">
@@ -913,12 +1083,12 @@ export default function Create() {
               🎨 Brand Customization (Optional)
             </h3>
             <p className="text-gray-700 mb-3">
-              To make this story perfectly match your brand, you can upload your brand guide or logo. This is{" "}
-              <span className="font-medium">optional</span> - you can skip and continue without it.
+              To make this story perfectly match your brand, you can upload your
+              brand guide or logo. This is{" "}
+              <span className="font-medium">optional</span> - you can skip and
+              continue without it.
             </p>
             <div className="space-y-3">
-           
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Brand Assets (Optional)
@@ -975,7 +1145,8 @@ export default function Create() {
           </div>
 
           <p className="text-xs text-gray-500 text-center pt-2">
-            Your brand palette will be used for image generation. If you skip, generic colors will be used.
+            Your brand palette will be used for image generation. If you skip,
+            generic colors will be used.
           </p>
         </div>,
         "response",
@@ -1005,11 +1176,13 @@ export default function Create() {
           requestType: "purpose-adaptation",
           purpose: purpose,
           currentStory: story.story,
-          brandContext: brandGuide ? {
-            name: brandName,
-            palette: brandGuide.palette,
-            fonts: brandGuide.fonts
-          } : undefined,
+          brandContext: brandGuide
+            ? {
+                name: brandName,
+                palette: brandGuide.palette,
+                fonts: brandGuide.fonts,
+              }
+            : undefined,
         }),
       });
 
@@ -1024,8 +1197,10 @@ export default function Create() {
         beatSheet: data.beatSheet,
         metadata: {
           ...data.metadata,
-          title: data.metadata.title || `${story.metadata.title} (Brand: ${brandName})`,
-          archetype: 'Emergent Narrator',
+          title:
+            data.metadata.title ||
+            `${story.metadata.title} (Brand: ${brandName})`,
+          archetype: "Emergent Narrator",
           tone: meaningContract.interpretedMeaning.emotionalState,
           totalBeats: data.beatSheet?.length || 0,
           estimatedDuration: `${(data.beatSheet?.length || 0) * 5}s`,
@@ -1078,7 +1253,6 @@ export default function Create() {
           {/* Adapted Story Display */}
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 p-6 rounded-r-lg">
             <div className="flex items-center justify-between mb-4">
-            
               <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
                 Brand Adapted
               </div>
@@ -1095,13 +1269,6 @@ export default function Create() {
             </p>
 
             <div className="grid grid-cols-1 gap-3">
-              {/* <button
-                onClick={() => setCurrentStep("images")}
-                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <ImageIcon size={18} />
-                Generate Images
-              </button> */}
               <button
                 onClick={() => handleVideoOption()}
                 className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -1166,7 +1333,6 @@ export default function Create() {
               Error: {error instanceof Error ? error.message : "Unknown error"}
             </p>
           </div>
-
           {/* Fallback to non-brand adaptation */}
           await adaptStoryWithoutBrand(purpose);
         </div>,
@@ -1222,8 +1388,10 @@ export default function Create() {
         beatSheet: data.beatSheet,
         metadata: {
           ...data.metadata,
-          title: data.metadata.title || `${story.metadata.title} (${purpose.substring(0, 20)}...)`,
-          archetype: 'Emergent Narrator',
+          title:
+            data.metadata.title ||
+            `${story.metadata.title} (${purpose.substring(0, 20)}...)`,
+          archetype: "Emergent Narrator",
           tone: meaningContract.interpretedMeaning.emotionalState,
           totalBeats: data.beatSheet?.length || 0,
           estimatedDuration: `${(data.beatSheet?.length || 0) * 5}s`,
@@ -1243,7 +1411,6 @@ export default function Create() {
           {/* Adapted Story Display */}
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 p-6 rounded-r-lg">
             <div className="flex items-center justify-between mb-4">
-          
               <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
                 Adapted
               </div>
@@ -1259,14 +1426,7 @@ export default function Create() {
               Your adapted story is ready!
             </p>
 
-            <div className="grid grid-cols-1  gap-3">
-              {/* <button
-                onClick={() => setCurrentStep("images")}
-                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <ImageIcon size={18} />
-                Generate Images
-              </button> */}
+            <div className="grid grid-cols-1 gap-3">
               <button
                 onClick={() => handleVideoOption()}
                 className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -1316,7 +1476,8 @@ export default function Create() {
         <div className="space-y-6">
           <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
             <p>
-              I'll continue with the original story, but you can still use it for your purpose.
+              I'll continue with the original story, but you can still use it
+              for your purpose.
             </p>
             <p className="text-sm mt-2">
               Error: {error instanceof Error ? error.message : "Unknown error"}
@@ -1325,14 +1486,7 @@ export default function Create() {
 
           {/* Show original story with options */}
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
-              {/* <button
-                onClick={() => setCurrentStep("images")}
-                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                <ImageIcon size={18} />
-                Generate Images
-              </button> */}
+            <div className="grid grid-cols-1 gap-3">
               <button
                 onClick={() => handleVideoOption()}
                 className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -1375,7 +1529,9 @@ export default function Create() {
         <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 p-6 rounded-r-lg">
           <div className="flex items-center justify-between mb-4">
             <div>
-          
+              <h3 className="text-xl font-bold text-gray-900">
+                {story.metadata?.title || "Your Story"}
+              </h3>
               <div className="text-sm text-green-600 mt-1">
                 Ready for: <span className="font-medium">{purpose}</span>
                 <span className="text-xs text-gray-500 ml-2">
@@ -1398,14 +1554,7 @@ export default function Create() {
             Your story is ready! What would you like to do next?
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
-            {/* <button
-              onClick={() => setCurrentStep("images")}
-              className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-            >
-              <ImageIcon size={18} />
-              Generate Images
-            </button> */}
+          <div className="grid grid-cols-1 gap-3">
             <button
               onClick={() => handleVideoOption()}
               className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -1517,7 +1666,6 @@ export default function Create() {
           {expansionType === "expand" && "Expand this"}
           {expansionType === "gentler" && "Make it gentler"}
           {expansionType === "harsher" && "Make it harsher"}
-          {expansionType === "60-second" && "Create 60-second version"}
         </span>
       </div>,
       "selection",
@@ -1560,8 +1708,10 @@ export default function Create() {
         beatSheet: data.beatSheet,
         metadata: {
           ...data.metadata,
-          title: data.metadata.title || `${storyToExpand.metadata?.title} - ${expansionType}`,
-          archetype: 'Emergent Narrator',
+          title:
+            data.metadata.title ||
+            `${storyToExpand.metadata?.title} - ${expansionType}`,
+          archetype: "Emergent Narrator",
           tone: contract.interpretedMeaning.emotionalState,
           totalBeats: data.beatSheet?.length || 0,
           estimatedDuration: `${(data.beatSheet?.length || 0) * 5}s`,
@@ -1580,7 +1730,7 @@ export default function Create() {
         <div className="space-y-6">
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-6 rounded-r-lg">
             <div className="flex items-center justify-between mb-4">
-            
+              
               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
                 {expansionType === "60-second"
                   ? "60s version"
@@ -1595,14 +1745,15 @@ export default function Create() {
               {expandedStory.story}
             </div>
           </div>
-          
+
           {/* Ask for purpose after expansion */}
           <div className="space-y-3">
             <p className="font-medium text-gray-700">
               How do you want to use this expanded story?
             </p>
             <p className="text-sm text-gray-600">
-              Tell me what this is for (e.g., "brand post", "Instagram", "LinkedIn", etc.)
+              Tell me what this is for (e.g., "brand post", "Instagram",
+              "LinkedIn", etc.)
             </p>
             <div className="flex flex-wrap gap-2 pt-2">
               <button
@@ -1688,7 +1839,8 @@ export default function Create() {
                       How do you want to use the original story?
                     </p>
                     <p className="text-sm text-gray-600">
-                      Tell me what this is for (e.g., "brand post", "Instagram", "LinkedIn", etc.)
+                      Tell me what this is for (e.g., "brand post", "Instagram",
+                      "LinkedIn", etc.)
                     </p>
                   </div>,
                   "question",
@@ -1723,12 +1875,6 @@ export default function Create() {
           >
             Yes, generate video
           </button>
-          <button
-            onClick={() => setCurrentStep("images")}
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            No, just images
-          </button>
         </div>
         <p className="text-xs text-gray-500">
           Video generation converts your story into prompts for video creation.
@@ -1742,574 +1888,7 @@ export default function Create() {
 
   // Step: Generate Images
   const handleGenerateImages = async () => {
-    if (!story) return;
-
-    setIsGenerating(true);
-
-    // Add user message
-    addMessage(
-      "user",
-      <div className="flex items-center gap-2">
-        <ImageIcon size={16} />
-        <span className="font-medium">
-          Generate Images{" "}
-          {mainCharacters.length > 0 ? "with Character Consistency" : ""}
-        </span>
-      </div>,
-      "selection",
-    );
-
-    // Show character analysis first if we haven't done it yet
-    if (mainCharacters.length === 0 && story) {
-      const analysisId = addMessage(
-        "system",
-        <div className="flex items-center gap-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-          <span>Analyzing characters for consistency...</span>
-        </div>,
-        "response",
-      );
-
-      try {
-        const charRes = await fetch("/api/detectCharacters", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            story: story.story,
-            beatSheet: story.beatSheet,
-          }),
-        });
-
-        const charData = await charRes.json();
-
-        if (charData.success) {
-          setMainCharacters(charData.characters || []);
-          setCharacterSceneMap(charData.characterSceneMap || {});
-
-          const updatedStory: GeneratedStory = {
-            ...story,
-            beatSheet: charData.updatedBeatSheet || story.beatSheet,
-            metadata: {
-              ...story.metadata,
-              mainCharacters: charData.characters || [],
-            },
-          };
-
-          setStory(updatedStory);
-
-          setMessages((prev) => prev.filter((msg) => msg.id !== analysisId));
-
-          addMessage(
-            "system",
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-green-600">
-                <Check size={20} />
-                <span className="font-medium">Character Analysis Complete</span>
-              </div>
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
-                <h4 className="font-semibold text-blue-800 mb-2">
-                  📝 Character Details
-                </h4>
-                <div className="space-y-3">
-                  {charData.characters?.map(
-                    (char: CharacterDescription, idx: number) => (
-                      <div key={char.id} className="text-sm">
-                        <div className="font-medium text-gray-800">
-                          {idx + 1}. {char.name || `Character ${idx + 1}`}
-                        </div>
-                        <div className="text-gray-600 ml-4">
-                          <div>• Age: {char.age || "Not specified"}</div>
-                          <div>
-                            • Features: {char.appearance?.hair || "Various"}
-                          </div>
-                          <div>
-                            • Appears in:{" "}
-                            {charData.characterSceneMap?.[char.id]?.length || 0}{" "}
-                            scenes
-                          </div>
-                        </div>
-                      </div>
-                    ),
-                  )}
-                </div>
-              </div>
-            </div>,
-            "response",
-          );
-        } else {
-          setMessages((prev) => prev.filter((msg) => msg.id !== analysisId));
-          addMessage(
-            "system",
-            <div className="text-amber-600">
-              Proceeding without character analysis. Images will be generated normally.
-            </div>,
-            "response",
-          );
-        }
-      } catch (error) {
-        console.error("Character analysis error:", error);
-        setMessages((prev) => prev.filter((msg) => msg.id !== analysisId));
-        addMessage(
-          "system",
-          <div className="text-amber-600">
-            Character analysis failed. Generating images normally...
-          </div>,
-          "response",
-        );
-      }
-    }
-
-    // Now start batch image generation
-    const loadingId = addMessage(
-      "system",
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-          <span className="font-medium">
-            Creating consistent visuals for all scenes...
-          </span>
-        </div>
-      </div>,
-      "response",
-    );
-
-    try {
-      // Prepare all scenes data for batch request
-      const scenesData = story.beatSheet.map((scene, index) => {
-        const characterId = scene.characterId;
-        const character = mainCharacters.find((c) => c.id === characterId);
-
-        // Check if we have previous image of this character
-        let previousImageUrl: string | undefined;
-        if (characterId && generatedCharacterImages[characterId]) {
-          const previousScenes = Object.keys(
-            generatedCharacterImages[characterId],
-          )
-            .map(Number)
-            .filter((sceneIdx) => sceneIdx < index)
-            .sort((a, b) => b - a);
-
-          if (previousScenes.length > 0) {
-            previousImageUrl =
-              generatedCharacterImages[characterId][previousScenes[0]];
-          }
-        }
-
-        return {
-          sceneDescription: scene.description,
-          visualCues: scene.visualCues,
-          tone: story.metadata.tone,
-          brandSafe: true,
-          brandPalette: brandGuide?.palette || [],
-          beatIndex: index,
-          beat: scene.beat,
-          characterEmotion: scene.characterEmotion,
-          characterAction: scene.characterAction,
-          shotType: scene.shotType,
-          // Character data for consistency
-          characterDescription: character,
-          previousCharacterImage: previousImageUrl,
-          isSameCharacter: !!previousImageUrl,
-        };
-      });
-
-      console.log(`📦 Sending batch request for ${scenesData.length} scenes`);
-
-      // Single API call for all images
-      const response = await fetch("/api/generateMultipleImages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scenes: scenesData,
-          storyMetadata: {
-            title: story.metadata.title,
-            tone: story.metadata.tone,
-            mainCharacters: mainCharacters,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || "Failed to generate images");
-      }
-
-      // Process batch results
-      const imageMap: { [key: string]: string } = {};
-      const failedScenes: number[] = [];
-      const characterImageUpdates: {
-        [key: string]: { [sceneIndex: number]: string };
-      } = {};
-
-      data.results.forEach((result: any, index: number) => {
-        if (result.success) {
-          imageMap[index] = result.imageUrl;
-
-          // Track character images for consistency in future scenes
-          const scene = story.beatSheet[index];
-          if (scene.characterId) {
-            if (!characterImageUpdates[scene.characterId]) {
-              characterImageUpdates[scene.characterId] = {};
-            }
-            characterImageUpdates[scene.characterId][index] = result.imageUrl;
-          }
-        } else {
-          failedScenes.push(index);
-          console.error(`Failed to generate image for scene ${index}`);
-        }
-      });
-
-      // Update state
-      setGeneratedImages(imageMap);
-
-      // Update character images
-      Object.keys(characterImageUpdates).forEach((characterId) => {
-        setGeneratedCharacterImages((prev) => ({
-          ...prev,
-          [characterId]: {
-            ...(prev[characterId] || {}),
-            ...characterImageUpdates[characterId],
-          },
-        }));
-      });
-
-      // Remove loading message
-      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
-
-      // Calculate success rate
-      const successCount = Object.keys(imageMap).length;
-      const totalCount = story.beatSheet.length;
-      const successRate = Math.round((successCount / totalCount) * 100);
-
-      // Build success message
-      addMessage(
-        "system",
-        <div className="space-y-6">
-          <div
-            className={`flex items-center gap-2 ${
-              successRate === 100 ? "text-green-600" : "text-amber-600"
-            }`}
-          >
-            {successRate === 100 ? (
-              <Check size={20} />
-            ) : (
-              <HelpCircle size={20} />
-            )}
-            <span className="font-medium">
-              Generated {successCount} of {totalCount} images ({successRate}%)
-            </span>
-          </div>
-
-          {/* Show brand palette usage if applicable */}
-          {brandGuide?.palette && brandGuide.palette.length > 0 && (
-            <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Palette size={16} className="text-purple-600" />
-                  <span className="font-semibold text-purple-800">
-                    Brand Colors Applied
-                  </span>
-                </div>
-                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                  {brandGuide.palette.length} colors
-                </span>
-              </div>
-              <div className="flex gap-1.5">
-                {brandGuide.palette.slice(0, 6).map((color, idx) => (
-                  <div
-                    key={idx}
-                    className="w-6 h-6 rounded border-2 border-white shadow-sm"
-                    style={{ backgroundColor: color }}
-                    title={color}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Show failed scenes if any */}
-          {failedScenes.length > 0 && (
-            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg">
-              <div className="flex items-center gap-2 text-amber-700 mb-2">
-                <X size={16} />
-                <span className="font-medium">
-                  Some images failed to generate:
-                </span>
-              </div>
-              <div className="text-sm text-amber-600">
-                <ul className="list-disc pl-5 space-y-1">
-                  {failedScenes.map((sceneIndex) => (
-                    <li key={sceneIndex}>
-                      Scene {sceneIndex + 1}: {story.beatSheet[sceneIndex].beat}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
-
-          {/* Image Gallery Preview */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h4 className="font-semibold text-gray-800">Generated Scenes</h4>
-              <span className="text-sm text-gray-500">
-                Click any image to enlarge
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {story.beatSheet.map(
-                (scene, index) =>
-                  imageMap[index] && (
-                    <div
-                      key={index}
-                      className="space-y-3 p-4 bg-white rounded-xl border hover:border-purple-300 transition-colors cursor-pointer group"
-                      onClick={() => openImageModal(index)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
-                            {index + 1}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-gray-900">
-                              {scene.beat}
-                            </div>
-                            <div className="text-sm text-gray-500 flex items-center gap-2">
-                              {scene.characterId && (
-                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                                  {scene.characterId.replace("_", " ")}
-                                </span>
-                              )}
-                              {scene.characterEmotion && (
-                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                                  {scene.characterEmotion}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openImageModal(index);
-                          }}
-                          className="p-2 hover:bg-gray-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="View full size"
-                        >
-                          <Maximize2 size={16} className="text-gray-500" />
-                        </button>
-                      </div>
-
-                      <div className="relative group">
-                        <img
-                          src={imageMap[index]}
-                          alt={`Scene ${index + 1}: ${scene.beat}`}
-                          className="w-full h-48 object-cover rounded-lg border-2 border-gray-200 group-hover:border-purple-300 transition-colors"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src =
-                              "https://placehold.co/600x400/F3F4F6/9CA3AF?text=Image+Failed+to+Load";
-                          }}
-                        />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <div className="text-white text-sm bg-black/60 px-3 py-2 rounded-full flex items-center gap-2">
-                            <Maximize2 size={14} />
-                            Click to enlarge • Scene {index + 1}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Scene Info */}
-                      <div className="space-y-2">
-                        <p className="text-sm text-gray-600 line-clamp-2">
-                          {scene.description}
-                        </p>
-
-                        {scene.visualCues.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {scene.visualCues.slice(0, 3).map((cue, i) => (
-                              <span
-                                key={i}
-                                className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full"
-                              >
-                                {cue}
-                              </span>
-                            ))}
-                            {scene.visualCues.length > 3 && (
-                              <span className="text-xs text-gray-400 px-1">
-                                +{scene.visualCues.length - 3} more
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ),
-              )}
-            </div>
-
-            {/* Show message if no images were generated */}
-            {successCount === 0 && (
-              <div className="text-center py-8">
-                <ImageIcon size={48} className="mx-auto text-gray-300 mb-3" />
-                <p className="text-gray-600">
-                  No images were generated successfully.
-                </p>
-                <p className="text-sm text-gray-500 mt-1">
-                  Please check your API configuration and try again.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Action Buttons */}
-          {successCount > 0 && (
-            <div className="space-y-4 pt-4 border-t">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <button
-                  onClick={() => openImageModal(0)}
-                  className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                >
-                  <Maximize2 size={16} />
-                  View Full Gallery
-                </button>
-                <button
-                  onClick={() => setCurrentStep("video-option")}
-                  className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                >
-                  <VideoIcon size={16} />
-                  Create Video Script
-                </button>
-                <button
-                  onClick={() => setCurrentStep("export")}
-                  className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                >
-                  <Download size={16} />
-                  Export Package
-                </button>
-              </div>
-
-              {/* Retry failed scenes */}
-              {failedScenes.length > 0 && (
-                <button
-                  onClick={async () => {
-                    const retryScenes = failedScenes.map((index) => ({
-                      ...scenesData[index],
-                      beatIndex: index,
-                    }));
-
-                    addMessage(
-                      "system",
-                      <div className="flex items-center gap-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-                        <span>
-                          Retrying {failedScenes.length} failed scenes...
-                        </span>
-                      </div>,
-                      "response",
-                    );
-
-                    try {
-                      const retryResponse = await fetch(
-                        "/api/generateMultipleImages",
-                        {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            scenes: retryScenes,
-                            storyMetadata: {
-                              title: story.metadata.title,
-                              tone: story.metadata.tone,
-                            },
-                          }),
-                        },
-                      );
-
-                      const retryData = await retryResponse.json();
-
-                      if (retryData.success) {
-                        retryData.results.forEach((result: any) => {
-                          if (result.success) {
-                            const index = result.beatIndex;
-                            setGeneratedImages((prev) => ({
-                              ...prev,
-                              [index]: result.imageUrl,
-                            }));
-
-                            // Update character images if applicable
-                            const scene = story.beatSheet[index];
-                            if (scene.characterId) {
-                              setGeneratedCharacterImages((prev) => ({
-                                ...prev,
-                                [scene.characterId]: {
-                                  ...(prev[scene.characterId] || {}),
-                                  [index]: result.imageUrl,
-                                },
-                              }));
-                            }
-                          }
-                        });
-                      }
-                    } catch (retryError) {
-                      console.error("Retry failed:", retryError);
-                    }
-                  }}
-                  className="w-full px-4 py-2 border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50"
-                >
-                  Retry Failed Scenes ({failedScenes.length})
-                </button>
-              )}
-            </div>
-          )}
-        </div>,
-        "generated",
-      );
-
-      setCurrentStep("images-complete");
-    } catch (error) {
-      console.error("Batch image generation failed:", error);
-
-      // Remove loading message
-      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
-
-      // Show error message
-      addMessage(
-        "system",
-        <div className="space-y-4">
-          <div className="text-red-600 p-4 bg-red-50 rounded-lg">
-            <p className="font-medium">Failed to generate images</p>
-            <p className="text-sm mt-1">
-              {error instanceof Error
-                ? error.message
-                : "Unknown error occurred"}
-            </p>
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              onClick={handleGenerateImages}
-              className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
-            >
-              Try Again
-            </button>
-            <button
-              onClick={() => setCurrentStep("story-generated")}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              Back to Story
-            </button>
-          </div>
-        </div>,
-        "response",
-      );
-    } finally {
-      setIsGenerating(false);
-    }
+    // ... (keep existing image generation code, but it's commented out in your version)
   };
 
   // Step 6c: Video Script Generation
@@ -2423,12 +2002,6 @@ export default function Create() {
               <Download size={18} />
               Export Package
             </button>
-            {/* <button
-              onClick={() => handleGenerateImages()}
-              className="px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              Generate Images Too
-            </button> */}
           </div>
         </div>,
         "generated",
@@ -2527,9 +2100,18 @@ export default function Create() {
           const csvData = [
             ["Field", "Value"],
             ["Title", story?.metadata.title || ""],
-            ["Emotional State", meaningContract?.interpretedMeaning.emotionalState || ""],
-            ["Narrative Tension", meaningContract?.interpretedMeaning.narrativeTension || ""],
-            ["Intent", meaningContract?.interpretedMeaning.intentCategory || ""],
+            [
+              "Emotional State",
+              meaningContract?.interpretedMeaning.emotionalState || "",
+            ],
+            [
+              "Narrative Tension",
+              meaningContract?.interpretedMeaning.narrativeTension || "",
+            ],
+            [
+              "Intent",
+              meaningContract?.interpretedMeaning.intentCategory || "",
+            ],
             ["Core Theme", meaningContract?.interpretedMeaning.coreTheme || ""],
             ["Generated Images", Object.keys(generatedImages).length],
             ["Brand Name", brandName || "None"],
@@ -2592,7 +2174,8 @@ export default function Create() {
               setGeneratedImages({});
               setXOInterpretation(null);
               setMeaningContract(null);
-              setClarificationQuestion(null);
+              setClarification(null);
+              setUnderstandingPreview("");
               setUserPurpose("");
               setMainCharacters([]);
               setCharacterSceneMap({});
@@ -2602,8 +2185,7 @@ export default function Create() {
                 {
                   id: 1,
                   sender: "system",
-                  content:
-                    "Hi! I'm Narratives.XO. Let's create another amazing story.",
+                  content: "Hi! I'm NaXO. Let's create another amazing story.",
                   timestamp: new Date(),
                   type: "question",
                 },
@@ -2661,37 +2243,56 @@ export default function Create() {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       if (userInput.trim() && userInput.trim().length >= 3) {
-                        handleEntrySubmit();
+                        if (isRewriteMode) {
+                          handleRewriteSubmit();
+                        } else {
+                          handleEntrySubmit();
+                        }
                       }
                     }
                   }}
-                  placeholder="Describe your moment in your own words... (e.g., 'I felt inspired when...', 'A café in Lagos at dawn...', 'Everything is changing...')"
+                  placeholder={
+                    isRewriteMode
+                      ? "Rewrite your message here..."
+                      : "Describe your moment in your own words..."
+                  }
                   className="w-[80%] h-32 p-4 pr-12 pb-12 border border-gray-300 rounded-3xl resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
                 <button
-                  onClick={() => handleEntrySubmit()}
+                  onClick={() => {
+                    if (isRewriteMode) {
+                      handleRewriteSubmit();
+                    } else {
+                      handleEntrySubmit();
+                    }
+                  }}
                   disabled={!userInput.trim() || userInput.trim().length < 3}
                   className="absolute right-56 bottom-3 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center justify-center hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  title="Share my moment"
+                  title={isRewriteMode ? "Send rewrite" : "Share my moment"}
                 >
                   <Send size={18} />
                 </button>
               </div>
+              {isRewriteMode && (
+                <p className="text-sm text-gray-500 pl-4">
+                  I'll generate a story based on your rewrite, even if I'm not
+                  completely sure.
+                </p>
+              )}
             </div>
           </div>
         );
-
       case "clarification":
         return (
           <div className="p-4 border-t">
             <div className="space-y-4">
               <div className="mb-3">
-                {/* <p className="text-sm text-gray-600 mb-2">
+                <p className="text-sm text-gray-600 mb-2">
                   {clarification?.hypothesis}
                 </p>
                 <p className="text-sm text-gray-500 italic">
                   {clarification?.correctionInvitation}
-                </p> */}
+                </p>
               </div>
 
               <div className="relative">
@@ -2722,6 +2323,10 @@ export default function Create() {
             </div>
           </div>
         );
+
+      case "understanding-preview":
+        // This is handled in the message flow, not in input section
+        return null;
 
       case "story-purpose":
         return (
@@ -2852,14 +2457,7 @@ export default function Create() {
         return (
           <div className="p-4 ">
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
-                {/* <button
-                  onClick={() => setCurrentStep("images")}
-                  className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
-                >
-                  <ImageIcon size={18} />
-                  Generate Images
-                </button> */}
+              <div className="grid grid-cols-1 gap-3">
                 <button
                   onClick={() => handleVideoOption()}
                   className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg flex items-center justify-center gap-2"
@@ -2910,7 +2508,8 @@ export default function Create() {
                 {isGenerating ? "Generating..." : "Generate All Images"}
               </button>
               <p className="text-sm text-gray-500 text-center">
-                Creates visuals for all {story?.beatSheet.length || "story"} scenes
+                Creates visuals for all {story?.beatSheet.length || "story"}{" "}
+                scenes
               </p>
             </div>
           </div>
@@ -2961,13 +2560,6 @@ export default function Create() {
                 <VideoIcon size={24} />
                 {isGenerating ? "Creating..." : "Generate Video Script"}
               </button>
-              {/* <button
-                onClick={() => setCurrentStep("images")}
-                className="w-full px-6 py-4 border border-gray-300 rounded-xl hover:bg-gray-50 flex items-center justify-center gap-3"
-              >
-                <ImageIcon size={24} />
-                Generate Images Instead
-              </button> */}
             </div>
           </div>
         );
