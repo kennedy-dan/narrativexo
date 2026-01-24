@@ -300,6 +300,8 @@ export interface GenerateStoryResponse {
     brandName?: string;
     // Format tracking
     template?: string;
+    lineCount?: number;
+    hasRepetition?: boolean;
   };
 }
 

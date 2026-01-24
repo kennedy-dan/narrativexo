@@ -652,7 +652,7 @@ const handleEntrySubmit = async (
       };
 
       setStory(generatedStory);
-      await detectCharacters(generatedStory);
+      // await detectCharacters(generatedStory);
 
       // Remove the loading message
       setMessages((prev) => {
@@ -2531,7 +2531,7 @@ const renderInputSection = () => {
         <div className="h-screen  bg-[#FAF9F6] flex flex-col">
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto p-4">
-            <div className="max-w-3xl mx-auto space-y-6">
+            <div className="max-w-5xl mx-auto space-y-6">
               {messages.map((message) => (
                 <div
                   key={message.id}
