@@ -1,11 +1,19 @@
 // /types/index.ts
 // ============================================================================
-// NARRATIVES.XO - MEANING-FIRST TYPES
-// XO Doctrine: Interpret meaning, don't impose constraints
+// XO NARRATIVE ENGINE TYPES
 // ============================================================================
 
-// Entry Pathways (observation points, not constraints)
-export type EntryPathway = 'assumption' | 'audience' | 'constraints' | 'function';
+// XO Micro-Story Types
+export interface MicroStoryBeat {
+  lines: string[];
+  type?: 'lived-moment' | 'progression' | 'meaning' | 'brand';
+}
+
+export interface MicroStory {
+  beats: MicroStoryBeat[];
+  market?: 'GLOBAL' | 'NG' | 'UK';
+  hasBrand?: boolean;
+}
 
 // Meaning Risk Types
 export type MeaningRisk = 
@@ -15,7 +23,9 @@ export type MeaningRisk =
   | 'tension-overlook'
   | 'literal-vs-metaphor'
   | 'irony-missed'
-  | 'positive-negative-ambiguity';
+  | 'positive-negative-ambiguity'
+  | 'insufficient-context'
+  | 'possible-gibberish';
 
 export interface MeaningRiskAssessment {
   risks: MeaningRisk[];
@@ -26,7 +36,7 @@ export interface MeaningRiskAssessment {
   hypothesis?: string;
 }
 
-// THE MEANING CONTRACT - Explicit semantic payload
+// THE MEANING CONTRACT - Enhanced with market context
 export interface MeaningContract {
   interpretedMeaning: {
     emotionalState: 'positive' | 'negative' | 'neutral' | 'layered' | 'complex' | 'ambiguous';
@@ -36,10 +46,22 @@ export interface MeaningContract {
     coreTheme: string;
   };
   
+  // NEW: Market context for XO
+  marketContext?: {
+    market: 'GLOBAL' | 'NG' | 'UK';
+    language: string;
+    register: 'formal' | 'casual' | 'colloquial';
+  };
+  
+  // NEW: Entry path detection
+  entryPath?: 'emotion' | 'scene' | 'seed' | 'audience';
+  
   confidence: number;
   certaintyMode: 'tentative-commit' | 'reflection-only' | 'clarification-needed';
   reversible: boolean;
   safeToNarrate: boolean;
+  
+  understandingSummary?: string;
   
   provenance: {
     source: 'ccn-interpretation';
@@ -51,7 +73,7 @@ export interface MeaningContract {
   seedMoment: string;
 }
 
-// XO Interpretation (new system)
+// XO Interpretation
 export interface XOInterpretation {
   coreTension: string;
   emotionalWeight: string;
@@ -73,6 +95,57 @@ export interface XOInterpretation {
   meaningContract?: MeaningContract;
 }
 
+// XO API Response Types
+export interface XOGenerateRequest {
+  userInput?: string;
+  market?: 'GLOBAL' | 'NG' | 'UK';
+  brand?: string;
+  meaningContract?: MeaningContract;
+  requestType?: 'micro-story' | 'expansion' | 'purpose-adaptation' | 'refinement';
+  purpose?: string;
+  currentStory?: string; // JSON stringified MicroStory or story text
+  refinement?: 'expand' | 'gentler' | 'harsher';
+  brandContext?: {
+    name?: string;
+    palette?: string[];
+    fonts?: string[];
+  };
+  skipBrand?: boolean;
+}
+
+export interface XOGenerateResponse {
+  success: boolean;
+  story: string;
+  beatSheet: Array<{
+    beat: string;
+    description: string;
+    visualCues: string[];
+    emotion?: string;
+    characterAction?: string;
+  }>;
+  metadata: {
+    emotionalState: string;
+    narrativeTension: string;
+    intentCategory: string;
+    coreTheme: string;
+    wordCount: number;
+    isBrandStory?: boolean;
+    brandName?: string;
+    brandPalette?: string[];
+    brandFonts?: string[];
+    template: string;
+    lineCount: number;
+    market?: 'GLOBAL' | 'NG' | 'UK';
+    totalBeats?: number;
+    estimatedDuration?: string;
+    title?: string;
+    archetype?: string;
+    tone?: string;
+  };
+  microStory?: MicroStory;
+  error?: string;
+}
+
 export interface XOCCNResponse {
   success: boolean;
   interpretation: XOInterpretation;
@@ -83,14 +156,14 @@ export interface XOCCNResponse {
     unclearElement: string;
   };
   understandingPreview: string;
+  understandingSummary?: string;
   error?: string;
 }
 
 // ============================================================================
-// LEGACY TYPES (for backward compatibility - mark as deprecated)
+// LEGACY TYPES (for backward compatibility)
 // ============================================================================
 
-/** @deprecated Use MeaningContract instead */
 export interface SemanticExtraction {
   pathway: "assumption-first" | "constraint-first" | "audience-first" | "function-first";
   baselineStance: string;
@@ -113,7 +186,6 @@ export interface SemanticExtraction {
   rawAnalysis?: string;
 }
 
-/** @deprecated Use XOInterpretation instead */
 export interface CCNInterpretationRevised {
   pathway: "assumption-first" | "constraint-first" | "audience-first" | "function-first";
   baselineStance: string;
@@ -146,7 +218,6 @@ export interface CCNInterpretationRevised {
   };
 }
 
-/** @deprecated Use XOCCNResponse instead */
 export interface CCNResponseRevised {
   success: boolean;
   interpretation: CCNInterpretationRevised;
@@ -159,12 +230,12 @@ export interface CCNResponseRevised {
 }
 
 // ============================================================================
-// SHARED TYPES (unchanged)
+// SHARED TYPES
 // ============================================================================
 
 export interface CCNInput {
   userInput: string;
-  entryPathway?: EntryPathway;
+  entryPathway?: 'emotion' | 'scene' | 'seed' | 'audience';
 }
 
 export interface CharacterDescription {
@@ -225,6 +296,18 @@ export interface GeneratedStory {
     productCategory?: string;
     appliedConstraints?: string[];
     enforcedProhibitions?: string[];
+    // XO Enhanced metadata
+    emotionalState?: string;
+    narrativeTension?: string;
+    intentCategory?: string;
+    coreTheme?: string;
+    wordCount?: number;
+    brandName?: string;
+    brandPalette?: string[];
+    brandFonts?: string[];
+    template?: string;
+    lineCount?: number;
+    market?: 'GLOBAL' | 'NG' | 'UK';
   };
 }
 
@@ -260,6 +343,9 @@ export interface GenerateImageRequest {
   previousCharacterImage?: string;
   characterConsistencySeed?: number;
   isSameCharacter?: boolean;
+  // XO Enhanced fields
+  microStoryBeat?: MicroStoryBeat;
+  market?: 'GLOBAL' | 'NG' | 'UK';
 }
 
 export interface GenerateImageResponse {
@@ -270,42 +356,7 @@ export interface GenerateImageResponse {
   beatIndex?: number;
 }
 
-// NEW: Story generation using Meaning Contract
-export interface GenerateStoryRequest {
-  meaningContract: MeaningContract;
-  originalInput?: string;
-  currentStory?: string;
-  requestType?: 'micro-story' | 'expansion' | 'purpose-adaptation';
-  purpose?: string;
-  brandContext?: {
-    name?: string;
-    palette?: string[];
-    fonts?: string[];
-  };
-  skipBrand?: boolean;
-}
-
-export interface GenerateStoryResponse {
-  success: boolean;
-  story: string;
-  beatSheet: Scene[];
-  metadata: {
-    emotionalState: string;
-    narrativeTension: string;
-    intentCategory: string;
-    coreTheme: string;
-    wordCount: number;
-    // Brand context - applied AFTER meaning
-    isBrandStory?: boolean;
-    brandName?: string;
-    // Format tracking
-    template?: string;
-    lineCount?: number;
-    hasRepetition?: boolean;
-  };
-}
-
-// Legacy story generation (deprecated)
+// Legacy story generation (kept for compatibility)
 export interface LegacyGenerateStoryRequest {
   semanticExtraction: SemanticExtraction;
   brand?: {
@@ -351,7 +402,7 @@ export interface GenerateVideoScriptResponse {
 
 export type UserMode = 'creator' | 'agency' | 'brand';
 
-// CCN Data for state management (updated for new system)
+// CCN Data for state management
 export type CCNData = {
   // Meaning-based fields
   emotionalWeight: string;
@@ -376,3 +427,24 @@ export type CCNData = {
   scene?: string;
   rawAnalysis?: string;
 };
+
+// ============================================================================
+// XO REFERENCE MICRO-STORY TYPES
+// ============================================================================
+
+export interface ReferenceMicroStory {
+  id: string;
+  market: 'GLOBAL' | 'NG' | 'UK';
+  hasBrand: boolean;
+  entryPath: 'emotion' | 'scene' | 'seed' | 'audience';
+  description: string;
+  beats: string[];
+  whyItPasses: string[];
+  commonFailureItAvoids: string[];
+  tags: string[];
+}
+
+export interface ReferenceMicroStoryPack {
+  version: string;
+  stories: ReferenceMicroStory[];
+}

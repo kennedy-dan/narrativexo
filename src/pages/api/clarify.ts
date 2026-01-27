@@ -1,13 +1,14 @@
 // /api/clarify/index.ts
 import { NextApiRequest, NextApiResponse } from 'next';
 import OpenAI from 'openai';
+// import { XOInterpretation, MeaningContract, MeaningRisk } from '@/types';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
 // ============================================================================
-// EXPLICIT MEANING CONTRACT TYPES
+// ENHANCED MEANING CONTRACT WITH MARKET CONTEXT
 // ============================================================================
 
 export type MeaningRisk = 
@@ -30,7 +31,7 @@ export interface MeaningRiskAssessment {
   hypothesis?: string;
 }
 
-// THE MEANING CONTRACT - Explicit semantic payload
+// ENHANCED MEANING CONTRACT with market context
 export interface MeaningContract {
   // Interpreted meaning (when we commit)
   interpretedMeaning: {
@@ -40,6 +41,16 @@ export interface MeaningContract {
     intentCategory: 'share' | 'inquire' | 'emphasize' | 'reflect' | 'process' | 'express' | 'connect';
     coreTheme: string;
   };
+  
+  // Market context for XO
+  marketContext?: {
+    market: 'GLOBAL' | 'NG' | 'UK';
+    language: string;
+    register: 'formal' | 'casual' | 'colloquial';
+  };
+  
+  // Entry path detection
+  entryPath?: 'emotion' | 'scene' | 'seed' | 'audience';
   
   // Confidence & commitment level
   confidence: number;
@@ -106,20 +117,18 @@ export interface XOCCNResponse {
 }
 
 // ============================================================================
-// HELPER FUNCTIONS FOR AMBIGUITY DETECTION
+// HELPER FUNCTIONS
 // ============================================================================
 
 function calculateGibberishScore(text: string): { score: number; isGibberish: boolean; reason: string } {
   const trimmed = text.trim();
   const words = trimmed.toLowerCase().split(/\s+/);
   
-  // Check for obvious gibberish patterns
   const hasLongConsonantClusters = /([bcdfghjklmnpqrstvwxyz]{4,})/i.test(trimmed);
   const hasRepeatingNonsense = /(.)\1{3,}/i.test(trimmed);
   const hasNumbersInMiddle = /[a-z][0-9]+[a-z]/i.test(trimmed);
   const hasNoVowels = /^[^aeiouy\s]+$/i.test(trimmed.replace(/\s/g, ''));
   
-  // Common words dictionary
   const commonWords = new Set([
     'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
     'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
@@ -132,13 +141,11 @@ function calculateGibberishScore(text: string): { score: number; isGibberish: bo
     'take', 'takes', 'took', 'come', 'comes', 'came', 'go', 'goes', 'went', 'gone'
   ]);
   
-  // English dictionary check (simplified)
   const isLikelyEnglishWord = (word: string): boolean => {
     const cleanWord = word.replace(/[^\w]/g, '').toLowerCase();
     if (commonWords.has(cleanWord)) return true;
     if (cleanWord.length <= 1) return false;
     
-    // Basic English word patterns
     const hasVowel = /[aeiouy]/i.test(cleanWord);
     const hasConsonantVowelMix = /[bcdfghjklmnpqrstvwxyz][aeiouy]|[aeiouy][bcdfghjklmnpqrstvwxyz]/i.test(cleanWord);
     const notTooManyConsonants = !/([bcdfghjklmnpqrstvwxyz]{3,})/.test(cleanWord);
@@ -179,7 +186,6 @@ function calculateGibberishScore(text: string): { score: number; isGibberish: bo
     reason += `Low real-word ratio (${Math.round(realWordRatio * 100)}%), `;
   }
   
-  // Single "word" that's clearly not English
   if (words.length === 1 && !isLikelyEnglishWord(words[0]) && words[0].length > 3) {
     score += 0.4;
     reason += 'Single non-English word, ';
@@ -187,11 +193,10 @@ function calculateGibberishScore(text: string): { score: number; isGibberish: bo
   
   score = Math.min(score, 1);
   
-  // Determine if it's likely gibberish
   const isGibberish = score > 0.6 || (words.length === 1 && score > 0.4);
   
   if (reason) {
-    reason = reason.slice(0, -2); // Remove trailing comma and space
+    reason = reason.slice(0, -2);
   }
   
   return { score, isGibberish, reason: reason || 'looks like normal text' };
@@ -218,23 +223,20 @@ function isCommonWord(word: string): boolean {
 }
 
 function detectInsufficientInformation(text: string, wordCount: number, isGibberish: boolean = false): boolean {
-  if (isGibberish) return false; // Gibberish is a different category
+  if (isGibberish) return false;
   
   if (wordCount <= 2 && !isPunctuationOrQuestion(text)) {
     return true;
   }
   
-  // Just a name or single noun
   if (wordCount === 1 && /^[A-Z][a-z]+$/.test(text) && !isCommonWord(text)) {
     return true;
   }
   
-  // Just an action without context
   if (wordCount <= 3 && /^(going to|coming from|doing|making|taking|got to|have to|make|take)/i.test(text)) {
     return true;
   }
   
-  // Common short phrases that need context
   const shortPhrases = [
     'going out', 'coming in', 'getting up', 'sitting down', 'looking at', 'thinking of',
     'feeling good', 'feeling bad', 'making it', 'taking it', 'got it'
@@ -245,6 +247,42 @@ function detectInsufficientInformation(text: string, wordCount: number, isGibber
   }
   
   return false;
+}
+
+// NEW: Detect entry path from input
+function detectEntryPath(input: string): 'emotion' | 'scene' | 'seed' | 'audience' {
+  const lower = input.toLowerCase();
+  
+  if (/(feel|felt|feeling|emotion|emotional|happy|sad|angry|excited)/.test(lower)) {
+    return 'emotion';
+  }
+  
+  if (/(scene|setting|place|location|room|space|environment|background)/.test(lower)) {
+    return 'scene';
+  }
+  
+  if (/(audience|viewer|reader|people|they|them|everyone|somebody)/.test(lower)) {
+    return 'audience';
+  }
+  
+  return 'seed'; // Default
+}
+
+// NEW: Detect market from input (simple detection)
+function detectMarketFromInput(input: string): 'GLOBAL' | 'NG' | 'UK' {
+  const lower = input.toLowerCase();
+  
+  // Nigerian indicators
+  if (/(nigeria|naija|lagos|abuja|kano|port harcourt|iyanya|wahala|chai|oga|na wa)/.test(lower)) {
+    return 'NG';
+  }
+  
+  // UK indicators
+  if (/(uk|british|england|london|manchester|birmingham|scotland|wales|pint|pub|football|mate)/.test(lower)) {
+    return 'UK';
+  }
+  
+  return 'GLOBAL';
 }
 
 // ============================================================================
@@ -262,7 +300,6 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
   let confidentInterpretation = '';
   let hypothesis: string | undefined;
   
-  // === DETECT GIBBERISH FIRST ===
   const gibberishAnalysis = calculateGibberishScore(trimmed);
   
   if (gibberishAnalysis.isGibberish) {
@@ -283,13 +320,11 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
     return assessment;
   }
   
-  // === DETECT INSUFFICIENT INFORMATION ===
   const isInsufficient = detectInsufficientInformation(trimmed, wordCount, false);
   
   if (isInsufficient) {
     risks.push('insufficient-context');
     
-    // Differentiate between different types of short inputs
     if (wordCount === 1) {
       const word = words[0];
       
@@ -309,7 +344,6 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
     } else if (wordCount === 2) {
       specificDoubt = `short phrase "${trimmed}" without context`;
       
-      // Special handling for common short phrases
       if (trimmed.toLowerCase() === 'going out') {
         hypothesis = '"Going out" could mean physically leaving, socially going out, or something else entirely.';
       } else if (trimmed.toLowerCase() === 'make sense') {
@@ -326,9 +360,7 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
     }
   }
   
-  // === DETECT OTHER RISKS (if not gibberish and not insufficient context) ===
   if (risks.length === 0 && wordCount > 2) {
-    // Emotion ambiguity
     const ambiguousWords = [
       { word: 'heavy', hypothesis: 'I might be reading "heavy" as burden rather than seriousness.' },
       { word: 'light', hypothesis: 'I might be reading "light" as trivial rather than gentle.' },
@@ -346,9 +378,8 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
       }
     }
     
-    // Irony detection
-    if (/(perfect|great|wonderful)\s+(?!day|news|work|job|effort)/i.test(input)) {
-      const match = input.match(/(perfect|great|wonderful)\s+\w+/i);
+    if (/(perfect|great|wonderful)\s+(?!day|news|work|job|effort)/i.test(trimmed)) {
+      const match = trimmed.match(/(perfect|great|wonderful)\s+\w+/i);
       if (match) {
         risks.push('irony-missed');
         specificDoubt = 'possible irony or sarcasm';
@@ -356,27 +387,24 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
       }
     }
     
-    // Positive-negative ambiguity
-    const hasPositive = /(good|great|nice|positive|better)/i.test(input);
-    const hasNegative = /(bad|hard|difficult|negative|worse)/i.test(input);
-    const hasBut = /\s+but\s+/i.test(input);
+    const hasPositive = /(good|great|nice|positive|better)/i.test(trimmed);
+    const hasNegative = /(bad|hard|difficult|negative|worse)/i.test(trimmed);
+    const hasBut = /\s+but\s+/i.test(trimmed);
     
-    if (hasPositive && hasNegative && !hasBut && input.length > 10) {
+    if (hasPositive && hasNegative && !hasBut && trimmed.length > 10) {
       risks.push('positive-negative-ambiguity');
       specificDoubt = 'mixed positive and negative signals';
       hypothesis = 'I might be misreading the overall emotional direction.';
     }
     
-    // Metaphor detection
-    const metaphorMatch = input.match(/(heart|mind|wave|storm|weight|light)\s+(of|in|on|for)/i);
-    if (metaphorMatch && input.length < 40) {
+    const metaphorMatch = trimmed.match(/(heart|mind|wave|storm|weight|light)\s+(of|in|on|for)/i);
+    if (metaphorMatch && trimmed.length < 40) {
       risks.push('literal-vs-metaphor');
       specificDoubt = 'possible figurative language';
       hypothesis = `I might be taking "${metaphorMatch[0]}" too literally.`;
     }
     
-    // Tension detection
-    const contrastMatch = input.match(/(but|however|although|yet|though)\s+/i);
+    const contrastMatch = trimmed.match(/(but|however|although|yet|though)\s+/i);
     if (contrastMatch && !confidentInterpretation.includes('positive') && !confidentInterpretation.includes('negative')) {
       risks.push('tension-overlook');
       specificDoubt = 'contrast without clear emotional stance';
@@ -384,15 +412,14 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
     }
   }
   
-  // === CONFIDENT INTERPRETATION ===
   if (!confidentInterpretation) {
-    if (/(happy|joy|excited|proud|love|grateful|delighted)/i.test(input)) {
+    if (/(happy|joy|excited|proud|love|grateful|delighted)/i.test(trimmed)) {
       confidentInterpretation = 'positive emotional tone';
-    } else if (/(sad|hurt|disappointed|angry|frustrated|annoyed|upset)/i.test(input)) {
+    } else if (/(sad|hurt|disappointed|angry|frustrated|annoyed|upset)/i.test(trimmed)) {
       confidentInterpretation = 'negative emotional tone';
-    } else if (/\?$/.test(input)) {
+    } else if (/\?$/.test(trimmed)) {
       confidentInterpretation = 'inquiry intent';
-    } else if (/!$/.test(input)) {
+    } else if (/!$/.test(trimmed)) {
       confidentInterpretation = 'emphatic expression';
     } else {
       if (wordCount <= 3) {
@@ -403,20 +430,16 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
     }
   }
   
-  // === DISTORTION LIKELIHOOD CALCULATION ===
   let distortionLikelihood = 0;
   
   if (risks.length > 0) {
-    // Base distortion based on number and type of risks
     distortionLikelihood = Math.min(0.3 + (risks.length * 0.12), 0.85);
     
-    // Different penalties for different risk types
     if (risks.includes('possible-gibberish')) {
       distortionLikelihood = Math.max(distortionLikelihood, 0.8);
     }
     
     if (risks.includes('insufficient-context')) {
-      // Higher penalty for single words vs short phrases
       if (wordCount === 1) {
         distortionLikelihood += 0.25;
       } else if (wordCount <= 3) {
@@ -428,14 +451,12 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
       distortionLikelihood = Math.max(distortionLikelihood, 0.7);
     }
     
-    // Short inputs with unclear intent get higher distortion
     if (wordCount <= 3 && !isPunctuationOrQuestion(trimmed)) {
       distortionLikelihood += 0.1;
     }
   } else {
-    // NO DETECTED RISKS - but still might be ambiguous if very short
     if (wordCount <= 2 && !isPunctuationOrQuestion(trimmed)) {
-      distortionLikelihood = 0.3; // Lower than gibberish but still present
+      distortionLikelihood = 0.3;
       risks.push('insufficient-context');
       specificDoubt = 'brief statement - may need more context';
       hypothesis = 'This is brief — I may be making assumptions about what you mean.';
@@ -443,7 +464,6 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
     }
   }
   
-  // Ensure distortion likelihood is between 0 and 0.95
   distortionLikelihood = Math.min(Math.max(distortionLikelihood, 0), 0.95);
   
   const riskLevel = distortionLikelihood > 0.7 ? 'high' : 
@@ -472,7 +492,6 @@ function makeMinimalAssumptions(
   
   const wordCount = input.split(/\s+/).length;
   
-  // If it's gibberish, return all unknown
   if (riskAssessment.risks.includes('possible-gibberish')) {
     return {
       emotionDirection: 'unknown',
@@ -481,16 +500,13 @@ function makeMinimalAssumptions(
     };
   }
   
-  // Default to unknown if there are ANY risks or if input is very short
   if (riskAssessment.risks.length > 0 || wordCount <= 2) {
-    // But try to make some basic inferences for common short phrases
     const lowerInput = input.toLowerCase();
     
     let emotionDirection: XOInterpretation['minimalAssumptions']['emotionDirection'] = 'unknown';
     let tensionType: XOInterpretation['minimalAssumptions']['tensionType'] = 'unknown';
     let intentCategory: XOInterpretation['minimalAssumptions']['intentCategory'] = 'unknown';
     
-    // Try to infer intent from common short phrases
     if (/\?$/.test(input)) {
       intentCategory = 'inquire';
     } else if (/!$/.test(input)) {
@@ -508,7 +524,6 @@ function makeMinimalAssumptions(
     return { emotionDirection, tensionType, intentCategory };
   }
   
-  // For longer, clearer inputs
   let emotionDirection: XOInterpretation['minimalAssumptions']['emotionDirection'] = 'neutral';
   if (/(happy|joy|excited|proud|love|grateful)/i.test(input)) emotionDirection = 'positive';
   else if (/(sad|hurt|disappointed|angry|frustrated)/i.test(input)) emotionDirection = 'negative';
@@ -540,13 +555,9 @@ function calculateConfidence(
   const wordCount = input.split(/\s+/).length;
   let baseConfidence = 1 - riskAssessment.distortionLikelihood;
   
-  // Different confidence penalties for different situations
-  
   if (riskAssessment.risks.includes('possible-gibberish')) {
-    // Very low confidence for gibberish
     baseConfidence *= 0.3;
   } else if (riskAssessment.risks.includes('insufficient-context')) {
-    // Moderate penalty for short but meaningful inputs
     if (wordCount === 1) {
       baseConfidence *= 0.6;
     } else if (wordCount === 2) {
@@ -556,12 +567,10 @@ function calculateConfidence(
     }
   }
   
-  // Bonus for clear punctuation
   if (isPunctuationOrQuestion(input)) {
     baseConfidence *= 1.1;
   }
   
-  // Ensure confidence is between 0.1 and 0.95
   return Math.max(0.1, Math.min(baseConfidence, 0.95));
 }
 
@@ -572,7 +581,6 @@ function calculateConfidence(
 function shouldClarify(riskAssessment: MeaningRiskAssessment): boolean {
   const { riskLevel, risks, distortionLikelihood } = riskAssessment;
   
-  // Always clarify for gibberish
   if (risks.includes('possible-gibberish')) {
     return true;
   }
@@ -586,7 +594,6 @@ function shouldClarify(riskAssessment: MeaningRiskAssessment): boolean {
     if (risks.includes('positive-negative-ambiguity')) return true;
   }
   
-  // For low-risk short inputs, we can still proceed but with lower confidence
   if (risks.includes('insufficient-context') && distortionLikelihood > 0.4) {
     return true;
   }
@@ -609,7 +616,6 @@ function generateClarification(
   let hypothesis = riskAssessment.hypothesis;
   let unclearElement = riskAssessment.specificDoubt;
   
-  // Override hypothesis based on risk type
   if (!hypothesis) {
     switch (primaryRisk) {
       case 'possible-gibberish': {
@@ -676,7 +682,6 @@ function generateClarification(
     }
   }
   
-  // Different invitation based on risk type
   let correctionInvitation = "If that's off, adjust me.";
   
   if (primaryRisk === 'possible-gibberish') {
@@ -702,7 +707,6 @@ async function generateUnderstandingSummary(
   aiInterpretation: Partial<XOInterpretation>
 ): Promise<string> {
   try {
-    // For very short or ambiguous inputs, create a simple summary
     if (interpretation.riskAssessment.risks.includes('insufficient-context') || 
         input.split(/\s+/).length <= 3) {
       
@@ -718,7 +722,6 @@ async function generateUnderstandingSummary(
       }
     }
     
-    // For longer inputs that can't be narrated, use AI to generate a summary
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -748,7 +751,6 @@ Keep it under 2 sentences.`
   } catch (error) {
     console.error('Error generating understanding summary:', error);
     
-    // Fallback summary
     const { confidentInterpretation } = interpretation.riskAssessment;
     const snippet = input.substring(0, Math.min(50, input.length));
     
@@ -771,11 +773,14 @@ async function createMeaningContract(
 ): Promise<MeaningContract> {
   const { riskAssessment, confidence, minimalAssumptions, seedMoment } = interpretation;
   
+  // Detect market and entry path
+  const detectedMarket = detectMarketFromInput(input);
+  const detectedEntryPath = detectEntryPath(input);
+  
   // Determine certainty mode based on confidence and risks
   let certaintyMode: MeaningContract['certaintyMode'] = 'clarification-needed';
   let safeToNarrate = false;
   
-  // Don't create contract for gibberish
   if (riskAssessment.risks.includes('possible-gibberish')) {
     certaintyMode = 'clarification-needed';
     safeToNarrate = false;
@@ -840,6 +845,13 @@ async function createMeaningContract(
       intentCategory,
       coreTheme
     },
+    // NEW: Add market context and entry path
+    marketContext: {
+      market: detectedMarket,
+      language: 'english',
+      register: 'casual' as const
+    },
+    entryPath: detectedEntryPath,
     confidence: Math.round(confidence * 100) / 100,
     certaintyMode,
     reversible: true,
@@ -850,7 +862,7 @@ async function createMeaningContract(
       distortionLikelihood: riskAssessment.distortionLikelihood,
       risksAcknowledged: riskAssessment.risks
     },
-    seedMoment
+    seedMoment: seedMoment || input
   };
   
   // Add understanding summary if we have one
@@ -897,7 +909,6 @@ function generatePreview(
       return interpretation.riskAssessment.hypothesis;
     }
     
-    // Different previews based on risk type
     const primaryRisk = interpretation.riskAssessment.risks[0];
     
     if (primaryRisk === 'possible-gibberish') {
@@ -917,7 +928,6 @@ function generatePreview(
   if (interpretation.meaningContract) {
     const contract = interpretation.meaningContract;
     if (!contract.safeToNarrate && contract.understandingSummary) {
-      // Use the understanding summary as preview
       return contract.understandingSummary;
     } else if (contract.certaintyMode === 'reflection-only') {
       return `Reflecting on ${contract.interpretedMeaning.coreTheme.toLowerCase()}.`;
@@ -962,7 +972,6 @@ Use "seems like", "might be", "could be".`
     
     const parsed = JSON.parse(content);
     
-    // Ensure tentativeness
     ['coreTension', 'emotionalWeight', 'intentSummary'].forEach(field => {
       if (parsed[field] && !parsed[field].includes('seem') && 
           !parsed[field].includes('might') && 
@@ -1039,7 +1048,7 @@ export default async function handler(
     // 3. Make minimal assumptions
     const minimalAssumptions = makeMinimalAssumptions(trimmedInput, riskAssessment);
     
-    // 4. Calculate confidence (with different penalties for different cases)
+    // 4. Calculate confidence
     const confidence = calculateConfidence(trimmedInput, riskAssessment);
     
     // 5. Build interpretation
@@ -1075,7 +1084,7 @@ export default async function handler(
         minimalAssumptions
       };
       
-      // CREATE THE MEANING CONTRACT (only if not gibberish)
+      // CREATE THE ENHANCED MEANING CONTRACT
       if (!riskAssessment.risks.includes('possible-gibberish')) {
         interpretation.meaningContract = await createMeaningContract(trimmedInput, interpretation, aiInterpretation);
         
@@ -1111,6 +1120,8 @@ export default async function handler(
     console.log(`[CLARIFY] ${needsClarification ? 'NEEDS clarification' : 'PROCEEDING with contract'}`);
     console.log(`[CLARIFY] Confidence: ${confidence}, Risk: ${riskAssessment.riskLevel}`);
     console.log(`[CLARIFY] Risks: ${riskAssessment.risks.join(', ')}`);
+    console.log(`[CLARIFY] Market: ${interpretation.meaningContract?.marketContext?.market || 'not detected'}`);
+    console.log(`[CLARIFY] Entry path: ${interpretation.meaningContract?.entryPath || 'seed'}`);
     console.log(`[CLARIFY] Safe to narrate: ${interpretation.meaningContract?.safeToNarrate ?? 'no contract'}`);
     
     return res.status(200).json(response);
