@@ -544,8 +544,7 @@ export default function Create() {
       sender: "system",
       content: (
         <div className="flex items-center gap-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-          <span>Shaping a story...</span>
+      
         </div>
       ),
       timestamp: new Date(),
@@ -830,20 +829,21 @@ export default function Create() {
                   Brand Assets (Optional)
                 </label>
                 <BrandGuideUpload
-                  onParseComplete={(assets) => {
-                    setBrandGuide(assets);
-                    if (assets) {
-                      addMessage(
-                        "system",
-                        <div className="text-green-600 flex items-center gap-2">
-                          <Check size={16} />
-                          Brand assets loaded successfully!
-                        </div>,
-                        "response"
-                      );
-                    }
-                  }}
-                />
+                onParseComplete={(assets) => {
+    setBrandGuide(assets);
+    if (assets) {
+      addMessage(
+        "system",
+        <div className="text-green-600 flex items-center gap-2">
+          <Check size={16} />
+          {assets.palette?.length ? `${assets.palette.length} brand colors extracted` : ''}
+          {assets.logoUrls?.length ? `, ${assets.logoUrls.length} logos found` : ''}
+        </div>,
+        "response"
+      );
+    }
+  }}
+/>
               </div>
             </div>
           </div>
@@ -1568,8 +1568,9 @@ export default function Create() {
 
     try {
       // Prepare the story summary for image generation
-      const storySummary = story.story.split('\n\n').slice(0, 3).join('\n\n');
-      const sceneDescription = `A visual representation of the story: ${storySummary.substring(0, 300)}...`;
+      console.log("Generating image for story:", story);
+      const storySummary = story.story.replace(/\n+/g, ' ').trim();
+      const sceneDescription = `A visual representation of the story: ${storySummary}...`;
 
       const res = await fetch("/api/generateImage", {
         method: "POST",
@@ -1582,6 +1583,7 @@ export default function Create() {
           template: "instagram-story",
           beat: "Story Cover",
           visualCues: ["cinematic", "emotional", "storytelling", "human moment"],
+          market: story.metadata?.market || "GLOBAL",
         }),
       });
 

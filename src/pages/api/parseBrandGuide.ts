@@ -1,43 +1,216 @@
-import { OpenAI } from 'openai';
+// pages/api/parseBrandGuideEnhanced.ts
 import { NextApiRequest, NextApiResponse } from 'next';
-import { dedupPalette } from '@/lib/color-utils';
+import { OpenAI } from 'openai';
 import multer from 'multer';
+import pdfParse from 'pdf-parse';
+import mammoth from 'mammoth';
+import sharp from 'sharp';
+import { extractColors } from 'colorthief';
+import { dedupPalette } from '@/lib/color-utils';
 
+// Initialize OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
-
-interface BrandGuideResponse {
-  palette: string[];
-  fonts: string[];
-  brandSafe: boolean;
-}
 
 // Configure multer for memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 15 * 1024 * 1024, // 15MB limit
+    fileSize: 25 * 1024 * 1024, // 25MB limit for documents
   },
 });
 
-// Disable body parsing, multer will handle it
 export const config = {
   api: {
     bodyParser: false,
   },
 };
 
-// Promisify multer
-const multerUpload = (req: any, res: any) => {
-  return new Promise((resolve, reject) => {
-    upload.single('file')(req, res, (err: any) => {
-      if (err) reject(err);
-      else resolve(req.file);
-    });
-  });
-};
+interface ExtractionResult {
+  palette: string[];
+  fonts: string[];
+  brandSafe: boolean;
+  logoUrls?: string[];
+  logoPositions?: Array<{x: number, y: number, width: number, height: number}>;
+  brandKeywords?: string[];
+  documentType: string;
+  extractedText: string;
+}
 
+// Helper function to extract colors from image
+async function extractColorsFromImage(buffer: Buffer): Promise<string[]> {
+  try {
+    const colors = await extractColors(buffer, 10);
+    return colors.map(rgb => `#${rgb.map(c => c.toString(16).padStart(2, '0')).join('')}`);
+  } catch (error) {
+    console.error('Color extraction error:', error);
+    return [];
+  }
+}
+
+// Helper function to detect logos in image
+async function detectLogosInImage(buffer: Buffer): Promise<{url: string, bbox: number[]}[]> {
+  try {
+    // Use OpenAI Vision API to detect logos
+    const base64 = buffer.toString('base64');
+    
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Analyze this image and identify any logos or brand marks. For each logo found, provide the bounding box coordinates [x1, y1, x2, y2] where (0,0) is top-left and (1,1) is bottom-right. Also provide a brief description of each logo. Return as JSON array."
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:image/png;base64,${base64}`,
+              }
+            }
+          ]
+        }
+      ],
+      response_format: { type: "json_object" }
+    });
+
+    const content = completion.choices[0].message.content;
+    if (!content) return [];
+
+    const result = JSON.parse(content);
+    return result.logos || [];
+  } catch (error) {
+    console.error('Logo detection error:', error);
+    return [];
+  }
+}
+
+// Extract text from PDF
+async function extractTextFromPDF(buffer: Buffer): Promise<string> {
+  try {
+    const data = await pdfParse(buffer);
+    return data.text;
+  } catch (error) {
+    console.error('PDF extraction error:', error);
+    return '';
+  }
+}
+
+// Extract text from DOCX
+async function extractTextFromDOCX(buffer: Buffer): Promise<string> {
+  try {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value;
+  } catch (error) {
+    console.error('DOCX extraction error:', error);
+    return '';
+  }
+}
+
+// Process document with OpenAI
+async function analyzeWithOpenAI(
+  content: string | Buffer,
+  contentType: string
+): Promise<ExtractionResult> {
+  try {
+    let messages: any[] = [];
+    
+    if (contentType.startsWith('image/')) {
+      // For images, use vision API
+      const base64 = Buffer.isBuffer(content) 
+        ? content.toString('base64') 
+        : content;
+      
+      messages = [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Analyze this brand document/image and extract:
+1. Color palette (hex codes) - primary brand colors used
+2. Font names - if visible in the image
+3. Brand safety assessment (true/false) - true if appropriate for all audiences
+4. Brand keywords - key brand terms, values, or slogans found
+5. Document type - what type of document this is (e.g., brand guide, logo sheet, presentation)
+
+Return as JSON with this structure: {
+  palette: string[],
+  fonts: string[],
+  brandSafe: boolean,
+  brandKeywords: string[],
+  documentType: string,
+  extractedText: string (if any text is visible)
+}`
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${contentType};base64,${base64}`,
+              }
+            }
+          ]
+        }
+      ];
+    } else {
+      // For text content
+      messages = [
+        {
+          role: "user",
+          content: `Analyze this brand document and extract:
+1. Color palette (hex codes) - primary brand colors mentioned or used
+2. Font names - fonts mentioned or specified
+3. Brand safety assessment (true/false) - true if appropriate for all audiences
+4. Brand keywords - key brand terms, values, or slogans
+5. Document type - what type of document this is (e.g., brand guide, style guide, presentation)
+
+Content:
+${content}
+
+Return as JSON with this structure: {
+  palette: string[],
+  fonts: string[],
+  brandSafe: boolean,
+  brandKeywords: string[],
+  documentType: string,
+  extractedText: string
+}`
+        }
+      ];
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: messages,
+      response_format: { type: "json_object" }
+    });
+
+    const responseContent = completion.choices[0].message.content;
+    if (!responseContent) {
+      throw new Error('No response from OpenAI');
+    }
+
+    const result: ExtractionResult = JSON.parse(responseContent);
+    
+    // Ensure all required fields exist with default values
+    result.palette = Array.isArray(result.palette) ? dedupPalette(result.palette, 2.5) : [];
+    result.fonts = Array.isArray(result.fonts) ? result.fonts : [];
+    result.brandSafe = typeof result.brandSafe === 'boolean' ? result.brandSafe : true;
+    result.brandKeywords = Array.isArray(result.brandKeywords) ? result.brandKeywords : [];
+    result.documentType = result.documentType || 'unknown';
+    result.extractedText = result.extractedText || (typeof content === 'string' ? content : '');
+    
+    return result;
+  } catch (error) {
+    console.error('OpenAI analysis error:', error);
+    throw error;
+  }
+}
+
+// Main handler
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -46,106 +219,130 @@ export default async function handler(
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Promisify multer
+  const multerUpload = (req: any, res: any) => {
+    return new Promise((resolve, reject) => {
+      upload.single('file')(req, res, (err: any) => {
+        if (err) reject(err);
+        else resolve(req.file);
+      });
+    });
+  };
+
   try {
-    // Use multer to parse the form data
-    const file = await multerUpload(req, res);
+    const file = await multerUpload(req, res) as Express.Multer.File;
     
     if (!file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    // Type assertion for file
-    const uploadedFile = file as Express.Multer.File;
-
-    // Validate file type
-    const validMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
-    if (!validMimeTypes.includes(uploadedFile.mimetype)) {
-      return res.status(400).json({ error: 'Invalid file type. Please upload PDF, JPG, or PNG.' });
-    }
-
-    // Convert file buffer to base64
-    const base64 = uploadedFile.buffer.toString('base64');
-
-    const prompt = `
-Analyze this brand guide and extract:
-1. Color palette (hex codes) - return as array of strings like ["#FFFFFF", "#000000"]
-2. Font names - return as array of strings
-3. Overall brand safety level (true/false) - true if appropriate for all audiences
-
-Return as JSON with this exact structure: { palette: string[], fonts: string[], brandSafe: boolean }
-Focus only on colors and fonts, ignore logos.
-If you cannot identify colors, return empty array [] for palette.
-If you cannot identify fonts, return empty array [] for fonts.
-For brandSafe, return true unless you identify explicit adult content.
-`;
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${uploadedFile.mimetype};base64,${base64}`,
-              },
-            },
-          ],
-        },
-      ],
-      response_format: { type: "json_object" }
-    });
-
-    const responseContent = completion.choices[0].message.content;
-    
-    if (!responseContent) {
-      throw new Error('No response from OpenAI');
-    }
-
-    let brandData: BrandGuideResponse;
-    try {
-      brandData = JSON.parse(responseContent);
-    } catch (parseError) {
-      console.error('Failed to parse OpenAI response:', responseContent);
-      throw new Error('Invalid JSON response from OpenAI');
-    }
-
-    // Ensure all required fields exist with default values
-    brandData = {
-      palette: Array.isArray(brandData.palette) ? brandData.palette : [],
-      fonts: Array.isArray(brandData.fonts) ? brandData.fonts : [],
-      brandSafe: typeof brandData.brandSafe === 'boolean' ? brandData.brandSafe : true,
+    const result: ExtractionResult = {
+      palette: [],
+      fonts: [],
+      brandSafe: true,
+      logoUrls: [],
+      brandKeywords: [],
+      documentType: file.mimetype,
+      extractedText: ''
     };
 
-    console.log('Processed brand data:', brandData);
+    let textContent = '';
+    let imageBuffer: Buffer | null = null;
+
+    // Process based on file type
+    switch (file.mimetype) {
+      case 'application/pdf':
+        textContent = await extractTextFromPDF(file.buffer);
+        result.extractedText = textContent;
+        break;
+        
+      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+      case 'application/msword':
+        textContent = await extractTextFromDOCX(file.buffer);
+        result.extractedText = textContent;
+        break;
+        
+      case 'image/jpeg':
+      case 'image/jpg':
+      case 'image/png':
+      case 'image/webp':
+      case 'image/svg+xml':
+        imageBuffer = file.buffer;
+        
+        // Extract colors directly from image
+        const extractedColors = await extractColorsFromImage(file.buffer);
+        result.palette = dedupPalette(extractedColors, 2.5);
+        
+        // Detect logos
+        const logos = await detectLogosInImage(file.buffer);
+        if (logos.length > 0) {
+          // Convert bounding boxes to actual image crops
+          const image = sharp(file.buffer);
+          const metadata = await image.metadata();
+          
+          for (const logo of logos) {
+            const [x1, y1, x2, y2] = logo.bbox;
+            const width = Math.round((x2 - x1) * (metadata.width || 1024));
+            const height = Math.round((y2 - y1) * (metadata.height || 1024));
+            
+            if (width > 50 && height > 50) { // Minimum size threshold
+              try {
+                const logoBuffer = await image
+                  .extract({
+                    left: Math.round(x1 * (metadata.width || 1024)),
+                    top: Math.round(y1 * (metadata.height || 1024)),
+                    width,
+                    height
+                  })
+                  .toBuffer();
+                
+                const logoBase64 = logoBuffer.toString('base64');
+                result.logoUrls?.push(`data:${file.mimetype};base64,${logoBase64}`);
+              } catch (error) {
+                console.error('Logo extraction error:', error);
+              }
+            }
+          }
+        }
+        break;
+    }
+
+    // Use OpenAI for comprehensive analysis
+    const openAIResult = await analyzeWithOpenAI(
+      textContent || imageBuffer || file.buffer,
+      file.mimetype
+    );
+
+    // Merge results
+const allColors = [...result.palette, ...openAIResult.palette];
+const uniqueColors = Array.from(new Set(allColors));
+result.palette = uniqueColors;    result.fonts = openAIResult.fonts;
+    result.brandSafe = openAIResult.brandSafe;
+    result.brandKeywords = openAIResult.brandKeywords;
+    result.documentType = openAIResult.documentType;
     
-    // Apply palette deduplication only if palette exists and has items
-    if (brandData.palette && brandData.palette.length > 0) {
-      try {
-        brandData.palette = dedupPalette(brandData.palette, 2.5);
-      } catch (dedupError) {
-        console.error('Palette deduplication failed:', dedupError);
-        // Keep original palette if deduplication fails
-      }
+    if (!result.extractedText && openAIResult.extractedText) {
+      result.extractedText = openAIResult.extractedText;
     }
 
     res.status(200).json({
       success: true,
-      ...brandData
+      ...result
     });
 
   } catch (error: any) {
     console.error('Brand guide parsing error:', error);
     
-    // Return a valid response structure even on error
     res.status(500).json({ 
       success: false,
       error: 'Failed to parse brand guide',
       palette: [],
       fonts: [],
-      brandSafe: true 
+      brandSafe: true,
+      logoUrls: [],
+      brandKeywords: [],
+      documentType: 'unknown',
+      extractedText: ''
     });
   }
 }

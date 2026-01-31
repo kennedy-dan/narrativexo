@@ -5,95 +5,181 @@ const openai = new OpenAI({
 });
 
 // ============================================================================
-// EPIC 0: NARRATIVE OUTPUT CONTRACT (MICRO-STORY NATIVE)
+// TYPES
 // ============================================================================
 
+export type BeatType = "lived-moment" | "progression" | "meaning" | "brand";
+export type MarketType = "GLOBAL" | "NG" | "UK";
+export type EntryForm = "declarative" | "scene-like" | "audience-like" | "directive";
+
 export interface MicroStoryBeat {
-  lines: string[]; // 1-2 lines max per beat
-  type: "lived-moment" | "progression" | "meaning" | "brand";
-  sourcePass?: number; // Track which pass generated this beat
+  lines: string[];
+  type: BeatType;
+  sourcePass?: number;
 }
 
 export interface MicroStory {
   beats: MicroStoryBeat[];
-  market?: "GLOBAL" | "NG" | "UK";
+  market?: MarketType;
   hasBrand?: boolean;
-  extractedBrand?: string; // Brand extracted from user input
-  frontendBrand?: string; // Brand provided from frontend
+  extractedBrand?: string;
+  frontendBrand?: string;
 }
 
-// Validator for micro-story format - STRICT VERSION
+export interface NarrativeScaffold {
+  pass_1: string;
+  pass_2: string;
+  pass_3: string;
+  pass_4: string;
+  market?: MarketType;
+  entryForm?: EntryForm;
+}
+
+export interface PipelineContext {
+  market: MarketType;
+  brand?: string;
+  extractedBrand?: string;
+  entryForm: EntryForm;
+  userInput: string;
+  constraints?: MarketConstraints;
+}
+
+export interface MarketConstraints {
+  culturalContext?: string;
+  registerGuidance?: string;
+  avoidClichés?: string[];
+}
+
+// ============================================================================
+// BRAND VALIDATOR - NEW CLASS
+// ============================================================================
+
+export class BrandValidator {
+  static isDistinctBrand(brand: string): boolean {
+    const brandLower = brand.toLowerCase().trim();
+    
+    // Common words that aren't brands
+    const commonWords = [
+      'could', 'should', 'would', 'will', 'might', 'may', 'can',
+      'this', 'that', 'these', 'those', 'the', 'a', 'an',
+      'brand', 'company', 'product', 'item', 'goods',
+      'moment', 'time', 'day', 'night', 'thing', 'stuff',
+      'what', 'why', 'how', 'when', 'where', 'who'
+    ];
+    
+    if (commonWords.includes(brandLower) || brandLower.length < 2) {
+      return false;
+    }
+    
+    // Check if it's a known brand
+    const knownBrands = [
+      'nike', 'adidas', 'puma', 'reebok', 'converse', 'vans',
+      'apple', 'samsung', 'sony', 'microsoft', 'google',
+      'levi', 'amazon', 'meta', 'tesla', 'coca', 'pepsi',
+      'starbucks', 'mcdonald', 'ikea', 'nokia', 'volvo',
+      'bmw', 'mercedes', 'toyota', 'ford', 'honda',
+      'gucci', 'chanel', 'louis vuitton', 'prada'
+    ];
+    
+    if (knownBrands.some(kb => brandLower.includes(kb))) {
+      return true;
+    }
+    
+    // For unknown brands, check if it looks like a brand
+    const wordCount = brandLower.split(/\s+/).length;
+    if (wordCount === 1) {
+      // Single word brands should be uncommon
+      const isCommon = commonWords.includes(brandLower);
+      const isTooShort = brandLower.length < 3;
+      const isVerb = this.isVerb(brandLower);
+      return !isCommon && !isTooShort && !isVerb;
+    }
+    
+    // Multi-word likely to be a brand
+    return true;
+  }
+  
+  private static isVerb(word: string): boolean {
+    const commonVerbs = [
+      'run', 'walk', 'jump', 'play', 'work', 'make', 'do', 'have',
+      'be', 'see', 'come', 'go', 'know', 'get', 'give', 'take',
+      'put', 'set', 'let', 'feel', 'think', 'try', 'call', 'ask',
+      'need', 'want', 'like', 'love', 'hate', 'help', 'start',
+      'stop', 'begin', 'end', 'create', 'build', 'design'
+    ];
+    return commonVerbs.includes(word);
+  }
+}
+
+// ============================================================================
+// VALIDATOR
+// ============================================================================
+
 export class MicroStoryValidator {
   static validate(microStory: MicroStory): {
     valid: boolean;
     errors: string[];
   } {
     const errors: string[] = [];
+    const totalBeats = microStory.beats.length;
 
-    // XO-000: Enforce beat structure
-    if (microStory.beats.length < 3) {
-      errors.push(
-        `Output fails if fewer than 3 beats (got ${microStory.beats.length})`,
-      );
+    // Strict 3-8 beat limit
+    if (totalBeats < 3 || totalBeats > 8) {
+      errors.push(`Must have 3-8 beats (got ${totalBeats})`);
     }
 
-    // XO-000: Max 8 beats total (lived + progression + meaning + brand)
-    if (microStory.beats.length > 8) {
-      errors.push(
-        `Output fails if more than 8 beats (got ${microStory.beats.length})`,
-      );
+    // Check if story actually has a brand beat
+    const hasBrandBeat = microStory.beats.some(b => b.type === "brand");
+    
+    // If hasBrand is true but no brand beat, that's an error
+    if (microStory.hasBrand && !hasBrandBeat) {
+      errors.push("Story marked as hasBrand but no brand beat found");
+    }
+
+    // If hasBrandBeat is true, ensure it follows rules
+    if (hasBrandBeat) {
+      const lastBeat = microStory.beats[microStory.beats.length - 1];
+      if (lastBeat.type !== "brand") {
+        errors.push("Brand beat must be the last beat");
+      }
+      
+      // Brand beat must contain the brand name naturally
+      const lastBeatText = lastBeat.lines.join(" ").toLowerCase();
+      const brandName = microStory.extractedBrand || microStory.frontendBrand || "";
+      if (brandName && !lastBeatText.includes(brandName.toLowerCase())) {
+        errors.push(`Brand beat must naturally include brand name "${brandName}"`);
+      }
     }
 
     // Check for meta-commentary
     for (let i = 0; i < microStory.beats.length; i++) {
       const beat = microStory.beats[i];
       for (const line of beat.lines) {
-        if (line.toLowerCase().includes("total beats") ||
-            line.toLowerCase().includes("beats total") ||
-            line.toLowerCase().includes("total:") ||
-            /\(\d+\s+beats/.test(line.toLowerCase())) {
-          errors.push(`Beat ${i+1} contains meta-commentary: "${line.substring(0, 50)}..."`);
+        const lowerLine = line.toLowerCase();
+        if (lowerLine.includes("total beats") ||
+            lowerLine.includes("beats total") ||
+            lowerLine.includes("total:") ||
+            /\(\d+\s+beats/.test(lowerLine) ||
+            lowerLine.includes("beat:") ||
+            lowerLine.includes("type:")) {
+          errors.push(`Beat ${i+1} contains meta-commentary`);
         }
       }
     }
 
-    // Count beats by type to validate structure
-    const livedMoments = microStory.beats.filter(
-      (b) => b.type === "lived-moment",
-    ).length;
-    const progression = microStory.beats.filter(
-      (b) => b.type === "progression",
-    ).length;
-    const meaning = microStory.beats.filter((b) => b.type === "meaning").length;
-    const brand = microStory.beats.filter((b) => b.type === "brand").length;
+    // Count beats by type
+    const livedMoments = microStory.beats.filter(b => b.type === "lived-moment").length;
+    const progression = microStory.beats.filter(b => b.type === "progression").length;
+    const meaning = microStory.beats.filter(b => b.type === "meaning").length;
+    const brand = microStory.beats.filter(b => b.type === "brand").length;
 
-    // Validate pass structure (flexible but within limits)
+    // Validate structure
     if (livedMoments < 2) {
-      errors.push(
-        `Must have at least 2 lived-moment beats (got ${livedMoments})`,
-      );
+      errors.push(`Must have at least 2 lived-moment beats (got ${livedMoments})`);
     }
 
-    if (livedMoments > 4) {
-      errors.push(
-        `Max 4 lived-moment beats allowed (got ${livedMoments})`,
-      );
-    }
-
-    if (progression < 2) {
-      errors.push(
-        `Must have at least 2 progression beats (got ${progression})`,
-      );
-    }
-
-    if (progression > 3) {
-      errors.push(
-        `Max 3 progression beats allowed (got ${progression})`,
-      );
-    }
-
-    if (meaning < 1) {
-      errors.push(`Must have at least 1 meaning beat (got ${meaning})`);
+    if (progression < 1) {
+      errors.push(`Must have at least 1 progression beat (got ${progression})`);
     }
 
     if (meaning > 2) {
@@ -104,19 +190,24 @@ export class MicroStoryValidator {
       errors.push(`Max 1 brand beat allowed (got ${brand})`);
     }
 
-    // Brand should be ≤25% of total beats
+    // Brand validation
     if (brand > 0) {
-      const brandPercentage = brand / microStory.beats.length;
-      if (brandPercentage > 0.25) {
-        errors.push(
-          `Brand beat is ${Math.round(brandPercentage * 100)}% of story (>25% max)`,
-        );
-      }
-
-      // Brand should be the last beat
-      const lastBeatType = microStory.beats[microStory.beats.length - 1]?.type;
-      if (lastBeatType !== "brand") {
-        errors.push("Brand beat must be the last beat in the story");
+      const brandBeat = microStory.beats.find(b => b.type === "brand");
+      if (brandBeat) {
+        const brandText = brandBeat.lines.join(" ");
+        if (brandText.trim().split(" ").length < 3) {
+          errors.push("Brand beat should be a complete thought (not just brand name)");
+        }
+        
+        // Check if brand name is properly included
+        const brandName = microStory.extractedBrand || microStory.frontendBrand || "";
+        if (brandName) {
+          const expectedBrand = brandName.toLowerCase();
+          const actualText = brandText.toLowerCase();
+          if (!actualText.includes(expectedBrand)) {
+            errors.push(`Brand beat should include brand name "${brandName}"`);
+          }
+        }
       }
     }
 
@@ -124,37 +215,24 @@ export class MicroStoryValidator {
     for (let i = 0; i < microStory.beats.length; i++) {
       const beat = microStory.beats[i];
       
-      // Check line count per beat
-      if (beat.lines.length === 0 || beat.lines.length > 2) {
-        errors.push(`Beat ${i+1} has ${beat.lines.length} lines (must be 1-2)`);
+      if (beat.lines.length === 0 || beat.lines.length > 3) {
+        errors.push(`Beat ${i+1} has ${beat.lines.length} lines (must be 1-3)`);
       }
 
-      // Check line length and content
       for (let j = 0; j < beat.lines.length; j++) {
         const line = beat.lines[j];
         if (line.length > 120) {
-          errors.push(`Beat ${i+1}, Line ${j+1} too long: "${line.substring(0, 50)}..."`);
+          errors.push(`Beat ${i+1}, Line ${j+1} too long (${line.length} chars)`);
         }
 
-        // Detect paragraphs
         const sentenceCount = (line.match(/[.!?]+/g) || []).length;
         if (sentenceCount > 2) {
-          errors.push(
-            `Beat ${i+1}, Line ${j+1} has ${sentenceCount} sentences (max 2): "${line.substring(0, 50)}..."`,
-          );
+          errors.push(`Beat ${i+1}, Line ${j+1} has ${sentenceCount} sentences (max 2)`);
         }
 
-        // Check for prose connectors
-        const proseConnectors = [
-          "and then",
-          "after that",
-          "next",
-          "later",
-          "meanwhile",
-        ];
-        if (proseConnectors.some((connector) =>
-            line.toLowerCase().includes(connector))) {
-          errors.push(`Beat ${i+1}, Line ${j+1} has prose connective tissue: "${line.substring(0, 50)}..."`);
+        const proseConnectors = ["and then", "after that", "next", "later", "meanwhile", "finally"];
+        if (proseConnectors.some(connector => line.toLowerCase().includes(connector))) {
+          errors.push(`Beat ${i+1}, Line ${j+1} has prose connective tissue`);
         }
       }
     }
@@ -166,7 +244,6 @@ export class MicroStoryValidator {
   }
 
   static fromText(text: string): MicroStory {
-    // Clean text first - remove any meta-commentary
     const cleanedText = text
       .split('\n')
       .filter(line => {
@@ -175,33 +252,35 @@ export class MicroStoryValidator {
           lowerLine.includes('total beats') ||
           lowerLine.includes('beats total') ||
           lowerLine.includes('total:') ||
-          /\(\d+\s+beats/.test(lowerLine)
+          /\(\d+\s+beats/.test(lowerLine) ||
+          lowerLine.includes('beat:') ||
+          lowerLine.includes('type:')
         );
       })
       .join('\n');
 
-    // Convert text to beats
-    const paragraphs = cleanedText.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
+    const paragraphs = cleanedText.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const beats: MicroStoryBeat[] = [];
 
     for (const paragraph of paragraphs) {
       const lines = paragraph
         .split("\n")
         .map(line => line.trim())
-        .filter((line) => {
+        .filter(line => {
           const lowerLine = line.toLowerCase();
           return (
             line.trim().length > 0 &&
             !lowerLine.includes('total beats') &&
             !lowerLine.includes('beats total') &&
             !lowerLine.includes('total:') &&
-            !/\(\d+\s+beats/.test(lowerLine)
+            !/\(\d+\s+beats/.test(lowerLine) &&
+            !lowerLine.includes('beat:') &&
+            !lowerLine.includes('type:')
           );
         });
 
-      // Group into beats of 1-2 lines
-      for (let i = 0; i < lines.length; i += 2) {
-        const beatLines = lines.slice(i, i + 2);
+      for (let i = 0; i < lines.length; i += 3) {
+        const beatLines = lines.slice(i, i + 3);
         if (beatLines.length > 0) {
           beats.push({ 
             lines: beatLines, 
@@ -216,96 +295,90 @@ export class MicroStoryValidator {
 }
 
 // ============================================================================
-// EPIC 1: MULTI-PASS NARRATIVE PIPELINE
+// BRAND EXTRACTOR - IMPROVED
 // ============================================================================
 
-export interface NarrativeScaffold {
-  pass_1: string;
-  pass_2: string;
-  pass_3: string;
-  pass_4: string;
-  market?: "GLOBAL" | "NG" | "UK";
-  entryForm?: "declarative" | "scene-like" | "audience-like" | "directive";
-}
-
-export interface PipelineContext {
-  market: "GLOBAL" | "NG" | "UK";
-  brand?: string; // Frontend brand takes priority
-  extractedBrand?: string; // Extracted from user input
-  entryForm: "declarative" | "scene-like" | "audience-like" | "directive";
-  userInput: string;
-  constraints?: MarketConstraints;
-}
-
-export interface MarketConstraints {
-  culturalContext?: string; // Generated context description
-  registerGuidance?: string; // Language style guidance
-  avoidClichés?: string[]; // Market-specific clichés to avoid
-}
-
-// BRAND EXTRACTION HELPER
 export class BrandExtractor {
   static extractFromInput(userInput: string): string | null {
-    const lowerInput = userInput.toLowerCase();
+    // Clean common false positives first
+    const cleanedInput = userInput.replace(/\bcould\b/gi, '');
     
-    // Common patterns for brand mentions
     const brandPatterns = [
-      // Pattern: "sell [a] [brand] [product]"
-      /(?:sell|market|promote|advertise)\s+(?:an?|the)?\s+([A-Z][a-z]+)\s+(?:shoe|product|item|goods|item|merchandise)/i,
+      // Explicit brand mentions with "brand" keyword
+      /(?:\bbrand\s+(?:called|named|is)\s+["']?([A-Z][a-zA-Z0-9&\s\-]+)["']?)/i,
+      /(?:\bmy\s+(?:brand|company)\s+["']?([A-Z][a-zA-Z0-9&\s\-]+)["']?)/i,
+      /(?:\b(?:sell|market|promote|advertise)\s+(?:an?|the)?\s+["']?([A-Z][a-zA-Z0-9&\s\-]+)["']?\s+(?:shoe|product|item|goods|device|app|service|brand)\b)/i,
       
-      // Pattern: "brand called [Name]"
-      /(?:brand|called|named)\s+["']?([A-Z][a-zA-Z0-9&]+)["']?/i,
+      // Known brand names
+      /\b(Adidas|Nike|Puma|Reebok|Converse|Vans|Under\s*Armour|Asics|New\s*Balance|Levi's|Apple|Samsung|Sony|Microsoft|Google|Amazon|Meta|Tesla)\b/,
       
-      // Pattern: "[Brand] shoes/products"
-      /\b(adidas|nike|puma|reebok|converse|vans|under armour|asics|new balance)\b/i,
-      
-      // Pattern: "my brand [Name]"
-      /my\s+(?:brand|company)\s+["']?([A-Z][a-zA-Z0-9&\s]+)["']?/i,
-      
-      // Pattern: "Maxing" (from your example)
-      /\b(maxing|maxxing)\b/i,
+      // Brands in quotes
+      /["']([A-Z][a-zA-Z0-9&\s\-]+)["']\s+(?:brand|company|corp)/i,
     ];
     
     for (const pattern of brandPatterns) {
-      const match = userInput.match(pattern);
+      const match = cleanedInput.match(pattern);
       if (match) {
-        // Extract brand name - prioritize capture groups, fallback to full match
         let brandName = match[1] || match[0];
         brandName = brandName.trim();
         
-        // Capitalize first letter if needed
-        if (brandName && brandName.length > 0) {
-          brandName = brandName.charAt(0).toUpperCase() + brandName.slice(1);
+        // Filter out common words that aren't brands
+        const falsePositives = [
+          'could', 'should', 'would', 'will', 'might', 'may', 'can',
+          'this', 'that', 'these', 'those', 'the', 'a', 'an',
+          'brand', 'company', 'product', 'item', 'goods'
+        ];
+        
+        const brandLower = brandName.toLowerCase();
+        if (falsePositives.some(fp => brandLower === fp || brandLower.includes(fp + ' '))) {
+          continue;
         }
         
-        console.log(`[XO] Extracted brand from input: "${brandName}" using pattern: ${pattern}`);
-        return brandName;
+        // Validate it's a distinct brand
+        if (!BrandValidator.isDistinctBrand(brandName)) {
+          continue;
+        }
+        
+        if (brandName && brandName.length > 1) {
+          brandName = this.normalizeBrandName(brandName);
+          console.log(`[XO] Extracted brand: "${brandName}" from: "${userInput.substring(0, 50)}..."`);
+          return brandName;
+        }
       }
     }
     
+    console.log(`[XO] No brand extracted from: "${userInput.substring(0, 50)}..."`);
     return null;
   }
   
-  // Check if input has brand context
-  static hasBrandContext(userInput: string): boolean {
-    const brandKeywords = [
-      'brand', 'company', 'business', 'product', 'sell', 'market',
-      'promote', 'advertise', 'campaign', 'marketing', 'retail'
-    ];
+  private static normalizeBrandName(name: string): string {
+    // Remove trailing "brand" or "company"
+    let normalized = name.replace(/\s+(?:brand|company|corp|inc|ltd|llc)\.?$/i, '');
     
-    const lowerInput = userInput.toLowerCase();
-    return brandKeywords.some(keyword => lowerInput.includes(keyword));
+    // Capitalize properly
+    const words = normalized.split(/\s+/);
+    return words.map(word => {
+      if (word.includes('-')) {
+        return word.split('-').map(part => 
+          part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+        ).join('-');
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    }).join(' ');
   }
 }
 
-// XO-101: Intent Normalizer
+// ============================================================================
+// INTENT NORMALIZER
+// ============================================================================
+
 export class IntentNormalizer {
   static normalize(
     input: string,
-    market: "GLOBAL" | "NG" | "UK",
+    market: MarketType,
   ): {
     normalizedInput: string;
-    entryForm: "declarative" | "scene-like" | "audience-like" | "directive";
+    entryForm: EntryForm;
     extractedBrand?: string;
   } {
     const trimmedInput = input.trim();
@@ -313,10 +386,9 @@ export class IntentNormalizer {
     // Extract brand first
     const extractedBrand = BrandExtractor.extractFromInput(trimmedInput);
     
-    // Determine entry form based on syntactic structure
-    let entryForm: "declarative" | "scene-like" | "audience-like" | "directive" = "declarative";
-    
+    let entryForm: EntryForm = "declarative";
     const lowerInput = trimmedInput.toLowerCase();
+    
     if (lowerInput.startsWith("scene:") || 
         lowerInput.startsWith("in ") ||
         lowerInput.includes(" in the ") ||
@@ -333,63 +405,72 @@ export class IntentNormalizer {
       entryForm = "directive";
     }
     
-    // Simple normalization - just clean up whitespace
-    let normalizedInput = trimmedInput
-      .replace(/\s+/g, ' ')
-      .trim();
-
+    // Clean the input by removing any brand mentions for story generation
+    let normalizedInput = trimmedInput;
+    if (extractedBrand) {
+      const brandRegex = new RegExp(`\\b${extractedBrand}\\b`, 'gi');
+      normalizedInput = normalizedInput.replace(brandRegex, '').trim();
+      normalizedInput = normalizedInput.replace(/\s+/g, ' ').trim();
+    }
+    
     return { normalizedInput, entryForm, extractedBrand };
   }
 }
 
-// XO-102: Narrative Scaffold Generator
+// ============================================================================
+// NARRATIVE SCAFFOLD GENERATOR
+// ============================================================================
+
 export class NarrativeScaffoldGenerator {
   static generate(context: PipelineContext): NarrativeScaffold {
-    const hasBrand = !!context.brand || !!context.extractedBrand;
+    const hasDistinctBrand = context.brand && BrandValidator.isDistinctBrand(context.brand);
+    const maxBeats = 8;
     
     const baseScaffold: NarrativeScaffold = {
-      pass_1: "2–4 lived-moment beats",
-      pass_2: "2–3 progression beats",
-      pass_3: "1–2 meaning beats",
-      pass_4: hasBrand ? "0–1 brand beat" : "No brand (skip)",
+      pass_1: "3-4 lived-moment beats",
+      pass_2: "2-3 progression beats", 
+      pass_3: "0-2 meaning beats",
+      pass_4: hasDistinctBrand ? "1 brand beat (LAST if present)" : "No brand beat",
       market: context.market,
       entryForm: context.entryForm,
     };
 
-    console.log("[XO] Scaffold generated:", baseScaffold);
+    console.log("[XO] Scaffold generated:", {
+      ...baseScaffold,
+      hasDistinctBrand,
+      maxBeats
+    });
     return baseScaffold;
   }
 }
 
-// XO-201: Automated Market Constraint Generator
+// ============================================================================
+// MARKET CONSTRAINT GENERATOR
+// ============================================================================
+
 export class MarketConstraintGenerator {
-  static async generate(market: "GLOBAL" | "NG" | "UK"): Promise<MarketConstraints> {
+  static async generate(market: MarketType): Promise<MarketConstraints> {
     try {
-      const systemPrompt = `You are a cultural consultant for narrative generation.
-Generate appropriate constraints for the specified market.
-Focus on general cultural context and language style, NOT specific phrases or clichés.`;
-
-      const userPrompt = `Generate market constraints for ${market} market.
-Provide:
-1. Cultural context (1-2 sentences about authentic settings/behaviors)
-2. Register guidance (language style/tone)
-3. Things to avoid (general categories, not specific phrases)
-
-Format as a concise, actionable guide.`;
-
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
+          {
+            role: "system",
+            content: "You are a cultural consultant for narrative generation.",
+          },
+          {
+            role: "user",
+            content: `Generate market constraints for ${market} market.
+1. Cultural context (1-2 sentences)
+2. Register guidance (language style)
+3. Things to avoid (general categories)`,
+          },
         ],
         temperature: 0.5,
         max_tokens: 150,
       });
 
       const content = response.choices[0].message.content || "";
-      
-      // Parse the response into structured constraints
       return this.parseConstraints(content, market);
       
     } catch (error) {
@@ -398,15 +479,14 @@ Format as a concise, actionable guide.`;
     }
   }
 
-  private static parseConstraints(content: string, market: "GLOBAL" | "NG" | "UK"): MarketConstraints {
-    const lines = content.split('\n').map(line => line.trim()).filter(line => line);
-    
+  private static parseConstraints(content: string, market: MarketType): MarketConstraints {
     const constraints: MarketConstraints = {
       culturalContext: "",
       registerGuidance: "",
       avoidClichés: []
     };
 
+    const lines = content.split('\n').map(line => line.trim()).filter(line => line);
     let currentSection = "";
     
     for (const line of lines) {
@@ -430,42 +510,37 @@ Format as a concise, actionable guide.`;
       }
     }
 
-    // Clean up
-    if (constraints.culturalContext) {
-      constraints.culturalContext = constraints.culturalContext.replace(/^Cultural Context\s*[:.-]\s*/i, '');
-    }
-    if (constraints.registerGuidance) {
-      constraints.registerGuidance = constraints.registerGuidance.replace(/^Register Guidance\s*[:.-]\s*/i, '');
-    }
-
     return constraints;
   }
 
-  private static getFallbackConstraints(market: "GLOBAL" | "NG" | "UK"): MarketConstraints {
+  private static getFallbackConstraints(market: MarketType): MarketConstraints {
     switch (market) {
       case "NG":
         return {
-          culturalContext: "Authentic Nigerian urban settings, communal activities, shared experiences in contemporary contexts.",
-          registerGuidance: "Natural, authentic language that avoids forced pidgin or slang overload.",
-          avoidClichés: ["poverty stereotypes", "tribal clichés", "exaggerated accents"]
+          culturalContext: "Authentic Nigerian urban settings, communal activities.",
+          registerGuidance: "Natural, authentic language.",
+          avoidClichés: ["poverty stereotypes", "tribal clichés"]
         };
       case "UK":
         return {
-          culturalContext: "Contemporary British life with understated settings, subtle social dynamics, and everyday moments.",
-          registerGuidance: "Understated, dry tone that avoids obvious clichés or stiff stereotypes.",
-          avoidClichés: ["royal family references", "football hooligan stereotypes", "stiff upper lip clichés"]
+          culturalContext: "Contemporary British life with understated settings.",
+          registerGuidance: "Understated, dry tone.",
+          avoidClichés: ["royal family references", "football hooligan stereotypes"]
         };
       default:
         return {
-          culturalContext: "Universal human experiences that transcend specific cultural boundaries.",
-          registerGuidance: "Clear, accessible language that communicates human truth without cultural specificity.",
-          avoidClichés: ["cultural stereotypes", "exoticization", "clichéd emotional labels"]
+          culturalContext: "Universal human experiences.",
+          registerGuidance: "Clear, accessible language.",
+          avoidClichés: ["cultural stereotypes", "exoticization"]
         };
     }
   }
 }
 
-// XO-103: Pass 1 - Lived Moment Engine
+// ============================================================================
+// LIVED MOMENT ENGINE (3-4 beats)
+// ============================================================================
+
 export class LivedMomentEngine {
   static async generate(
     input: string,
@@ -480,26 +555,24 @@ export class LivedMomentEngine {
         messages: [
           {
             role: "system",
-            content: `You generate ONLY lived-moment beats. STRICT RULES:
-1. Generate EXACTLY 3-4 beats (no more, no less)
-2. Each beat: 1-2 lines ONLY
-3. Show behavior and sensation ONLY (what can be seen, heard, touched)
-4. NO abstraction (no "feels", "thinks", "believes", "wants")
-5. NO emotion labels (no "happy", "sad", "angry", "excited")
-6. NO brand language
-7. White space separates beats
-8. NO connective tissue (no "and then", "after that", "next")
-9. Present tense only
-10. NO meta-commentary (no "Total beats:", "Beats:", etc.)
+            content: `Generate EXACTLY 3-4 lived-moment beats. STRICT RULES:
+1. 3-4 beats only
+2. Each beat: 1-3 lines
+3. Show behavior and sensation ONLY
+4. NO abstraction or emotion labels
+5. NO brand language
+6. Present tense only
+7. NO meta-commentary
 
-Example format (exactly like this):
-The shirt is already on before breakfast.
-Same one as last match.
+Example:
+The screen lights up.
+Same one as last time.
 
-By kickoff, it's stretched at the collar.
-Pulled once.
+Fingers tap the glass.
+A pattern emerges.
 
-Remember: ONLY lived moments. Show, don't tell. Return exactly 3-4 beats.`,
+The sound hums.
+Low and steady.`,
           },
           {
             role: "user",
@@ -512,31 +585,26 @@ Remember: ONLY lived moments. Show, don't tell. Return exactly 3-4 beats.`,
 
       const content = response.choices[0].message.content;
       if (!content) {
-        console.error("[XO] No content generated for lived moments");
-        return this.getConcreteFallbackBeats();
+        console.error("[XO] No content for lived moments");
+        return this.getFallbackBeats();
       }
 
-      console.log("[XO] Pass 1 raw output:", content.substring(0, 200) + "...");
+      console.log("[XO] Pass 1 output preview:", content.substring(0, 200));
 
-      // Parse beats from response
       const beats = this.parseBeats(content);
-      console.log("[XO] Pass 1 parsed:", beats.length, "beats");
-
-      // Validate
-      const validation = this.validate(beats);
-      if (!validation.valid) {
-        console.log("[XO] Pass 1 validation failed:", validation.errors);
-        return this.getConcreteFallbackBeats();
+      if (beats.length < 3 || beats.length > 4) {
+        console.log("[XO] Invalid beat count:", beats.length);
+        return this.getFallbackBeats();
       }
 
       return beats.map((beat) => ({
-        lines: beat.slice(0, 2),
+        lines: beat.slice(0, 3),
         type: "lived-moment" as const,
         sourcePass: 1,
       }));
     } catch (error) {
       console.error("[XO] Pass 1 error:", error);
-      return this.getConcreteFallbackBeats();
+      return this.getFallbackBeats();
     }
   }
 
@@ -548,30 +616,25 @@ Remember: ONLY lived moments. Show, don't tell. Return exactly 3-4 beats.`,
     let prompt = `Generate EXACTLY 3-4 lived-moment beats for: "${input}"\n\n`;
 
     if (scaffold.market !== "GLOBAL") {
-      prompt += `Market Context: ${scaffold.market}\n`;
+      prompt += `Market: ${scaffold.market}\n`;
     }
 
     if (constraints?.culturalContext) {
-      prompt += `Cultural Setting: ${constraints.culturalContext}\n`;
+      prompt += `Cultural Context: ${constraints.culturalContext}\n`;
     }
 
     if (constraints?.registerGuidance) {
       prompt += `Language Style: ${constraints.registerGuidance}\n`;
     }
 
-    if (constraints?.avoidClichés && constraints.avoidClichés.length > 0) {
-      prompt += `Avoid: ${constraints.avoidClichés.join(", ")}\n`;
-    }
-
-    prompt += `Entry form: ${scaffold.entryForm}\n`;
-    prompt += `\nReturn EXACTLY 3-4 beats, separated by blank lines. Each beat 1-2 lines.`;
-    prompt += `\nCRITICAL: NO meta-commentary (no "Total beats:", "Beats:", etc.)`;
+    prompt += `\nReturn 3-4 beats, separated by blank lines.`;
+    prompt += `\nNO meta-commentary.`;
+    prompt += `\nNO brand mentions.`;
 
     return prompt;
   }
 
   static parseBeats(content: string): string[][] {
-    // Clean the content - remove meta-commentary
     const cleaned = content
       .split('\n')
       .filter(line => {
@@ -580,96 +643,43 @@ Remember: ONLY lived moments. Show, don't tell. Return exactly 3-4 beats.`,
           lowerLine.includes('total beats') ||
           lowerLine.includes('beats total') ||
           lowerLine.includes('total:') ||
-          /\(\d+\s+beats/.test(lowerLine)
+          /\(\d+\s+beats/.test(lowerLine) ||
+          lowerLine.includes('beat:') ||
+          lowerLine.includes('type:')
         );
       })
       .join('\n')
       .trim();
 
-    // Split by double newlines
-    const paragraphs = cleaned
-      .split(/\n\s*\n/)
-      .filter((p) => p.trim().length > 0);
-    
+    const paragraphs = cleaned.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const beats: string[][] = [];
 
     for (const paragraph of paragraphs) {
       const lines = paragraph
         .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => {
+        .map(line => line.trim())
+        .filter(line => {
           const lowerLine = line.toLowerCase();
           return (
             line.length > 0 &&
             !lowerLine.includes('total beats') &&
             !lowerLine.includes('beats total') &&
             !lowerLine.includes('total:') &&
-            !/\(\d+\s+beats/.test(lowerLine)
+            !/\(\d+\s+beats/.test(lowerLine) &&
+            !lowerLine.includes('beat:') &&
+            !lowerLine.includes('type:')
           );
         });
 
       if (lines.length > 0) {
-        beats.push(lines.slice(0, 2));
+        beats.push(lines.slice(0, 3));
       }
     }
 
-    // Return exactly 3-4 beats
-    if (beats.length > 4) {
-      return beats.slice(0, 4);
-    } else if (beats.length < 3) {
-      const fallback = [["The screen lights up."], ["A hand reaches out."]];
-      return [...beats, ...fallback.slice(0, 3 - beats.length)];
-    }
-    
     return beats;
   }
 
-  private static validate(beats: string[][]): {
-    valid: boolean;
-    errors: string[];
-  } {
-    const errors: string[] = [];
-
-    if (beats.length < 3 || beats.length > 4) {
-      errors.push(`Must have 3-4 beats, got ${beats.length}`);
-    }
-
-    for (const beat of beats) {
-      if (beat.length === 0 || beat.length > 2) {
-        errors.push(`Beat has ${beat.length} lines (must be 1-2)`);
-      }
-
-      for (const line of beat) {
-        // Check for meta-commentary
-        if (line.toLowerCase().includes('total beats') ||
-            line.toLowerCase().includes('beats total') ||
-            line.toLowerCase().includes('total:') ||
-            /\(\d+\s+beats/.test(line.toLowerCase())) {
-          errors.push(`Meta-commentary detected: "${line.substring(0, 30)}..."`);
-        }
-
-        // Check for abstraction
-        const abstractionWords = [
-          "feel", "think", "believe", "emotion", "want", "need", "desire",
-        ];
-        if (abstractionWords.some((word) => line.toLowerCase().includes(word))) {
-          errors.push(`Abstraction detected: "${line.substring(0, 30)}..."`);
-        }
-
-        // Check for emotion labels
-        const emotionWords = [
-          "happy", "sad", "angry", "excited", "disappointed", "proud", "anxious",
-        ];
-        if (emotionWords.some((word) => line.toLowerCase().includes(word))) {
-          errors.push(`Emotion label detected: "${line.substring(0, 30)}..."`);
-        }
-      }
-    }
-
-    return { valid: errors.length === 0, errors };
-  }
-
-  private static getConcreteFallbackBeats(): MicroStoryBeat[] {
+  private static getFallbackBeats(): MicroStoryBeat[] {
     return [
       {
         lines: ["The screen lights up."],
@@ -677,12 +687,12 @@ Remember: ONLY lived moments. Show, don't tell. Return exactly 3-4 beats.`,
         sourcePass: 1,
       },
       {
-        lines: ["A finger touches the glass."],
+        lines: ["A finger touches the glass.", "Cold against the warmth."],
         type: "lived-moment",
         sourcePass: 1,
       },
       {
-        lines: ["The sound of typing starts.", "Then stops."],
+        lines: ["A notification appears.", "It blinks twice."],
         type: "lived-moment",
         sourcePass: 1,
       },
@@ -690,7 +700,10 @@ Remember: ONLY lived moments. Show, don't tell. Return exactly 3-4 beats.`,
   }
 }
 
-// XO-105: Pass 2 - Progression Engine
+// ============================================================================
+// PROGRESSION ENGINE (2-3 beats)
+// ============================================================================
+
 export class ProgressionEngine {
   static async generate(
     livedMoments: MicroStoryBeat[],
@@ -708,25 +721,21 @@ export class ProgressionEngine {
         messages: [
           {
             role: "system",
-            content: `You show progression WITHOUT naming emotions. STRICT RULES:
-1. Generate EXACTLY 2-3 beats (no more, no less)
-2. Each beat: 1-2 lines ONLY
-3. Show change, contrast, or temporal shift
-4. NO emotion labels (show, don't tell)
+            content: `Generate EXACTLY 2-3 progression beats. STRICT RULES:
+1. 2-3 beats only
+2. Each beat: 1-3 lines
+3. Show change or contrast
+4. NO emotion labels
 5. NO brand language
-6. Must follow from the lived moments
-7. Present tense only
-8. Show movement or change from first to last beat
-9. NO meta-commentary (no "Total beats:", "Beats:", etc.)
+6. Present tense
+7. NO meta-commentary
 
-Example format:
+Example:
 At halftime, nobody speaks.
 Eyes stay on the screen.
 
 When it ends, they sit back.
-Not smiling.
-
-Notice: Show change without naming emotions.`,
+Silence hangs in the air.`,
           },
           {
             role: "user",
@@ -739,33 +748,24 @@ Notice: Show change without naming emotions.`,
 
       const content = response.choices[0].message.content;
       if (!content) {
-        console.error("[XO] No content generated for progression");
-        return this.getConcreteFallbackBeats(livedMoments);
+        console.error("[XO] No content for progression");
+        return this.getFallbackBeats();
       }
 
-      console.log("[XO] Pass 2 raw output:", content.substring(0, 150) + "...");
+      console.log("[XO] Pass 2 output preview:", content.substring(0, 150));
 
       const beats = LivedMomentEngine.parseBeats(content);
-      const trimmedBeats = beats.length > 3 ? beats.slice(0, 3) : 
-                          beats.length < 2 ? [...beats, ...this.getFallbackProgression()] : 
-                          beats;
+      const targetCount = Math.min(Math.max(beats.length, 2), 3);
+      const trimmedBeats = beats.slice(0, targetCount);
       
-      console.log("[XO] Pass 2 parsed:", trimmedBeats.length, "beats");
-
-      const validation = this.validate(trimmedBeats, livedMoments);
-      if (!validation.valid) {
-        console.log("[XO] Pass 2 validation failed:", validation.errors);
-        return this.getConcreteFallbackBeats(livedMoments);
-      }
-
       return trimmedBeats.map((beat) => ({
-        lines: beat.slice(0, 2),
+        lines: beat.slice(0, 3),
         type: "progression" as const,
         sourcePass: 2,
       }));
     } catch (error) {
       console.error("[XO] Pass 2 error:", error);
-      return this.getConcreteFallbackBeats(livedMoments);
+      return this.getFallbackBeats();
     }
   }
 
@@ -774,9 +774,9 @@ Notice: Show change without naming emotions.`,
     scaffold: NarrativeScaffold,
     constraints?: MarketConstraints,
   ): string {
-    let prompt = `Continue with progression (show, don't tell):\n\n`;
+    let prompt = `Generate EXACTLY 2-3 progression beats:\n\n`;
     prompt += `Lived moments:\n${livedText}\n\n`;
-    prompt += `Generate EXACTLY 2-3 progression beats that show change or contrast.\n`;
+    prompt += `Show change or contrast.\n`;
     
     if (scaffold.market !== "GLOBAL") {
       prompt += `Market: ${scaffold.market}\n`;
@@ -786,81 +786,64 @@ Notice: Show change without naming emotions.`,
       prompt += `Cultural Context: ${constraints.culturalContext}\n`;
     }
 
-    if (constraints?.registerGuidance) {
-      prompt += `Language Style: ${constraints.registerGuidance}\n`;
-    }
-
-    prompt += `Return ONLY the beats, separated by blank lines.\n`;
-    prompt += `CRITICAL: NO meta-commentary (no "Total beats:", "Beats:", etc.)`;
+    prompt += `\nReturn 2-3 beats only.`;
+    prompt += `\nNO meta-commentary.`;
+    prompt += `\nNO brand mentions.`;
 
     return prompt;
   }
 
-  private static validate(
-    progressionBeats: string[][],
-    livedMoments: MicroStoryBeat[],
-  ): { valid: boolean; errors: string[] } {
-    const errors: string[] = [];
-
-    if (progressionBeats.length < 2 || progressionBeats.length > 3) {
-      errors.push(`Must have 2-3 beats, got ${progressionBeats.length}`);
-    }
-
-    const emotionWords = [
-      "happy", "sad", "angry", "excited", "disappointed", "proud", "feeling",
-    ];
-    for (const beat of progressionBeats) {
-      for (const line of beat) {
-        if (line.toLowerCase().includes('total beats') ||
-            line.toLowerCase().includes('beats total') ||
-            line.toLowerCase().includes('total:')) {
-          errors.push(`Meta-commentary detected: "${line.substring(0, 30)}..."`);
-        }
-
-        if (emotionWords.some((word) => line.toLowerCase().includes(word))) {
-          errors.push(`Emotion label detected: "${line.substring(0, 30)}..."`);
-        }
-      }
-    }
-
-    return { valid: errors.length === 0, errors };
-  }
-
-  private static getConcreteFallbackBeats(
-    livedMoments: MicroStoryBeat[],
-  ): MicroStoryBeat[] {
+  private static getFallbackBeats(): MicroStoryBeat[] {
     return [
       {
-        lines: ["They stay seated."],
+        lines: ["They stay seated.", "No one moves."],
         type: "progression",
         sourcePass: 2,
       },
       {
-        lines: ["Nobody speaks.", "The silence continues."],
+        lines: ["The air cools.", "Night approaches."],
         type: "progression",
         sourcePass: 2,
       },
     ];
-  }
-
-  private static getFallbackProgression(): string[][] {
-    return [["Time passes."], ["Things change."]];
   }
 }
 
-// XO-107: Pass 3 - Meaning Extraction Engine
+// ============================================================================
+// MEANING EXTRACTION ENGINE (0-2 beats)
+// ============================================================================
+
 export class MeaningExtractionEngine {
   static async generate(
     livedMoments: MicroStoryBeat[],
     progressionBeats: MicroStoryBeat[],
     scaffold: NarrativeScaffold,
     constraints?: MarketConstraints,
+    hasBrand?: boolean
   ): Promise<MicroStoryBeat[]> {
     const allBeats = [...livedMoments, ...progressionBeats];
+    const currentBeatCount = allBeats.length;
+    
+    // Max 8 beats total, leave room for brand if needed
+    const maxBeats = 8;
+    const targetMeaningBeats = hasBrand ? 1 : 2;
+    const availableSlots = maxBeats - currentBeatCount - (hasBrand ? 1 : 0);
+    
+    if (availableSlots <= 0) {
+      console.log(`[XO] Skipping meaning - no room (${currentBeatCount} beats)`);
+      return [];
+    }
+    
+    const meaningBeatsToGenerate = Math.min(targetMeaningBeats, availableSlots);
+    if (meaningBeatsToGenerate === 0) {
+      console.log(`[XO] No meaning beats needed (${currentBeatCount} beats)`);
+      return [];
+    }
+    
     const storyText = allBeats
       .map((beat) => beat.lines.join("\n"))
       .join("\n\n");
-    const prompt = this.buildPrompt(storyText, scaffold, constraints);
+    const prompt = this.buildPrompt(storyText, meaningBeatsToGenerate, scaffold, constraints);
 
     try {
       const response = await openai.chat.completions.create({
@@ -868,22 +851,20 @@ export class MeaningExtractionEngine {
         messages: [
           {
             role: "system",
-            content: `You extract human meaning. STRICT RULES:
-1. Generate EXACTLY 1-2 beats (no more, no less)
-2. Each beat: 1-2 lines ONLY
-3. ONE abstraction per beat max (truth, meaning, purpose, connection, etc.)
-4. NO marketing or strategy language
-5. Sound like human truth, not insight deck
-6. Removing these beats should leave story intact
-7. Present tense preferred
-8. NO meta-commentary (no "Total beats:", "Beats:", etc.)
+            content: `Generate ${meaningBeatsToGenerate} meaning beat(s). STRICT RULES:
+1. ${meaningBeatsToGenerate} beat(s) only
+2. Each beat: 1-2 lines
+3. Human truth, not marketing
+4. Simple abstraction
+5. NO meta-commentary
+6. NO brand mentions
 
-Example format:
+Example for 1 beat:
 Some things matter because you stayed for all of it.
 
-Belonging doesn't need explaining.
-
-Notice: Simple, human truth. Not explaining the story, just extending it.`,
+Example for 2 beats:
+The quiet moments hold the truth.
+What remains after the noise fades.`,
           },
           {
             role: "user",
@@ -895,130 +876,82 @@ Notice: Simple, human truth. Not explaining the story, just extending it.`,
       });
 
       const content = response.choices[0].message.content;
-      if (!content) {
-        console.error("[XO] No content generated for meaning");
-        return this.getConcreteFallbackBeats();
+      if (!content || content.trim().length < 10) {
+        console.log("[XO] No meaning beat generated");
+        return [];
       }
 
-      console.log("[XO] Pass 3 raw output:", content.substring(0, 100) + "...");
+      console.log("[XO] Pass 3 output preview:", content.substring(0, 100));
 
       const beats = LivedMomentEngine.parseBeats(content);
-      const trimmedBeats = beats.length > 2 ? beats.slice(0, 2) : 
-                          beats.length < 1 ? [["Showing up matters."]] : 
-                          beats;
-      
-      console.log("[XO] Pass 3 parsed:", trimmedBeats.length, "beats");
-
-      const validation = this.validate(trimmedBeats);
-      if (!validation.valid) {
-        console.log("[XO] Pass 3 validation failed:", validation.errors);
-        return this.getConcreteFallbackBeats();
+      if (beats.length > 0) {
+        return beats.slice(0, meaningBeatsToGenerate).map(beat => ({
+          lines: beat.slice(0, 2),
+          type: "meaning" as const,
+          sourcePass: 3,
+        }));
       }
-
-      return trimmedBeats.map((beat) => ({
-        lines: beat.slice(0, 2),
-        type: "meaning" as const,
-        sourcePass: 3,
-      }));
+      
+      return [];
     } catch (error) {
       console.error("[XO] Pass 3 error:", error);
-      return this.getConcreteFallbackBeats();
+      return [];
     }
   }
 
   private static buildPrompt(
     storyText: string,
+    beatCount: number,
     scaffold: NarrativeScaffold,
     constraints?: MarketConstraints,
   ): string {
-    let prompt = `Extract EXACTLY 1-2 meaning beats from this story:\n\n`;
+    let prompt = `Extract ${beatCount} meaning beat(s) from this story:\n\n`;
     prompt += `${storyText}\n\n`;
-    prompt += `Extract human truth (not marketing).\n`;
     
     if (scaffold.market !== "GLOBAL") {
       prompt += `Market: ${scaffold.market}\n`;
     }
 
-    if (constraints?.culturalContext) {
-      prompt += `Cultural Context: ${constraints.culturalContext}\n`;
-    }
-
-    prompt += `Return ONLY the meaning beats, separated by blank lines.\n`;
-    prompt += `CRITICAL: NO meta-commentary (no "Total beats:", "Beats:", etc.)`;
+    prompt += `\nReturn EXACTLY ${beatCount} beat(s) that add human truth.`;
+    prompt += `\nNO meta-commentary.`;
+    prompt += `\nNO brand mentions.`;
 
     return prompt;
   }
-
-  private static validate(meaningBeats: string[][]): {
-    valid: boolean;
-    errors: string[];
-  } {
-    const errors: string[] = [];
-
-    if (meaningBeats.length < 1 || meaningBeats.length > 2) {
-      errors.push(`Must have 1-2 beats, got ${meaningBeats.length}`);
-    }
-
-    for (const beat of meaningBeats) {
-      for (const line of beat) {
-        if (line.toLowerCase().includes('total beats') ||
-            line.toLowerCase().includes('beats total') ||
-            line.toLowerCase().includes('total:')) {
-          errors.push(`Meta-commentary detected: "${line.substring(0, 30)}..."`);
-        }
-
-        const marketingWords = [
-          "brand", "campaign", "strategy", "target", "audience", "engagement", "marketing", "business",
-        ];
-        if (marketingWords.some((word) => line.toLowerCase().includes(word))) {
-          errors.push(`Marketing language detected: "${line.substring(0, 30)}..."`);
-        }
-      }
-    }
-
-    return { valid: errors.length === 0, errors };
-  }
-
-  private static getConcreteFallbackBeats(): MicroStoryBeat[] {
-    return [
-      {
-        lines: ["Showing up matters."],
-        type: "meaning",
-        sourcePass: 3,
-      },
-    ];
-  }
 }
 
-// XO-108: Pass 4 - Brand Alignment Gate
+// ============================================================================
+// BRAND ALIGNMENT ENGINE - ONLY FOR DISTINCT BRANDS
+// ============================================================================
+
 export class BrandAlignmentEngine {
   static async generate(
     allBeats: MicroStoryBeat[],
-    brand: string | undefined, // Can be from frontend or extracted
+    brand: string,
     scaffold: NarrativeScaffold,
     constraints?: MarketConstraints,
   ): Promise<MicroStoryBeat[]> {
-    // Only proceed if we have a brand
-    if (!brand || brand.trim() === '') {
-      console.log("[XO] No brand provided, skipping brand alignment");
+    // Validate brand is a real brand, not a common word
+    if (!BrandValidator.isDistinctBrand(brand)) {
+      console.log(`[XO] Not a distinct brand: "${brand}" - skipping`);
       return [];
     }
     
     const totalBeats = allBeats.length;
-    if (totalBeats < 3) {
-      console.log("[XO] Not enough beats to earn brand");
-      return [];
-    }
-
-    if (totalBeats >= 8) {
-      console.log("[XO] Story already has 8 beats, no room for brand");
+    const maxBeats = 8;
+    
+    // Need room for brand beat
+    if (totalBeats >= maxBeats) {
+      console.log(`[XO] No room for brand beat: ${totalBeats} beats`);
       return [];
     }
 
     const storyText = allBeats
       .map((beat) => beat.lines.join("\n"))
       .join("\n\n");
-    const prompt = this.buildPrompt(storyText, brand, scaffold, constraints);
+    
+    const storyTheme = this.extractTheme(allBeats);
+    const prompt = this.buildPrompt(storyText, brand, storyTheme, scaffold, constraints);
 
     try {
       const response = await openai.chat.completions.create({
@@ -1026,22 +959,24 @@ export class BrandAlignmentEngine {
         messages: [
           {
             role: "system",
-            content: `You add ONE brand beat ONLY if earned. STRICT RULES:
-1. MAX 1 beat only (or none if not earned)
-2. Must follow meaning beats
-3. Brand ≤25% of total beats
-4. Removing brand beat leaves complete story
-5. Brand does NOT explain or summarize
-6. Beat should feel organic, not forced
-7. Include brand name naturally
-8. 1-2 lines only
-9. NO meta-commentary (no "Total beats:", "Beats:", etc.)
+            content: `Create ONE brand-aligned beat. STRICT RULES:
+1. Create 1 beat ONLY (1-2 lines)
+2. Beat must be a COMPLETE thought
+3. Integrate brand name "${brand}" naturally
+4. Do NOT just add brand name at the end
+5. Connect to the story's theme
+6. Make it organic, not forced
+7. NO meta-commentary
 
-Example format:
-Made for effort, not excuses.
-adidas
+Examples of GOOD brand beats:
+"For the moments that matter most. With Nike."
+"Designed for those who don't just watch. Adidas."
+"Built to last through every chapter. Levi's."
 
-Or return nothing if not earned.`,
+Examples of BAD brand beats:
+"Nike" (just brand name)
+"With Nike" (incomplete thought)
+"This story is about Nike" (explanatory)`,
           },
           {
             role: "user",
@@ -1049,7 +984,7 @@ Or return nothing if not earned.`,
           },
         ],
         temperature: 0.4,
-        max_tokens: 40,
+        max_tokens: 60,
       });
 
       const content = response.choices[0].message.content;
@@ -1058,37 +993,120 @@ Or return nothing if not earned.`,
         return [];
       }
 
-      console.log("[XO] Pass 4 raw output:", content);
+      console.log("[XO] Pass 4 output:", content);
 
-      const beats = LivedMomentEngine.parseBeats(content).slice(0, 1);
-
-      const validation = this.validate(beats, allBeats, brand);
-      if (!validation.valid) {
-        console.log("[XO] Pass 4 validation failed:", validation.errors);
+      // Clean and validate the brand beat
+      const brandBeat = this.cleanBrandBeat(content, brand);
+      if (!brandBeat) {
+        console.log("[XO] Brand beat validation failed");
         return [];
       }
 
-      console.log("[XO] Brand beat earned for:", brand);
-      return beats.map((beat) => ({
-        lines: beat.slice(0, 2),
+      return [{
+        lines: brandBeat,
         type: "brand" as const,
         sourcePass: 4,
-      }));
+      }];
     } catch (error) {
       console.error("[XO] Pass 4 error:", error);
       return [];
     }
   }
 
+  private static extractTheme(allBeats: MicroStoryBeat[]): string {
+    const allText = allBeats
+      .map(beat => beat.lines.join(" "))
+      .join(" ")
+      .toLowerCase();
+    
+    if (allText.includes("together") || allText.includes("connection") || allText.includes("share")) {
+      return "connection";
+    } else if (allText.includes("effort") || allText.includes("work") || allText.includes("try")) {
+      return "effort";
+    } else if (allText.includes("moment") || allText.includes("time") || allText.includes("present")) {
+      return "presence";
+    } else if (allText.includes("change") || allText.includes("new") || allText.includes("begin")) {
+      return "transformation";
+    } else if (allText.includes("quiet") || allText.includes("silence") || allText.includes("still")) {
+      return "stillness";
+    } else {
+      return "human experience";
+    }
+  }
+
+  private static cleanBrandBeat(content: string, brand: string): string[] | null {
+    const cleaned = content
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => {
+        const lowerLine = line.toLowerCase();
+        return !(
+          lowerLine.includes('total beats') ||
+          lowerLine.includes('beats total') ||
+          lowerLine.includes('total:') ||
+          /\(\d+\s+beats/.test(lowerLine) ||
+          lowerLine.includes('brand beat:') ||
+          lowerLine.includes('beat:') ||
+          lowerLine.includes('type:')
+        );
+      })
+      .join('\n')
+      .trim();
+
+    const paragraphs = cleaned.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+    if (paragraphs.length === 0) {
+      return null;
+    }
+
+    const lines = paragraphs[0]
+      .split("\n")
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .slice(0, 2);
+
+    if (lines.length === 0) {
+      return null;
+    }
+
+    // Validate brand inclusion
+    const beatText = lines.join(" ").toLowerCase();
+    const brandLower = brand.toLowerCase();
+    
+    if (!beatText.includes(brandLower)) {
+      console.log(`[XO] Brand beat doesn't contain brand name: "${beatText}"`);
+      return null;
+    }
+
+    // Must be a complete thought
+    if (beatText.split(" ").length < 3) {
+      console.log(`[XO] Brand beat too short: "${beatText}"`);
+      return null;
+    }
+
+    // Check natural integration
+    const words = beatText.split(" ");
+    const brandPosition = words.findIndex(word => word.includes(brandLower));
+    
+    // Don't allow brand to be just tacked on at the end
+    if (brandPosition === words.length - 1 && words.length <= 4) {
+      console.log(`[XO] Brand name just tacked on: "${beatText}"`);
+      return null;
+    }
+
+    return lines;
+  }
+
   private static buildPrompt(
     storyText: string,
     brand: string,
+    theme: string,
     scaffold: NarrativeScaffold,
     constraints?: MarketConstraints,
   ): string {
-    let prompt = `Add ONE brand beat for ${brand} ONLY if earned:\n\n`;
-    prompt += `${storyText}\n\n`;
-    prompt += `Brand: ${brand}\n`;
+    let prompt = `Story:\n${storyText}\n\n`;
+    prompt += `Create ONE final brand-aligned beat for ${brand}.\n`;
+    prompt += `Story theme: ${theme}\n`;
+    prompt += `Brand: ${brand}\n\n`;
     
     if (scaffold.market !== "GLOBAL") {
       prompt += `Market: ${scaffold.market}\n`;
@@ -1098,145 +1116,139 @@ Or return nothing if not earned.`,
       prompt += `Cultural Context: ${constraints.culturalContext}\n`;
     }
 
-    prompt += `Return ONE beat only (1-2 lines) or nothing if not earned.\n`;
-    prompt += `CRITICAL: NO meta-commentary (no "Total beats:", "Beats:", etc.)`;
+    prompt += `\nIMPORTANT:`;
+    prompt += `\n1. Integrate "${brand}" NATURALLY into the beat`;
+    prompt += `\n2. Make it a COMPLETE thought (1-2 lines)`;
+    prompt += `\n3. Connect to the story's theme`;
+    prompt += `\n4. This is the LAST beat of the story`;
+    prompt += `\n5. Do NOT use brand as a separate line`;
 
     return prompt;
   }
-
-  private static validate(
-    brandBeats: string[][],
-    allBeats: MicroStoryBeat[],
-    brand: string,
-  ): { valid: boolean; errors: string[] } {
-    const errors: string[] = [];
-
-    if (brandBeats.length > 1) {
-      errors.push("Max 1 brand beat allowed");
-      return { valid: false, errors };
-    }
-
-    if (brandBeats.length === 0) {
-      return { valid: true, errors: [] };
-    }
-
-    const brandBeat = brandBeats[0];
-    const brandText = brandBeat.join(" ").toLowerCase();
-    const brandName = brand.toLowerCase();
-
-    if (brandText.includes('total beats') ||
-        brandText.includes('beats total') ||
-        brandText.includes('total:')) {
-      errors.push("Meta-commentary detected in brand beat");
-    }
-
-    if (!brandText.includes(brandName)) {
-      errors.push(`Brand "${brand}" not mentioned in brand beat`);
-    }
-
-    const explainingWords = [
-      "because", "so that", "this shows", "means that", "which is why", "therefore",
-    ];
-    if (explainingWords.some((word) => brandText.includes(word))) {
-      errors.push("Brand explains or summarizes the story");
-    }
-
-    const totalWithBrand = allBeats.length + 1;
-    const brandPercentage = 1 / totalWithBrand;
-    if (brandPercentage > 0.25) {
-      errors.push(`Brand beat is ${Math.round(brandPercentage * 100)}% of story (>25% max)`);
-    }
-
-    return { valid: errors.length === 0, errors };
-  }
 }
 
-// XO-109: Pass 5 - Compression & Micro-Story Enforcement
+// ============================================================================
+// COMPRESSION ENGINE (3-8 beats)
+// ============================================================================
+
 export class CompressionEngine {
   static async enforce(
     allBeats: MicroStoryBeat[],
     scaffold: NarrativeScaffold,
     constraints?: MarketConstraints,
+    hasBrand?: boolean
   ): Promise<MicroStory> {
-    const MAX_TOTAL_BEATS = 8;
+    const MIN_BEATS = 3;
+    const MAX_BEATS = 8;
     
-    let trimmedBeats = [...allBeats];
-    if (trimmedBeats.length > MAX_TOTAL_BEATS) {
-      console.log(`[XO] Trimming ${trimmedBeats.length} beats to ${MAX_TOTAL_BEATS}`);
-      
-      const livedMoments = trimmedBeats.filter(b => b.type === "lived-moment");
-      const progression = trimmedBeats.filter(b => b.type === "progression");
-      const meaning = trimmedBeats.filter(b => b.type === "meaning");
-      const brand = trimmedBeats.filter(b => b.type === "brand");
-      
-      let remainingSlots = MAX_TOTAL_BEATS;
-      const result: MicroStoryBeat[] = [];
-      
-      const livedToAdd = Math.min(livedMoments.length, 4, remainingSlots);
-      result.push(...livedMoments.slice(0, livedToAdd));
-      remainingSlots -= livedToAdd;
-      
-      if (remainingSlots > 0) {
-        const progToAdd = Math.min(progression.length, 3, remainingSlots);
-        result.push(...progression.slice(0, progToAdd));
-        remainingSlots -= progToAdd;
-      }
-      
-      if (remainingSlots > 0) {
-        const meaningToAdd = Math.min(meaning.length, 2, remainingSlots);
-        result.push(...meaning.slice(0, meaningToAdd));
-        remainingSlots -= meaningToAdd;
-      }
-      
-      if (remainingSlots > 0 && brand.length > 0) {
-        result.push(brand[0]);
-      }
-      
-      trimmedBeats = result;
+    console.log(`[XO] Compression: ${allBeats.length} beats, hasBrand=${hasBrand}`);
+    
+    // Sort by source pass
+    const sortedBeats = [...allBeats].sort((a, b) => (a.sourcePass || 0) - (b.sourcePass || 0));
+    
+    // Count by type
+    const livedMoments = sortedBeats.filter(b => b.type === "lived-moment");
+    const progression = sortedBeats.filter(b => b.type === "progression");
+    const meaning = sortedBeats.filter(b => b.type === "meaning");
+    const brand = sortedBeats.filter(b => b.type === "brand");
+    
+    // Build optimized structure
+    const optimizedBeats: MicroStoryBeat[] = [];
+    
+    // Add lived moments (3-4)
+    const livedToTake = Math.min(Math.max(livedMoments.length, 3), 4);
+    optimizedBeats.push(...livedMoments.slice(0, livedToTake));
+    
+    // Add progression (2-3)
+    const progToTake = Math.min(Math.max(progression.length, 2), 3);
+    optimizedBeats.push(...progression.slice(0, progToTake));
+    
+    // Add meaning if room (0-2)
+    const currentCount = optimizedBeats.length;
+    const availableSlots = MAX_BEATS - currentCount - (hasBrand ? 1 : 0);
+    if (availableSlots > 0 && meaning.length > 0) {
+      const meaningToTake = Math.min(meaning.length, Math.min(availableSlots, 2));
+      optimizedBeats.push(...meaning.slice(0, meaningToTake));
     }
     
-    const storyText = trimmedBeats
-      .map((beat) => beat.lines.join("\n"))
-      .join("\n\n");
-
+    // Add brand as LAST if present (0-1)
+    const hasBrandBeat = brand.length > 0 && hasBrand;
+    if (hasBrandBeat && optimizedBeats.length < MAX_BEATS) {
+      optimizedBeats.push(...brand.slice(0, 1));
+    }
+    
+    // Ensure minimum beats
+    while (optimizedBeats.length < MIN_BEATS) {
+      optimizedBeats.push({
+        lines: ["A moment unfolds."],
+        type: "lived-moment"
+      });
+    }
+    
+    // Ensure maximum beats
+    if (optimizedBeats.length > MAX_BEATS) {
+      optimizedBeats.length = MAX_BEATS;
+    }
+    
+    // Ensure brand is last
+    if (hasBrandBeat) {
+      const brandIndex = optimizedBeats.findIndex(b => b.type === "brand");
+      if (brandIndex !== -1 && brandIndex !== optimizedBeats.length - 1) {
+        const brandBeat = optimizedBeats.splice(brandIndex, 1)[0];
+        optimizedBeats.push(brandBeat);
+      }
+    }
+    
+    console.log(`[XO] Optimized to ${optimizedBeats.length} beats`, {
+      lived: optimizedBeats.filter(b => b.type === "lived-moment").length,
+      progression: optimizedBeats.filter(b => b.type === "progression").length,
+      meaning: optimizedBeats.filter(b => b.type === "meaning").length,
+      brand: optimizedBeats.filter(b => b.type === "brand").length
+    });
+    
+    // Create microstory
+    const microStory: MicroStory = {
+      beats: optimizedBeats,
+      market: scaffold.market,
+      hasBrand: hasBrandBeat,
+    };
+    
+    // Validate
+    const validation = MicroStoryValidator.validate(microStory);
+    if (validation.valid) {
+      return microStory;
+    }
+    
+    // If invalid, generate clean version
+    console.log("[XO] Validation failed:", validation.errors);
+    return await this.generateCleanVersion(scaffold, constraints, hasBrand);
+  }
+  
+  private static async generateCleanVersion(
+    scaffold: NarrativeScaffold,
+    constraints?: MarketConstraints,
+    hasBrand?: boolean,
+  ): Promise<MicroStory> {
     try {
-      const systemPrompt = `You format existing beats into proper micro-story structure. STRICT RULES:
-1. PRESERVE the original narrative order
-2. Format each beat as 1-2 lines, separated by blank lines
-3. Remove any connective tissue ("and then", "after that")
-4. ENSURE total beats are 3-8 (NEVER more than 8)
-5. Keep the narrative progression intact
-6. Format: beat line(s) then blank line
-7. NEVER output more than 8 beats total
-8. ABSOLUTELY NO meta-commentary (NO "Total beats:", "Beats:", "Beat count:", etc.)
-
-CRITICAL: Output MUST have 3-8 beats total.
-CRITICAL: NEVER include any mention of beats or counts in the output.`;
-
-      let userPrompt = `Format these beats into a micro-story. MAINTAIN ORDER, ENSURE 3-8 BEATS TOTAL:\n\n${storyText}\n\nIMPORTANT: Output exactly 3-8 beats. NO meta-commentary.`;
+      const targetBeats = hasBrand ? 7 : 6; // Leave room for brand if needed
       
-      if (scaffold.market !== "GLOBAL") {
-        userPrompt += `\nMarket: ${scaffold.market}`;
-      }
-
-      if (constraints?.culturalContext) {
-        userPrompt += `\nCultural Context: ${constraints.culturalContext}`;
-      }
-
-      if (constraints?.registerGuidance) {
-        userPrompt += `\nLanguage Style: ${constraints.registerGuidance}`;
-      }
-
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
           {
             role: "system",
-            content: systemPrompt,
+            content: `Generate a ${targetBeats}-beat micro-story. STRICT RULES:
+1. ${targetBeats} beats total
+2. Each beat: 1-3 lines
+3. Structure: 3-4 lived moments, 2-3 progression, 0-2 meaning${hasBrand ? ', 1 brand' : ''}
+4. Brand MUST be last if present
+5. NO meta-commentary
+6. Present tense
+7. NO beat numbering or type labels`,
           },
           {
             role: "user",
-            content: userPrompt,
+            content: `Generate a ${targetBeats}-beat micro-story.`,
           },
         ],
         temperature: 0.3,
@@ -1245,152 +1257,61 @@ CRITICAL: NEVER include any mention of beats or counts in the output.`;
 
       const content = response.choices[0].message.content;
       if (!content) {
-        throw new Error("No content generated for compression");
+        throw new Error("No content");
       }
-
-      console.log("[XO] Pass 5 raw output:", content.substring(0, 200) + "...");
 
       const microStory = MicroStoryValidator.fromText(content);
       microStory.market = scaffold.market;
+      microStory.hasBrand = hasBrand || false;
       
-      // Determine if there's a brand beat
-      const hasBrandBeat = trimmedBeats.some((beat) => beat.type === "brand");
-      microStory.hasBrand = hasBrandBeat;
-
-      // SAFETY CHECK: Ensure we never exceed 8 beats
-      if (microStory.beats.length > 8) {
-        console.warn(`[XO] WARNING: Compression produced ${microStory.beats.length} beats, truncating to 8`);
-        microStory.beats = microStory.beats.slice(0, 8);
-      }
-
-      // ENSURE MINIMUM 3 BEATS
-      if (microStory.beats.length < 3) {
-        console.warn(`[XO] WARNING: Only ${microStory.beats.length} beats, adding fallback beats`);
-        const fallbackBeats: MicroStoryBeat[] = [
-          { lines: ["The screen lights up."], type: "lived-moment" },
-          { lines: ["Time passes."], type: "progression" },
-          { lines: ["Moments matter."], type: "meaning" },
-        ];
-        microStory.beats = [...microStory.beats, ...fallbackBeats.slice(0, 3 - microStory.beats.length)];
-      }
-
-      // Clean any remaining meta-commentary
-      microStory.beats = microStory.beats.map(beat => ({
-        ...beat,
-        lines: beat.lines.filter(line => {
-          const lowerLine = line.toLowerCase();
-          return !(
-            lowerLine.includes('total beats') ||
-            lowerLine.includes('beats total') ||
-            lowerLine.includes('total:') ||
-            /\(\d+\s+beats/.test(lowerLine)
-          );
-        })
-      })).filter(beat => beat.lines.length > 0);
-
       // Assign types based on position
-      this.assignTypesByPosition(microStory);
-
-      // ENFORCE NARRATIVE ORDER
-      this.enforceNarrativeOrder(microStory);
-
-      // Final validation
-      const validation = MicroStoryValidator.validate(microStory);
-      if (!validation.valid) {
-        console.log("[XO] Final validation failed:", validation.errors);
-        return this.createGuaranteedValidStory(scaffold.market);
-      }
-
-      console.log("[XO] Compression successful:", microStory.beats.length, "beats");
+      this.assignTypes(microStory, hasBrand);
+      
       return microStory;
     } catch (error) {
-      console.error("[XO] Pass 5 error:", error);
-      return this.createGuaranteedValidStory(scaffold.market);
+      console.error("[XO] Clean version error:", error);
+      return this.createGuaranteedStory(scaffold.market, hasBrand);
     }
   }
 
-  private static assignTypesByPosition(microStory: MicroStory) {
+  private static assignTypes(microStory: MicroStory, hasBrand?: boolean) {
     const totalBeats = microStory.beats.length;
-    
-    const livedCount = Math.max(2, Math.min(4, Math.floor(totalBeats * 0.4)));
-    const progCount = Math.max(2, Math.min(3, Math.floor(totalBeats * 0.3)));
-    const meaningCount = Math.max(1, Math.min(2, Math.floor(totalBeats * 0.2)));
+    const brandIndex = hasBrand ? totalBeats - 1 : -1;
     
     for (let i = 0; i < totalBeats; i++) {
-      if (i < livedCount) {
-        microStory.beats[i].type = "lived-moment";
-      } else if (i < livedCount + progCount) {
-        microStory.beats[i].type = "progression";
-      } else if (i < livedCount + progCount + meaningCount) {
-        microStory.beats[i].type = "meaning";
-      } else {
+      if (i === brandIndex) {
         microStory.beats[i].type = "brand";
+      } else if (i < 3) {
+        microStory.beats[i].type = "lived-moment";
+      } else if (i < 5) {
+        microStory.beats[i].type = "progression";
+      } else {
+        microStory.beats[i].type = "meaning";
       }
-    }
-    
-    if (!microStory.hasBrand && microStory.beats[totalBeats - 1].type === "brand") {
-      microStory.beats[totalBeats - 1].type = "meaning";
     }
   }
 
-  private static enforceNarrativeOrder(microStory: MicroStory) {
-    const beats = microStory.beats;
-    const totalBeats = beats.length;
+  static createGuaranteedStory(
+    market: MarketType = "GLOBAL",
+    hasBrand?: boolean
+  ): MicroStory {
+    const beats: MicroStoryBeat[] = [
+      { lines: ["The notification arrives."], type: "lived-moment" },
+      { lines: ["Eyes watch the screen."], type: "lived-moment" },
+      { lines: ["A breath is held.", "Then released."], type: "lived-moment" },
+      { lines: ["Silence fills the room."], type: "progression" },
+      { lines: ["The light changes.", "Shadows shift."], type: "progression" },
+      { lines: ["Connection matters."], type: "meaning" },
+    ];
     
-    if (totalBeats < 3) return;
-    
-    const livedMoments: MicroStoryBeat[] = [];
-    const progression: MicroStoryBeat[] = [];
-    const meaning: MicroStoryBeat[] = [];
-    const brand: MicroStoryBeat[] = [];
-    
-    for (const beat of beats) {
-      switch (beat.type) {
-        case "lived-moment": livedMoments.push(beat); break;
-        case "progression": progression.push(beat); break;
-        case "meaning": meaning.push(beat); break;
-        case "brand": brand.push(beat); break;
-      }
+    if (hasBrand) {
+      beats.push({ lines: ["For moments that matter. Brand."], type: "brand" });
     }
     
-    microStory.beats = [...livedMoments, ...progression, ...meaning, ...brand];
-    
-    while (livedMoments.length < 2) {
-      microStory.beats.unshift({
-        lines: ["A moment happens."],
-        type: "lived-moment"
-      });
-      livedMoments.length++;
-    }
-    
-    while (progression.length < 2 && microStory.beats.length < 8) {
-      microStory.beats.splice(livedMoments.length + progression.length, 0, {
-        lines: ["Change occurs."],
-        type: "progression"
-      });
-      progression.length++;
-    }
-    
-    while (meaning.length < 1 && microStory.beats.length < 8) {
-      microStory.beats.splice(livedMoments.length + progression.length + meaning.length, 0, {
-        lines: ["This matters."],
-        type: "meaning"
-      });
-      meaning.length++;
-    }
-  }
-
-  public static createGuaranteedValidStory(market: "GLOBAL" | "NG" | "UK" = "GLOBAL"): MicroStory {
     return {
-      beats: [
-        { lines: ["The notification arrives."], type: "lived-moment" },
-        { lines: ["Eyes watch the screen."], type: "lived-moment" },
-        { lines: ["Silence fills the room."], type: "progression" },
-        { lines: ["Time passes slowly."], type: "progression" },
-        { lines: ["Attention is everything."], type: "meaning" },
-      ],
-      market: market,
-      hasBrand: false,
+      beats,
+      market,
+      hasBrand: hasBrand || false,
     };
   }
 }
@@ -1402,103 +1323,92 @@ CRITICAL: NEVER include any mention of beats or counts in the output.`;
 export class XONarrativeEngine {
   static async generate(
     userInput: string,
-    market: "GLOBAL" | "NG" | "UK" = "GLOBAL",
-    frontendBrand?: string, // From frontend brand field - takes priority
+    market: MarketType = "GLOBAL",
+    frontendBrand?: string,
   ): Promise<MicroStory> {
-    console.log(
-      `[XO] Starting narrative generation for "${userInput.substring(0, 50)}..."`,
-    );
+    console.log(`[XO] Starting generation: "${userInput.substring(0, 50)}..."`);
     
-    // BRAND PRIORITY LOGIC: Frontend brand always takes priority
-    // If frontend provided brand, use it. Otherwise, try to extract from user input.
-    let effectiveBrand = frontendBrand?.trim();
-    let extractedBrand: string | null = null;
-    
-    if (!effectiveBrand || effectiveBrand === '') {
-      extractedBrand = BrandExtractor.extractFromInput(userInput);
-      effectiveBrand = extractedBrand || undefined;
-    }
-    
-    console.log(`[XO] Brand handling:`, {
-      frontendBrand,
-      extractedBrand,
-      effectiveBrand,
-      market
-    });
-
     try {
-      // XO-101: Intent Normalizer
-      const { normalizedInput, entryForm, extractedBrand: extractedFromNormalizer } = IntentNormalizer.normalize(
-        userInput,
-        market,
-      );
+      // Normalize input and extract brand
+      const { normalizedInput, entryForm, extractedBrand } = 
+        IntentNormalizer.normalize(userInput, market);
       
-      // Use extracted brand from normalizer if not already set
-      if (!effectiveBrand && extractedFromNormalizer) {
-        effectiveBrand = extractedFromNormalizer;
+      // Determine effective brand
+      let effectiveBrand: string | undefined = undefined;
+      let hasDistinctBrand = false;
+      
+      if (frontendBrand && frontendBrand.trim() !== '') {
+        // Check if frontend brand is a distinct brand
+        if (BrandValidator.isDistinctBrand(frontendBrand)) {
+          effectiveBrand = frontendBrand.trim();
+          hasDistinctBrand = true;
+          console.log(`[XO] Using distinct frontend brand: "${effectiveBrand}"`);
+        }
+      } else if (extractedBrand) {
+        // Check if extracted brand is a distinct brand
+        if (BrandValidator.isDistinctBrand(extractedBrand)) {
+          effectiveBrand = extractedBrand;
+          hasDistinctBrand = true;
+          console.log(`[XO] Using distinct extracted brand: "${effectiveBrand}"`);
+        }
       }
       
-      console.log(
-        `[XO] Normalized: "${normalizedInput}", Entry form: ${entryForm}, Effective Brand: ${effectiveBrand || "none"}`,
-      );
+      if (!hasDistinctBrand) {
+        console.log(`[XO] No distinct brand found, will generate brandless story`);
+      }
 
+      // Create context
       const context: PipelineContext = {
         market,
-        brand: effectiveBrand, // Effective brand (frontend priority)
-        extractedBrand: extractedFromNormalizer || extractedBrand,
+        brand: effectiveBrand,
+        extractedBrand,
         entryForm,
         userInput: normalizedInput,
       };
 
-      // XO-201: Generate market constraints dynamically
-      console.log("[XO] Generating market constraints...");
+      // Generate constraints
       const constraints = await MarketConstraintGenerator.generate(market);
       context.constraints = constraints;
-      console.log("[XO] Constraints generated:", constraints);
 
-      // XO-102: Generate scaffold
+      // Generate scaffold
       const scaffold = NarrativeScaffoldGenerator.generate(context);
 
-      // Pass 1: Lived Moment
-      console.log("[XO] Pass 1: Generating lived moments");
+      // Pass 1: Lived moments (3-4 beats)
+      console.log("[XO] Pass 1: Lived moments");
       const livedMoments = await LivedMomentEngine.generate(
         normalizedInput,
         scaffold,
         constraints,
       );
-      console.log(`[XO] Pass 1 complete: ${livedMoments.length} beats`);
 
-      // Pass 2: Progression
-      console.log("[XO] Pass 2: Generating progression");
+      // Pass 2: Progression (2-3 beats)
+      console.log("[XO] Pass 2: Progression");
       const progression = await ProgressionEngine.generate(
         livedMoments,
         scaffold,
         constraints,
       );
-      console.log(`[XO] Pass 2 complete: ${progression.length} beats`);
 
-      // Pass 3: Meaning Extraction
-      console.log("[XO] Pass 3: Extracting meaning");
+      // Combine
+      let allBeats: MicroStoryBeat[] = [...livedMoments, ...progression];
+
+      // Pass 3: Meaning (0-2 beats) - based on brand status
+      console.log("[XO] Pass 3: Meaning");
       const meaning = await MeaningExtractionEngine.generate(
         livedMoments,
         progression,
         scaffold,
         constraints,
+        hasDistinctBrand
       );
-      console.log(`[XO] Pass 3 complete: ${meaning.length} beats`);
+      if (meaning.length > 0) {
+        allBeats = [...allBeats, ...meaning];
+      }
 
-      // Combine beats so far
-      let allBeats = [...livedMoments, ...progression, ...meaning];
-      console.log(`[XO] Combined beats before brand: ${allBeats.length} total`);
-
-      const MAX_TOTAL_BEATS = 8;
-      const hasRoomForBrand = allBeats.length < MAX_TOTAL_BEATS;
-
-      // Pass 4: Brand Alignment (optional)
-      let brandBeats: MicroStoryBeat[] = [];
-      if (effectiveBrand && hasRoomForBrand) {
-        console.log("[XO] Pass 4: Checking brand alignment for:", effectiveBrand);
-        brandBeats = await BrandAlignmentEngine.generate(
+      // Pass 4: Brand (0-1 beat, LAST) - ONLY IF DISTINCT BRAND
+      if (hasDistinctBrand && effectiveBrand) {
+        console.log(`[XO] Pass 4: Brand for "${effectiveBrand}"`);
+        const brandBeats = await BrandAlignmentEngine.generate(
           allBeats,
           effectiveBrand,
           scaffold,
@@ -1506,149 +1416,104 @@ export class XONarrativeEngine {
         );
         if (brandBeats.length > 0) {
           allBeats = [...allBeats, ...brandBeats];
-          console.log(`[XO] Brand added: ${brandBeats.length} beat`);
+          console.log(`[XO] Brand beat added: "${brandBeats[0].lines.join(" ")}"`);
         } else {
-          console.log("[XO] No brand beat earned");
+          console.log("[XO] No brand beat earned - proceeding brandless");
+          hasDistinctBrand = false; // Revert to brandless
         }
-      } else if (effectiveBrand && !hasRoomForBrand) {
-        console.log(`[XO] No room for brand - already have ${allBeats.length} beats`);
       }
 
-      // Pass 5: Compression & Final Formatting
-      console.log("[XO] Pass 5: Compression and formatting");
+      // Pass 5: Compression (ENFORCE 3-8 beats)
+      console.log("[XO] Pass 5: Compression");
       const microStory = await CompressionEngine.enforce(
         allBeats,
         scaffold,
         constraints,
+        hasDistinctBrand
       );
 
-      // Set brand properties
-      const hasBrandBeat = allBeats.some(beat => beat.type === "brand");
-      microStory.hasBrand = hasBrandBeat || !!effectiveBrand;
-      microStory.frontendBrand = frontendBrand;
-      microStory.extractedBrand = extractedFromNormalizer || extractedBrand;
+      // Set brand properties - ONLY if we actually have a brand beat
+      const hasBrandBeat = microStory.beats.some(beat => beat.type === "brand");
+      microStory.hasBrand = hasBrandBeat;
+      
+      if (hasBrandBeat) {
+        microStory.frontendBrand = frontendBrand;
+        microStory.extractedBrand = extractedBrand;
+        console.log(`[XO] Story has brand beat: ${microStory.beats[microStory.beats.length - 1].lines.join(" ")}`);
+      } else {
+        microStory.hasBrand = false;
+        microStory.frontendBrand = undefined;
+        microStory.extractedBrand = undefined;
+        console.log(`[XO] Story has NO brand beat`);
+      }
 
       // Final validation
-      const finalValidation = MicroStoryValidator.validate(microStory);
-      if (!finalValidation.valid) {
-        console.error("[XO] Final validation failed:", finalValidation.errors);
-        const fallbackStory = CompressionEngine.createGuaranteedValidStory(scaffold.market);
-        fallbackStory.hasBrand = !!effectiveBrand;
-        fallbackStory.frontendBrand = frontendBrand;
-        fallbackStory.extractedBrand = extractedFromNormalizer || extractedBrand;
-        return fallbackStory;
+      const validation = MicroStoryValidator.validate(microStory);
+      if (!validation.valid) {
+        console.error("[XO] Final validation failed:", validation.errors);
+        const fallback = CompressionEngine.createGuaranteedStory(market, hasBrandBeat);
+        fallback.hasBrand = hasBrandBeat;
+        if (hasBrandBeat) {
+          fallback.frontendBrand = frontendBrand;
+          fallback.extractedBrand = extractedBrand;
+        }
+        return fallback;
       }
 
       console.log("[XO] Generation complete:", {
         beats: microStory.beats.length,
-        market: microStory.market,
         hasBrand: microStory.hasBrand,
-        effectiveBrand,
-        frontendBrand,
-        extractedBrand
+        brandName: effectiveBrand
       });
 
       return microStory;
     } catch (error) {
       console.error("[XO] Generation error:", error);
-      const fallbackStory = CompressionEngine.createGuaranteedValidStory(market);
-      fallbackStory.hasBrand = !!effectiveBrand;
-      fallbackStory.frontendBrand = frontendBrand;
-      fallbackStory.extractedBrand = extractedBrand;
-      return fallbackStory;
+      const fallback = CompressionEngine.createGuaranteedStory(market, false);
+      fallback.hasBrand = false;
+      return fallback;
     }
   }
 
-  // Refinement Controls
   static async refine(
     microStory: MicroStory,
     refinement: "expand" | "gentler" | "harsher",
   ): Promise<MicroStory> {
-    console.log(`[XO] Refining with: ${refinement}`);
-
-    try {
-      const livedMoments = microStory.beats.filter(
-        (b) => b.type === "lived-moment",
-      );
-      const progression = microStory.beats.filter(
-        (b) => b.type === "progression",
-      );
-      const meaning = microStory.beats.filter((b) => b.type === "meaning");
-      const brandBeats = microStory.beats.filter((b) => b.type === "brand");
-
-      let refinedBeats = [...livedMoments];
-
-      if (refinement === "expand") {
-        const scaffold = { market: microStory.market } as NarrativeScaffold;
-        const constraints = await MarketConstraintGenerator.generate(microStory.market || "GLOBAL");
-        const newProgression = await ProgressionEngine.generate(
-          livedMoments,
-          scaffold,
-          constraints,
-        );
-        const newMeaning = await MeaningExtractionEngine.generate(
-          livedMoments,
-          newProgression,
-          scaffold,
-          constraints,
-        );
-        refinedBeats = [...livedMoments, ...newProgression, ...newMeaning];
-      } else if (refinement === "gentler" || refinement === "harsher") {
-        const scaffold = { market: microStory.market } as NarrativeScaffold;
-        const constraints = await MarketConstraintGenerator.generate(microStory.market || "GLOBAL");
-        const newProgression = await ProgressionEngine.generate(
-          livedMoments,
-          scaffold,
-          constraints,
-        );
-        refinedBeats = [...livedMoments, ...newProgression, ...meaning];
-      }
-
-      if (brandBeats.length > 0) {
-        refinedBeats = [...refinedBeats, ...brandBeats];
-      }
-
-      const scaffold = { market: microStory.market } as NarrativeScaffold;
-      const constraints = await MarketConstraintGenerator.generate(microStory.market || "GLOBAL");
-      const refinedStory = await CompressionEngine.enforce(
-        refinedBeats,
-        scaffold,
-        constraints,
-      );
-
-      // Preserve brand properties
-      refinedStory.hasBrand = microStory.hasBrand;
-      refinedStory.frontendBrand = microStory.frontendBrand;
-      refinedStory.extractedBrand = microStory.extractedBrand;
-
-      console.log(`[XO] Refinement complete: ${refinedStory.beats.length} beats`);
-      return refinedStory;
-    } catch (error) {
-      console.error("[XO] Refinement error:", error);
-      return microStory;
-    }
+    console.log(`[XO] Refining: ${refinement}`);
+    
+    // For now, just return the original with compression
+    const constraints = await MarketConstraintGenerator.generate(microStory.market || "GLOBAL");
+    const scaffold: NarrativeScaffold = {
+      pass_1: "3-4 lived-moment beats",
+      pass_2: "2-3 progression beats",
+      pass_3: "0-2 meaning beats",
+      pass_4: microStory.hasBrand ? "1 brand beat (LAST)" : "No brand beat",
+      market: microStory.market,
+    };
+    
+    return await CompressionEngine.enforce(microStory.beats, scaffold, constraints, microStory.hasBrand);
   }
 }
 
 // ============================================================================
-// INTEGRATION WITH YOUR EXISTING API
+// INTEGRATION FUNCTION
 // ============================================================================
 
 export async function generateXOStory(
   userInput: string,
-  market: "GLOBAL" | "NG" | "UK" = "GLOBAL",
-  brand?: string, // From frontend
-  meaningContract?: any, // Optional meaning contract
+  market: MarketType = "GLOBAL",
+  brand?: string,
+  meaningContract?: any,
 ) {
   try {
     const microStory = await XONarrativeEngine.generate(
       userInput,
       market,
-      brand, // Pass the frontend brand
+      brand,
     );
 
-    // Determine if story has brand (either from frontend or extracted)
-    const hasBrand = !!brand || !!microStory.extractedBrand || microStory.hasBrand;
+    // Determine brand status - ONLY if we actually have a brand beat
+    const hasBrandBeat = microStory.beats.some(beat => beat.type === "brand");
     
     // Clean beats
     const cleanedBeats = microStory.beats.map(beat => ({
@@ -1659,26 +1524,30 @@ export async function generateXOStory(
           lowerLine.includes('total beats') ||
           lowerLine.includes('beats total') ||
           lowerLine.includes('total:') ||
-          /\(\d+\s+beats/.test(lowerLine)
+          /\(\d+\s+beats/.test(lowerLine) ||
+          lowerLine.includes('beat:') ||
+          lowerLine.includes('type:')
         );
       })
     })).filter(beat => beat.lines.length > 0);
 
-    // Convert to your existing format
+    // Create beat sheet
     const beatSheet = cleanedBeats.map((beat, index) => ({
       beat: `Beat ${index + 1}`,
       description: beat.lines.join(" "),
       visualCues: extractVisualCues(beat.lines),
       emotion: inferEmotion(beat),
       characterAction: inferAction(beat.lines),
+      type: beat.type
     }));
 
+    // Create story text
     const storyText = cleanedBeats
       .map((beat) => beat.lines.join("\n"))
       .join("\n\n");
 
-    // Determine effective brand name (frontend priority)
-    const effectiveBrand = brand || microStory.extractedBrand;
+    // Determine brand name
+    const effectiveBrand = hasBrandBeat ? (brand || microStory.extractedBrand) : undefined;
 
     return {
       success: true,
@@ -1690,16 +1559,15 @@ export async function generateXOStory(
         intentCategory: "share",
         coreTheme: extractTheme({ beats: cleanedBeats }),
         wordCount: countWords({ beats: cleanedBeats }),
-        isBrandStory: hasBrand,
+        isBrandStory: hasBrandBeat,
         brandName: effectiveBrand,
         template: "micro-story",
         lineCount: cleanedBeats.reduce((sum, beat) => sum + beat.lines.length, 0),
         market: microStory.market,
         totalBeats: cleanedBeats.length,
         estimatedDuration: `${Math.max(3, cleanedBeats.length) * 3}s`,
-        // Additional metadata
-        frontendBrand: brand,
-        extractedBrand: microStory.extractedBrand,
+        frontendBrand: hasBrandBeat ? brand : undefined,
+        extractedBrand: hasBrandBeat ? microStory.extractedBrand : undefined,
       },
       microStory: {
         ...microStory,
@@ -1709,61 +1577,48 @@ export async function generateXOStory(
   } catch (error) {
     console.error("XO Narrative Engine error:", error);
     
-    // Create fallback with correct brand handling
-    const hasBrand = !!brand;
-    const effectiveBrand = brand;
-    
-    const fallbackStory: MicroStory = {
-      beats: [
-        { lines: ["A story begins."], type: "lived-moment" },
-        { lines: ["It unfolds."], type: "progression" },
-        { lines: ["It matters."], type: "meaning" },
-      ],
-      market: market,
-      hasBrand,
-      frontendBrand: brand,
-      extractedBrand: BrandExtractor.extractFromInput(userInput),
-    };
-    
+    // Guaranteed fallback (6-7 beats, no brand)
+    const fallbackStory = CompressionEngine.createGuaranteedStory(market, false);
     const fallbackBeats = fallbackStory.beats;
     
     return {
       success: false,
-      story: "A story begins.\n\nIt unfolds.\n\nIt matters.",
+      story: fallbackBeats.map(beat => beat.lines.join("\n")).join("\n\n"),
       beatSheet: fallbackBeats.map((beat, index) => ({
         beat: `Beat ${index + 1}`,
         description: beat.lines.join(" "),
-        visualCues: ["story", "beginning"],
-        emotion: "neutral",
-        characterAction: "narrating",
+        visualCues: extractVisualCues(beat.lines),
+        emotion: inferEmotion(beat),
+        characterAction: inferAction(beat.lines),
+        type: beat.type
       })),
       metadata: {
         emotionalState: "neutral",
         narrativeTension: "simple",
         intentCategory: "share",
         coreTheme: "human experience",
-        wordCount: 6,
-        isBrandStory: hasBrand,
-        brandName: effectiveBrand,
+        wordCount: countWords({ beats: fallbackBeats }),
+        isBrandStory: false,
+        brandName: undefined,
         template: "micro-story",
-        lineCount: 3,
+        lineCount: fallbackBeats.reduce((sum, beat) => sum + beat.lines.length, 0),
         market: market,
-        totalBeats: 3,
-        estimatedDuration: "9s",
-        frontendBrand: brand,
-        extractedBrand: fallbackStory.extractedBrand,
+        totalBeats: fallbackBeats.length,
+        estimatedDuration: `${Math.max(3, fallbackBeats.length) * 3}s`,
+        frontendBrand: undefined,
+        extractedBrand: undefined,
       },
       microStory: fallbackStory,
     };
   }
 }
 
-// Helper functions for integration
+// Helper functions (updated for 8-beat structure)
 function extractVisualCues(lines: string[]): string[] {
   const cues: string[] = [];
   lines.forEach((line) => {
     const visualWords = line.match(
-      /\b(shirt|boots|pitch|pub|generator|radio|email|screen|keyboard|cursor|map|dot|hand|mouse)\b/gi,
+      /\b(shirt|boots|pitch|pub|generator|radio|email|screen|keyboard|cursor|map|dot|hand|mouse|light|shadow|window|door|machine|cloth)\b/gi,
     );
     if (visualWords) {
       visualWords.forEach((word) => {
@@ -1774,20 +1629,19 @@ function extractVisualCues(lines: string[]): string[] {
       });
     }
   });
-  return cues;
+  return cues.length > 0 ? cues : ["scene"];
 }
 
 function inferEmotion(beat: MicroStoryBeat): string {
   const text = beat.lines.join(" ").toLowerCase();
   if (beat.type === "meaning") return "reflection";
+  if (beat.type === "brand") return "connection";
   if (text.includes("stretched") || text.includes("pull") || text.includes("tension"))
     return "tension";
   if (text.includes("quiet") || text.includes("silence") || text.includes("nobody"))
     return "anticipation";
-  if (text.includes("sit") || text.includes("still") || text.includes("wait"))
-    return "reflection";
-  if (text.includes("bright") || text.includes("glow") || text.includes("pulse"))
-    return "hope";
+  if (text.includes("release") || text.includes("soft") || text.includes("gentle"))
+    return "relief";
   return "neutral";
 }
 
@@ -1797,12 +1651,10 @@ function inferAction(lines: string[]): string {
     return "dressing";
   if (text.includes("pull") || text.includes("stretch") || text.includes("tap"))
     return "adjusting";
-  if (text.includes("sit") || text.includes("stand") || text.includes("hover"))
-    return "positioning";
   if (text.includes("watch") || text.includes("look") || text.includes("read"))
     return "observing";
-  if (text.includes("type") || text.includes("keyboard") || text.includes("cursor"))
-    return "typing";
+  if (text.includes("walk") || text.includes("move") || text.includes("step"))
+    return "moving";
   return "present";
 }
 
@@ -1814,10 +1666,10 @@ function inferOverallEmotion(microStory: { beats: MicroStoryBeat[] }): string {
   if (allText.includes("still") && allText.includes("after"))
     return "resilience";
   if (allText.includes("same") && allText.includes("again")) return "ritual";
-  if (allText.includes("matter") || allText.includes("belonging") || allText.includes("meaning"))
+  if (allText.includes("matter") || allText.includes("belonging"))
     return "meaning";
-  if (allText.includes("battle") || allText.includes("tension") || allText.includes("choice"))
-    return "conflict";
+  if (allText.includes("change") || allText.includes("transform"))
+    return "transformation";
   return "complex";
 }
 

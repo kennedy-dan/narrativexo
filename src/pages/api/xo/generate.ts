@@ -1,4 +1,3 @@
-// /pages/api/xo/generate.ts
 import { NextApiRequest, NextApiResponse } from 'next';
 import { XONarrativeEngine, generateXOStory, MicroStory } from '@/lib/xo-narrative-engine';
 
@@ -26,7 +25,7 @@ export default async function handler(
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const { 
       userInput, 
-      market = 'GLOBAL', // Default top-level market
+      market = 'GLOBAL',
       brand,
       meaningContract,
       requestType = 'micro-story',
@@ -37,17 +36,17 @@ export default async function handler(
       skipBrand = false
     } = body;
 
-    // PRIORITIZE meaningContract.marketContext.market over top-level market
+    // Frontend brand takes priority
+    const effectiveBrand = (brand && brand.trim() !== '') ? brand.trim() : undefined;
     const effectiveMarket = meaningContract?.marketContext?.market || market;
     
     console.log('[XO Generate] Request:', {
       requestType,
-      topLevelMarket: market,
+      frontendBrand: brand,
+      effectiveBrand,
       effectiveMarket,
-      hasMeaningContract: !!meaningContract,
-      meaningContractMarket: meaningContract?.marketContext?.market,
-      hasBrand: !!brand,
-      refinement
+      refinement,
+      skipBrand
     });
 
     // Validate input
@@ -62,80 +61,78 @@ export default async function handler(
     let microStory: MicroStory | null = null;
 
     if (requestType === 'refinement' && currentStory && refinement) {
-      // EPIC 3: Refinement Controls
+      // Refinement
       const parsedStory: MicroStory = JSON.parse(currentStory);
       microStory = await XONarrativeEngine.refine(parsedStory, refinement);
+      const storyText = microStory.beats.map(beat => beat.lines.join('\n')).join('\n\n');
       
-      // Convert to your existing format - USE effectiveMarket
       result = await generateXOStory(
-        microStory.beats.map(beat => beat.lines.join('\n')).join('\n\n'),
-        effectiveMarket, // Use effective market here
-        brand
+        storyText,
+        effectiveMarket,
+        effectiveBrand,
+        meaningContract
       );
       
     } else if (requestType === 'purpose-adaptation' && meaningContract && currentStory) {
-      // Adapt existing story for purpose
-      const storyText = currentStory;
-      
-      // Generate new story with purpose - USE effectiveMarket
+      // Purpose adaptation
       microStory = await XONarrativeEngine.generate(
-        storyText + (purpose ? `\n\nPurpose: ${purpose}` : ''),
-        effectiveMarket, // Use effective market here
-        skipBrand ? undefined : brand
+        currentStory + (purpose ? `\n\nPurpose: ${purpose}` : ''),
+        effectiveMarket,
+        skipBrand ? undefined : effectiveBrand
       );
       
-      result = await generateXOStory(storyText, effectiveMarket, brand);
+      result = await generateXOStory(currentStory, effectiveMarket, effectiveBrand, meaningContract);
       
     } else if (meaningContract) {
-      // Use meaning contract for generation
+      // Use meaning contract
       const inputText = meaningContract.seedMoment || userInput;
       
-      console.log('[XO Generate] Using meaning contract:', {
-        seedMoment: meaningContract.seedMoment,
-        marketContext: meaningContract.marketContext,
-        effectiveMarket
-      });
-      
-      // USE effectiveMarket (from meaningContract.marketContext.market)
       microStory = await XONarrativeEngine.generate(
         inputText,
-        effectiveMarket, // CRITICAL: Use effective market here
-        skipBrand ? undefined : brand
+        effectiveMarket,
+        skipBrand ? undefined : effectiveBrand
       );
       
-      result = await generateXOStory(inputText, effectiveMarket, brand);
+      result = await generateXOStory(inputText, effectiveMarket, effectiveBrand, meaningContract);
       
     } else {
-      // Standard generation - USE effectiveMarket
+      // Standard generation
       microStory = await XONarrativeEngine.generate(
         userInput,
-        effectiveMarket, // Use effective market here
-        brand
+        effectiveMarket,
+        effectiveBrand
       );
       
-      result = await generateXOStory(userInput, effectiveMarket, brand);
+      result = await generateXOStory(userInput, effectiveMarket, effectiveBrand);
     }
 
-    // Add micro-story to result if available
+    // Add micro-story to result
     if (microStory) {
       result.microStory = microStory;
     }
 
-    // Add brand context if provided
-    if (brandContext) {
+    // Add brand context
+    if (brandContext && effectiveBrand) {
       result.metadata = {
         ...result.metadata,
         isBrandStory: true,
-        brandName: brandContext.name,
+        brandName: effectiveBrand,
         brandPalette: brandContext.palette,
         brandFonts: brandContext.fonts
       };
     }
 
+    // Ensure metadata reflects brand status
+    if (effectiveBrand) {
+      result.metadata.isBrandStory = true;
+      result.metadata.brandName = effectiveBrand;
+    }
+
     console.log('[XO Generate] Success:', {
       beats: microStory?.beats?.length || 0,
       effectiveMarket,
-      hasBrand: !!brand,
+      hasBrand: !!effectiveBrand,
+      brandName: effectiveBrand,
       wordCount: result.story?.split(/\s+/).length || 0
     });
 
@@ -147,7 +144,6 @@ export default async function handler(
   } catch (error) {
     console.error('[XO Generate] Error:', error);
     
-    // Provide more specific error messages
     let errorMessage = 'Failed to generate story';
     let statusCode = 500;
 

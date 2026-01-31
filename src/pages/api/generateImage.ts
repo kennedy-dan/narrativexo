@@ -1,3 +1,4 @@
+// pages/api/generateImage.ts
 import { OpenAI } from 'openai';
 import { NextApiRequest, NextApiResponse } from 'next';
 import type { GenerateImageRequest, GenerateImageResponse, CharacterDescription } from '@/types';
@@ -8,6 +9,65 @@ const openai = new OpenAI({
 
 // Store character seeds for consistency
 const characterSeeds = new Map<string, number>();
+
+// Default market tones for fallback
+const DEFAULT_MARKET_TONES = {
+  tones: [
+    {
+      name: "neutral",
+      visualDescriptors: ["cinematic", "authentic", "emotional"],
+      colorPalette: ["warm", "natural"],
+      lighting: ["soft", "dramatic"]
+    },
+    {
+      name: "professional",
+      visualDescriptors: ["clean", "modern", "sophisticated"],
+      colorPalette: ["neutral", "muted"],
+      lighting: ["even", "bright"]
+    },
+    {
+      name: "vibrant",
+      visualDescriptors: ["colorful", "dynamic", "energetic"],
+      colorPalette: ["saturated", "contrasting"],
+      lighting: ["high-key", "colorful"]
+    },
+    {
+      name: "moody",
+      visualDescriptors: ["dark", "dramatic", "atmospheric"],
+      colorPalette: ["dark", "desaturated"],
+      lighting: ["low-key", "chiaroscuro"]
+    }
+  ]
+};
+
+// Function to safely load market tones with fallback
+function getMarketTones(market?: string) {
+  try {
+    // Try to load the market tones JSON
+    const marketTones = require('@/lib/marketTone.json');
+    
+    if (!marketTones) {
+      console.warn('Market tones file not found, using defaults');
+      return DEFAULT_MARKET_TONES;
+    }
+    
+    // Normalize market code (lowercase)
+    const marketCode = (market || 'global').toLowerCase();
+    
+    // Get market data or fall back to global
+    const marketData = marketTones[marketCode] || marketTones.global || marketTones.GLOBAL;
+    
+    if (!marketData) {
+      console.warn(`Market "${marketCode}" not found, using default tones`);
+      return DEFAULT_MARKET_TONES;
+    }
+    
+    return marketData;
+  } catch (error) {
+    console.error('Error loading market tones:', error);
+    return DEFAULT_MARKET_TONES;
+  }
+}
 
 export default async function handler(
   req: NextApiRequest,
@@ -22,26 +82,32 @@ export default async function handler(
       sceneDescription, 
       visualCues = [],
       tone, 
-      brandSafe = true, 
-      brandPalette = [],
+      
       template = 'instagram-story',
       beatIndex = 0,
       beat = 'Scene',
       characterDescription,
       previousCharacterImage,
-      isSameCharacter = false
+      isSameCharacter = false,
+      market = 'GLOBAL'
     }: GenerateImageRequest = req.body;
 
     if (!sceneDescription) {
       return res.status(400).json({ error: 'Scene description is required' });
     }
 
-    // Load market tones
-    const marketTones = require('@/lib/marketTone.json');
-    const marketData = marketTones.ng;
-    const toneConfig = marketData.tones.find((t: any) => t.name === tone);
+    // ✅ SAFELY load market tones with fallback
+    const marketData = getMarketTones(market);
+    
+    // Find tone config or use first tone as fallback
+    let toneConfig = marketData.tones?.find((t: any) => t.name === tone);
+    
+    if (!toneConfig && marketData.tones?.length > 0) {
+      toneConfig = marketData.tones[0]; // Use first tone as fallback
+      console.warn(`Tone "${tone}" not found, using "${toneConfig.name}"`);
+    }
 
-    // ✅ CRITICAL: Generate consistent seed for character
+    // ✅ Generate consistent seed for character
     let characterSeed: number | undefined;
     if (characterDescription?.id) {
       if (!characterSeeds.has(characterDescription.id)) {
@@ -61,7 +127,7 @@ CHARACTER CONSISTENCY REQUIREMENTS:
 MAIN CHARACTER: ${characterDescription.name || 'Primary character'}
 - Age: ${characterDescription.age || 'adult'}
 - Gender: ${characterDescription.gender || 'person'}
-- Ethnicity: ${characterDescription.ethnicity || 'appropriate to ' }
+- Ethnicity: ${characterDescription.ethnicity || 'appropriate to context'}
 - Hair: ${characterDescription.appearance?.hair || 'natural hair appropriate to ethnicity'}
 - Eyes: ${characterDescription.appearance?.eyes || 'expressive eyes'}
 - Build: ${characterDescription.appearance?.build || 'average build'}
@@ -97,6 +163,9 @@ ${visualCues.map((cue, i) => `${i + 1}. ${cue}`).join('\n')}
 
     const size = templateDimensions[template] || '1024x1024';
 
+    // Build the prompt with fallback for tone descriptors
+    const toneDescriptors = toneConfig?.visualDescriptors?.join(', ') || 'cinematic, authentic, emotional';
+    
     // ✅ Enhanced prompt with character consistency
     const prompt = `
 Create a cinematic image for: ${beat}
@@ -106,10 +175,8 @@ ${visualCuesInstruction}
 
 ${characterPrompt}
 
-÷
-
 VISUAL STYLE: ${tone}
-Style descriptors: ${toneConfig?.visualDescriptors?.join(', ') || 'cinematic, authentic, emotional'}
+Style descriptors: ${toneDescriptors}
 Shot type: ${getShotType(beatIndex)}
 
 TECHNICAL:
@@ -123,7 +190,7 @@ TECHNICAL:
 EMOTION: Capture the emotional essence while maintaining character consistency.
 `.trim();
 
-    console.log(`🎨 Generating image for ${beat} with ${characterDescription ? 'character: ' + characterDescription.id : 'no character'}`);
+    console.log(`🎨 Generating image for ${beat} with tone: ${tone}`);
 
     const response = await openai.images.generate({
       model: "dall-e-3",
@@ -132,8 +199,6 @@ EMOTION: Capture the emotional essence while maintaining character consistency.
       size: size,
       quality: "hd",
       style: "natural",
-      // ✅ Note: DALL-E 3 doesn't support seed parameter directly
-      // We rely on detailed prompt engineering instead
     });
 
     const imageData = response.data[0];
@@ -176,15 +241,6 @@ EMOTION: Capture the emotional essence while maintaining character consistency.
 }
 
 // Helper functions
-function getMarketStyle(market: string): string {
-  const styles: { [key: string]: string } = {
-    'ng': 'Nigerian features, warm skin tones, authentic African clothing and hairstyles',
-    'uk': 'British features, diverse ethnicities, urban UK fashion and settings',
-    'fr': 'European features, French elegance, sophisticated style and settings'
-  };
-  return styles[market] || 'authentic local features';
-}
-
 function getShotType(beatIndex: number): string {
   const shotTypes = [
     'establishing wide shot',

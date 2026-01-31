@@ -266,6 +266,11 @@ export interface BrandAssets {
   palette?: string[];
   fonts?: string[];
   brandSafe?: boolean;
+  logoUrls?: string[];
+  logoPositions?: Array<{x: number, y: number, width: number, height: number}>;
+  brandKeywords?: string[];
+  documentType?: string;
+  extractedText?: string;
 }
 
 export interface Scene {
@@ -334,19 +339,18 @@ export interface GenerateImageRequest {
   sceneDescription: string;
   visualCues?: string[];
   tone: string;
+  brandAssets?: BrandAssets; // New field
   brandSafe?: boolean;
-  brandPalette?: string[];
   template?: string;
   beatIndex?: number;
   beat?: string;
   characterDescription?: CharacterDescription;
   previousCharacterImage?: string;
-  characterConsistencySeed?: number;
   isSameCharacter?: boolean;
-  // XO Enhanced fields
   microStoryBeat?: MicroStoryBeat;
   market?: 'GLOBAL' | 'NG' | 'UK';
 }
+
 
 export interface GenerateImageResponse {
   success: boolean;
@@ -354,7 +358,13 @@ export interface GenerateImageResponse {
   revisedPrompt: string;
   sceneDescription: string;
   beatIndex?: number;
+  brandAssetsUsed?: {
+    palette?: string[];
+    fonts?: string[];
+    keywords?: string[];
+  };
 }
+
 
 // Legacy story generation (kept for compatibility)
 export interface LegacyGenerateStoryRequest {
