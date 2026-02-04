@@ -313,6 +313,10 @@ export interface GeneratedStory {
     template?: string;
     lineCount?: number;
     market?: 'GLOBAL' | 'NG' | 'UK';
+    // Add these new properties
+    entryPath?: string;
+    validation?: Record<string, any>;
+    shouldShip?: boolean;
   };
 }
 

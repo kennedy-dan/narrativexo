@@ -1,7 +1,6 @@
 // /api/clarify/index.ts
 import { NextApiRequest, NextApiResponse } from 'next';
 import OpenAI from 'openai';
-// import { XOInterpretation, MeaningContract, MeaningRisk } from '@/types';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
@@ -33,7 +32,6 @@ export interface MeaningRiskAssessment {
 
 // ENHANCED MEANING CONTRACT with market context
 export interface MeaningContract {
-  // Interpreted meaning (when we commit)
   interpretedMeaning: {
     emotionalState: 'positive' | 'negative' | 'neutral' | 'layered' | 'complex' | 'ambiguous';
     emotionalDirection: 'inward' | 'outward' | 'observational' | 'relational' | 'unknown';
@@ -42,28 +40,22 @@ export interface MeaningContract {
     coreTheme: string;
   };
   
-  // Market context for XO
-  marketContext?: {
-    market: 'GLOBAL' | 'NG' | 'UK';
+  // STARTER PACK: Market context for validation
+  marketContext: {
+    market: 'NG' | 'GH' | 'KE' | 'ZA' | 'UK' | 'GLOBAL';
     language: string;
     register: 'formal' | 'casual' | 'colloquial';
   };
   
-  // Entry path detection
-  entryPath?: 'emotion' | 'scene' | 'seed' | 'audience';
+  // STARTER PACK: Entry path detection
+  entryPath: 'emotion' | 'scene' | 'seed' | 'audience';
   
-  // Confidence & commitment level
   confidence: number;
   certaintyMode: 'tentative-commit' | 'reflection-only' | 'clarification-needed';
-  
-  // Safety properties
   reversible: boolean;
   safeToNarrate: boolean;
-  
-  // Understanding summary when safeToNarrate is false
   understandingSummary?: string;
   
-  // Provenance (why we believe this)
   provenance: {
     source: 'ccn-interpretation';
     riskLevel: 'low' | 'medium' | 'high';
@@ -71,34 +63,24 @@ export interface MeaningContract {
     risksAcknowledged: MeaningRisk[];
   };
   
-  // Original seed
   seedMoment: string;
 }
 
 // XO Interpretation
 export interface XOInterpretation {
-  // Core meaning analysis
   coreTension: string;
   emotionalWeight: string;
   seedMoment: string;
   intentSummary: string;
-  
-  // Clarity assessment
   clearPoints: string[];
   doubtfulPoints: string[];
-  
-  // Risk assessment
   riskAssessment: MeaningRiskAssessment;
   confidence: number;
-  
-  // Working assumptions
   minimalAssumptions: {
     emotionDirection: 'positive' | 'negative' | 'neutral' | 'layered' | 'unknown';
     tensionType: 'contrast' | 'desire' | 'observation' | 'reflection' | 'unknown';
     intentCategory: 'share' | 'inquire' | 'emphasize' | 'reflect' | 'unknown';
   };
-  
-  // THE CONTRACT (when ready)
   meaningContract?: MeaningContract;
 }
 
@@ -114,6 +96,130 @@ export interface XOCCNResponse {
   understandingPreview: string;
   understandingSummary?: string;
   error?: string;
+}
+
+// ============================================================================
+// ENHANCED MARKET DETECTION WITH WORD BOUNDARIES
+// ============================================================================
+
+function detectEntryPathFromInput(input: string): 'emotion' | 'scene' | 'seed' | 'audience' {
+  const upper = input.toUpperCase();
+  
+  // Check for Starter Pack v0.2 path markers in input
+  if (upper.includes('EMOTION INPUT:')) return 'emotion';
+  if (upper.includes('SCENE INPUT:')) return 'scene';
+  if (upper.includes('STORY SEED:')) return 'seed';
+  if (upper.includes('AUDIENCE SIGNAL:')) return 'audience';
+  
+  // Check for emotion words
+  if (/(feel|felt|feeling|emotion|emotional|happy|sad|angry|excited|relief)/i.test(input)) return 'emotion';
+  
+  // Check for scene words  
+  if (/(scene|setting|place|location|room|space|environment|background)/i.test(input)) return 'scene';
+  
+  // Check for audience words
+  if (/(audience|viewer|reader|people|they|them|everyone|somebody|customer)/i.test(input)) return 'audience';
+  
+  return 'seed'; // Default as per Starter Pack
+}
+
+// Enhanced market detection with word boundaries and context awareness
+function detectMarketFromInput(input: string): 'NG' | 'GH' | 'KE' | 'ZA' | 'UK' | 'GLOBAL' {
+  const lower = input.toLowerCase();
+  
+  // Split into words for better context analysis
+  const words = lower.split(/\s+/);
+  
+  // Enhanced detection with word boundaries and context
+  const marketMatches: Array<{market: string, confidence: number, reason: string}> = [];
+  
+  // Check for complete country/region names (highest confidence)
+  if (/(^|\s)(nigeria|naija)($|\s|,|\.)/i.test(input)) {
+    marketMatches.push({market: 'NG', confidence: 0.95, reason: 'country name'});
+  }
+  if (/(^|\s)(ghana)($|\s|,|\.)/i.test(input)) {
+    marketMatches.push({market: 'GH', confidence: 0.95, reason: 'country name'});
+  }
+  if (/(^|\s)(kenya)($|\s|,|\.)/i.test(input)) {
+    marketMatches.push({market: 'KE', confidence: 0.95, reason: 'country name'});
+  }
+  if (/(^|\s)(south africa|southafrica)($|\s|,|\.)/i.test(input)) {
+    marketMatches.push({market: 'ZA', confidence: 0.95, reason: 'country name'});
+  }
+  if (/(^|\s)(united kingdom|uk|britain|england|scotland|wales)($|\s|,|\.)/i.test(input)) {
+    marketMatches.push({market: 'UK', confidence: 0.95, reason: 'country/region name'});
+  }
+  
+  // Check for major cities (high confidence)
+  if (/(lagos|abuja|kano|port harcourt)/i.test(input)) {
+    marketMatches.push({market: 'NG', confidence: 0.9, reason: 'Nigerian city'});
+  }
+  if (/(accra|kumasi)/i.test(input)) {
+    marketMatches.push({market: 'GH', confidence: 0.9, reason: 'Ghanaian city'});
+  }
+  if (/(nairobi|mombasa)/i.test(input)) {
+    marketMatches.push({market: 'KE', confidence: 0.9, reason: 'Kenyan city'});
+  }
+  if (/(johannesburg|joburg|cape town|durban|pretoria)/i.test(input)) {
+    marketMatches.push({market: 'ZA', confidence: 0.9, reason: 'South African city'});
+  }
+  if (/(london|manchester|birmingham|edinburgh|cardiff)/i.test(input)) {
+    marketMatches.push({market: 'UK', confidence: 0.9, reason: 'UK city'});
+  }
+  
+  // Check for slang/currency with word boundaries (medium confidence)
+  if (/\b(wahala|chai|oga|na wa|omo|jollof|danfo)\b/.test(lower)) {
+    marketMatches.push({market: 'NG', confidence: 0.8, reason: 'Nigerian slang'});
+  }
+  if (/\b(chale|cedi|kɔkɔɔ|trotro)\b/.test(lower)) {
+    marketMatches.push({market: 'GH', confidence: 0.8, reason: 'Ghanaian slang/currency'});
+  }
+  if (/\b(ksh|shilling|safaricom|matatu)\b/.test(lower)) {
+    marketMatches.push({market: 'KE', confidence: 0.8, reason: 'Kenyan currency/terms'});
+  }
+  if (/\b(rand|braai|eish)\b/.test(lower)) {
+    marketMatches.push({market: 'ZA', confidence: 0.8, reason: 'South African currency/slang'});
+  }
+  if (/\b(pint|pub|mate|quid|lorry)\b/.test(lower)) {
+    marketMatches.push({market: 'UK', confidence: 0.8, reason: 'UK slang'});
+  }
+  
+  // Special handling for "ZA" - only match as standalone or with context
+  if (/\bza\b/.test(lower)) {
+    // Check context to avoid false positives from words like "brand" or "amazing"
+    const zaIndex = lower.indexOf('za');
+    const contextWindow = lower.slice(Math.max(0, zaIndex - 20), Math.min(lower.length, zaIndex + 20));
+    
+    // Only match if "za" appears in a geographical or specific context
+    if (contextWindow.includes('south') || contextWindow.includes('africa') || 
+        contextWindow.includes('joburg') || contextWindow.includes('cape')) {
+      marketMatches.push({market: 'ZA', confidence: 0.7, reason: 'ZA abbreviation in context'});
+    }
+  }
+  
+  // If no matches, return GLOBAL
+  if (marketMatches.length === 0) {
+    return 'GLOBAL';
+  }
+  
+  // Return the highest confidence match
+  marketMatches.sort((a, b) => b.confidence - a.confidence);
+  return marketMatches[0].market as any;
+}
+
+// Detect register/tone from input
+function detectRegisterFromInput(input: string): 'formal' | 'casual' | 'colloquial' {
+  const lower = input.toLowerCase();
+  
+  if (/(memo|formal|official|professional|business|corporate)/.test(lower)) {
+    return 'formal';
+  }
+  
+  if (/(chale|bruh|fam|mate|cheers|abeg|wahala)/.test(lower)) {
+    return 'colloquial';
+  }
+  
+  return 'casual';
 }
 
 // ============================================================================
@@ -216,7 +322,8 @@ function isCommonWord(word: string): boolean {
     'get', 'make', 'take', 'come', 'go', 'see', 'look', 'watch', 'hear', 'listen',
     'say', 'tell', 'talk', 'speak', 'know', 'think', 'feel', 'want', 'need', 'like',
     'love', 'hate', 'good', 'bad', 'big', 'small', 'hot', 'cold', 'happy', 'sad',
-    'kennedy', 'president', 'family', 'brother', 'sister', 'mother', 'father'
+    'kennedy', 'president', 'family', 'brother', 'sister', 'mother', 'father',
+    'create', 'brand', 'story', 'shoe', 'company' // Added business terms
   ]);
   
   return commonWords.has(word.toLowerCase());
@@ -247,42 +354,6 @@ function detectInsufficientInformation(text: string, wordCount: number, isGibber
   }
   
   return false;
-}
-
-// NEW: Detect entry path from input
-function detectEntryPath(input: string): 'emotion' | 'scene' | 'seed' | 'audience' {
-  const lower = input.toLowerCase();
-  
-  if (/(feel|felt|feeling|emotion|emotional|happy|sad|angry|excited)/.test(lower)) {
-    return 'emotion';
-  }
-  
-  if (/(scene|setting|place|location|room|space|environment|background)/.test(lower)) {
-    return 'scene';
-  }
-  
-  if (/(audience|viewer|reader|people|they|them|everyone|somebody)/.test(lower)) {
-    return 'audience';
-  }
-  
-  return 'seed'; // Default
-}
-
-// NEW: Detect market from input (simple detection)
-function detectMarketFromInput(input: string): 'GLOBAL' | 'NG' | 'UK' {
-  const lower = input.toLowerCase();
-  
-  // Nigerian indicators
-  if (/(nigeria|naija|lagos|abuja|kano|port harcourt|iyanya|wahala|chai|oga|na wa)/.test(lower)) {
-    return 'NG';
-  }
-  
-  // UK indicators
-  if (/(uk|british|england|london|manchester|birmingham|scotland|wales|pint|pub|football|mate)/.test(lower)) {
-    return 'UK';
-  }
-  
-  return 'GLOBAL';
 }
 
 // ============================================================================
@@ -485,6 +556,10 @@ function detectMeaningRisks(input: string): MeaningRiskAssessment {
 // MINIMAL ASSUMPTIONS
 // ============================================================================
 
+// ============================================================================
+// MINIMAL ASSUMPTIONS
+// ============================================================================
+
 function makeMinimalAssumptions(
   input: string, 
   riskAssessment: MeaningRiskAssessment
@@ -519,6 +594,9 @@ function makeMinimalAssumptions(
       tensionType = 'reflection';
     } else if (lowerInput.includes('make')) {
       tensionType = 'desire';
+    } else if (/(create|brand|story)/i.test(input)) {
+      intentCategory = 'share'; // Changed from 'express' to 'share'
+      tensionType = 'desire';
     }
     
     return { emotionDirection, tensionType, intentCategory };
@@ -533,13 +611,15 @@ function makeMinimalAssumptions(
   
   let tensionType: XOInterpretation['minimalAssumptions']['tensionType'] = 'observation';
   if (/(but|however|although|yet)/i.test(input)) tensionType = 'contrast';
-  else if (/(wish|could|should|if only)/i.test(input)) tensionType = 'desire';
+  else if (/(wish|could|should|if only|create|build|make)/i.test(input)) tensionType = 'desire';
   else if (/(remember|recall|back then)/i.test(input)) tensionType = 'reflection';
   
   let intentCategory: XOInterpretation['minimalAssumptions']['intentCategory'] = 'share';
   if (/\?$/.test(input)) intentCategory = 'inquire';
   else if (/!$/.test(input)) intentCategory = 'emphasize';
   else if (/^I( think| feel| believe)/i.test(input)) intentCategory = 'reflect';
+  // Note: 'express' is not in the minimalAssumptions.intentCategory union type
+  // so we use 'share' for creative/business intent
   
   return { emotionDirection, tensionType, intentCategory };
 }
@@ -762,6 +842,29 @@ Keep it under 2 sentences.`
   }
 }
 
+// Helper: Derive core theme from tension and emotion
+function determineCoreTheme(tension: string, emotion: string): string {
+  const lowerTension = tension.toLowerCase();
+  
+  if (lowerTension.includes('desire') || lowerTension.includes('wish')) {
+    return 'aspiration versus reality';
+  } else if (lowerTension.includes('contrast') || lowerTension.includes('but')) {
+    return 'tension between states';
+  } else if (lowerTension.includes('past') || lowerTension.includes('memory')) {
+    return 'time and memory';
+  } else if (lowerTension.includes('change') || lowerTension.includes('transition')) {
+    return 'transformation';
+  } else if (emotion === 'positive') {
+    return 'acknowledgment or appreciation';
+  } else if (emotion === 'negative') {
+    return 'difficulty or challenge';
+  } else if (emotion === 'complex' || emotion === 'layered') {
+    return 'multifaceted experience';
+  }
+  
+  return 'human experience';
+}
+
 // ============================================================================
 // CONTRACT CREATION ENGINE
 // ============================================================================
@@ -773,11 +876,12 @@ async function createMeaningContract(
 ): Promise<MeaningContract> {
   const { riskAssessment, confidence, minimalAssumptions, seedMoment } = interpretation;
   
-  // Detect market and entry path
+  // STARTER PACK: Detect market and entry path
   const detectedMarket = detectMarketFromInput(input);
-  const detectedEntryPath = detectEntryPath(input);
+  const detectedEntryPath = detectEntryPathFromInput(input);
+  const detectedRegister = detectRegisterFromInput(input);
   
-  // Determine certainty mode based on confidence and risks
+  // Determine certainty mode
   let certaintyMode: MeaningContract['certaintyMode'] = 'clarification-needed';
   let safeToNarrate = false;
   
@@ -810,6 +914,7 @@ async function createMeaningContract(
   if (intent.includes('personal') || intent.includes('I feel')) emotionalDirection = 'inward';
   else if (intent.includes('shared') || intent.includes('we')) emotionalDirection = 'relational';
   else if (intent.includes('observe') || intent.includes('notice')) emotionalDirection = 'observational';
+  else if (intent.includes('create') || intent.includes('build')) emotionalDirection = 'outward';
   
   // Map intent category
   let intentCategory: MeaningContract['interpretedMeaning']['intentCategory'] = 'express';
@@ -822,6 +927,7 @@ async function createMeaningContract(
     else if (lowerIntent.includes('reflect') || lowerIntent.includes('think')) intentCategory = 'reflect';
     else if (lowerIntent.includes('process') || lowerIntent.includes('work through')) intentCategory = 'process';
     else if (lowerIntent.includes('connect') || lowerIntent.includes('share with')) intentCategory = 'connect';
+    else if (lowerIntent.includes('create') || lowerIntent.includes('build')) intentCategory = 'express';
   }
   
   // Determine core theme
@@ -836,7 +942,7 @@ async function createMeaningContract(
     understandingSummary = await generateUnderstandingSummary(input, interpretation, aiInterpretation);
   }
   
-  // Build the contract
+  // Build the STARTER PACK compatible contract
   const contract: MeaningContract = {
     interpretedMeaning: {
       emotionalState,
@@ -845,11 +951,11 @@ async function createMeaningContract(
       intentCategory,
       coreTheme
     },
-    // NEW: Add market context and entry path
+    // STARTER PACK FIELDS:
     marketContext: {
       market: detectedMarket,
       language: 'english',
-      register: 'casual' as const
+      register: detectedRegister
     },
     entryPath: detectedEntryPath,
     confidence: Math.round(confidence * 100) / 100,
@@ -865,35 +971,11 @@ async function createMeaningContract(
     seedMoment: seedMoment || input
   };
   
-  // Add understanding summary if we have one
   if (understandingSummary) {
     contract.understandingSummary = understandingSummary;
   }
   
   return contract;
-}
-
-// Helper: Derive core theme from tension and emotion
-function determineCoreTheme(tension: string, emotion: string): string {
-  const lowerTension = tension.toLowerCase();
-  
-  if (lowerTension.includes('desire') || lowerTension.includes('wish')) {
-    return 'aspiration versus reality';
-  } else if (lowerTension.includes('contrast') || lowerTension.includes('but')) {
-    return 'tension between states';
-  } else if (lowerTension.includes('past') || lowerTension.includes('memory')) {
-    return 'time and memory';
-  } else if (lowerTension.includes('change') || lowerTension.includes('transition')) {
-    return 'transformation';
-  } else if (emotion === 'positive') {
-    return 'acknowledgment or appreciation';
-  } else if (emotion === 'negative') {
-    return 'difficulty or challenge';
-  } else if (emotion === 'complex' || emotion === 'layered') {
-    return 'multifaceted experience';
-  }
-  
-  return 'human experience';
 }
 
 // ============================================================================
@@ -949,16 +1031,12 @@ async function getAIIntepretation(input: string): Promise<Partial<XOInterpretati
       messages: [
         {
           role: "system",
-          content: `Extract meaning only, no prescription.
-
-Return JSON:
+          content: `Extract meaning only, no prescription. Return JSON with:
 {
   "coreTension": "push/pull (be tentative)",
   "emotionalWeight": "feeling (be tentative)",
   "intentSummary": "why shared (be tentative)"
-}
-
-Use "seems like", "might be", "could be".`
+}`
         },
         { role: "user", content: input }
       ],
@@ -1038,6 +1116,7 @@ export default async function handler(
     }
 
     console.log(`[CLARIFY] Processing: "${trimmedInput}"`);
+    console.log(`[CLARIFY] STARTER PACK DETECTION: Market=${detectMarketFromInput(trimmedInput)}, Path=${detectEntryPathFromInput(trimmedInput)}`);
     
     // 1. Detect risks
     const riskAssessment = detectMeaningRisks(trimmedInput);
@@ -1056,7 +1135,6 @@ export default async function handler(
     let understandingSummary: string | undefined;
     
     if (needsClarification) {
-      // Defer full interpretation
       interpretation = {
         coreTension: 'clarification needed',
         emotionalWeight: 'clarification needed',
@@ -1069,7 +1147,6 @@ export default async function handler(
         minimalAssumptions
       };
     } else {
-      // Get AI interpretation when safe
       const aiInterpretation = await getAIIntepretation(trimmedInput);
       
       interpretation = {
@@ -1084,11 +1161,10 @@ export default async function handler(
         minimalAssumptions
       };
       
-      // CREATE THE ENHANCED MEANING CONTRACT
+      // CREATE THE STARTER PACK COMPATIBLE CONTRACT
       if (!riskAssessment.risks.includes('possible-gibberish')) {
         interpretation.meaningContract = await createMeaningContract(trimmedInput, interpretation, aiInterpretation);
         
-        // Extract understanding summary from contract if available
         if (interpretation.meaningContract?.understandingSummary) {
           understandingSummary = interpretation.meaningContract.understandingSummary;
         }
@@ -1112,16 +1188,13 @@ export default async function handler(
       understandingPreview
     };
     
-    // Add understanding summary to response if available
     if (understandingSummary) {
       response.understandingSummary = understandingSummary;
     }
     
     console.log(`[CLARIFY] ${needsClarification ? 'NEEDS clarification' : 'PROCEEDING with contract'}`);
-    console.log(`[CLARIFY] Confidence: ${confidence}, Risk: ${riskAssessment.riskLevel}`);
-    console.log(`[CLARIFY] Risks: ${riskAssessment.risks.join(', ')}`);
-    console.log(`[CLARIFY] Market: ${interpretation.meaningContract?.marketContext?.market || 'not detected'}`);
-    console.log(`[CLARIFY] Entry path: ${interpretation.meaningContract?.entryPath || 'seed'}`);
+    console.log(`[CLARIFY] Market: ${interpretation.meaningContract?.marketContext?.market}`);
+    console.log(`[CLARIFY] Entry path: ${interpretation.meaningContract?.entryPath}`);
     console.log(`[CLARIFY] Safe to narrate: ${interpretation.meaningContract?.safeToNarrate ?? 'no contract'}`);
     
     return res.status(200).json(response);
