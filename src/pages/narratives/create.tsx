@@ -278,11 +278,7 @@ export default function Create() {
           <p className="text-gray-600">
             I help you create compelling brand stories. Just describe what's on your mind...
           </p>
-          <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-            <p className="text-sm text-blue-700">
-              <strong>Tip:</strong> Be specific about feelings, scenes, or moments for the best results.
-            </p>
-          </div>
+        
         </div>
       ),
       timestamp: new Date(),

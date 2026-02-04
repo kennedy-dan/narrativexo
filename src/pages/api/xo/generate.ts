@@ -3,6 +3,46 @@ import { XONarrativeEngine, generateXOStory, MicroStory } from '@/lib/xo-narrati
 import { XOValidator } from '@/lib/validator-engine';
 import { ValidationContext } from '@/lib/types';
 
+// Helper method to extract brand from input - MOVED OUTSIDE HANDLER
+function extractBrandFromInput(input: string): string | undefined {
+  if (!input) return undefined;
+  
+  const lowerInput = input.toLowerCase();
+  
+  // Look for specific brand/product mentions
+  if (lowerInput.includes('washing machine') || lowerInput.includes('laundry')) {
+    return 'washing machine brand';
+  }
+  if (lowerInput.includes('detergent') || lowerInput.includes('cleaning')) {
+    return 'cleaning brand';
+  }
+  if (lowerInput.includes('car') || lowerInput.includes('automotive')) {
+    return 'automotive brand';
+  }
+  if (lowerInput.includes('phone') || lowerInput.includes('mobile')) {
+    return 'mobile brand';
+  }
+  if (lowerInput.includes('bank') || lowerInput.includes('financial')) {
+    return 'financial brand';
+  }
+  
+  // Extract from phrases like "a [brand] could tell" or "stories for [brand]"
+  const brandPatterns = [
+    /(?:stories|story) for (?:an? )?([\w\s]+?) (?:brand|company)/i,
+    /(?:create|write) (?:stories|story) for ([\w\s]+)/i,
+    /(?:brand|company) called ([\w\s]+)/i
+  ];
+  
+  for (const pattern of brandPatterns) {
+    const match = input.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  
+  return undefined;
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -44,7 +84,8 @@ export default async function handler(
       hasMeaningContract: !!meaningContract,
       hasCurrentStory: !!currentStory,
       refinement,
-      purpose: purpose?.substring(0, 50)
+      purpose: purpose?.substring(0, 50),
+      hasBrandRequest: !!brand || userInput?.includes('brand') || userInput?.includes('Brand')
     });
 
     // ============================================================================
@@ -53,9 +94,13 @@ export default async function handler(
     
     // Use meaning contract values when available (from /api/clarify)
     const effectiveMarket = meaningContract?.marketContext?.market || market;
-    const entryPath = meaningContract?.entryPath || 'seed';
+    const entryPath = meaningContract?.entryPath || 'scene'; // Default to scene if not specified
     const tone = meaningContract?.interpretedMeaning?.emotionalState?.toUpperCase() || 'NEUTRAL';
     const seedMoment = meaningContract?.seedMoment || userInput || currentStory?.substring(0, 100) || '';
+
+    // Extract brand from input if not provided explicitly - FIXED: Call function directly
+    const extractedBrand = extractBrandFromInput(userInput);
+    const effectiveBrand = skipBrand ? undefined : (brand || extractedBrand);
 
     // Validate market is one of Starter Pack markets
     const validMarkets = ['NG', 'GH', 'KE', 'ZA', 'UK', 'GLOBAL'] as const;
@@ -67,14 +112,14 @@ export default async function handler(
     const validEntryPaths = ['EMOTION', 'SCENE', 'STORY_SEED', 'AUDIENCE_SIGNAL'] as const;
     const safeEntryPath = validEntryPaths.includes(entryPath.toUpperCase() as any)
       ? entryPath.toUpperCase() as typeof validEntryPaths[number]
-      : 'STORY_SEED';
+      : 'SCENE'; // Default to SCENE
 
     console.log('[XO Generate] Context determined:', {
       effectiveMarket: safeMarket,
       entryPath: safeEntryPath,
       tone,
-      hasBrand: !!brand,
-      brandName: brand,
+      brand: effectiveBrand,
+      brandExtracted: !!extractedBrand,
       seedMomentLength: seedMoment.length
     });
 
@@ -86,11 +131,14 @@ export default async function handler(
       validateMarketLeakage: true,
       validateStructure: true,
       validateTone: tone !== 'NEUTRAL',
-      validateSchema: false, // We'll validate output format separately
+      validateSchema: false,
+      validateBrandPresence: !!effectiveBrand,
+      validateLineLength: true,
       requireStorySections: false,
       failOnWarning: clientValidationContext.strictMode || false,
       failOnMissingMarkers: true,
-      toneThreshold: 0.2
+      toneThreshold: 0.2,
+      maxWordsPerLine: 15
     });
 
     // ============================================================================
@@ -108,12 +156,19 @@ export default async function handler(
           throw new Error('Refinement requires currentStory and refinement type');
         }
 
-        console.log(`[XO Generate] Refining story: ${refinement}`);
+        console.log(`[XO Generate] Refining story: ${refinement}`, {
+          hasBrand: !!effectiveBrand,
+          brand: effectiveBrand
+        });
         
         try {
           // Parse the current story
           const parsedStory: MicroStory = JSON.parse(currentStory);
-          microStory = await XONarrativeEngine.refine(parsedStory, refinement);
+          microStory = await XONarrativeEngine.refine(
+            parsedStory, 
+            refinement,
+            effectiveBrand
+          );
         } catch (error) {
           // If JSON parsing fails, treat as raw text
           console.log('[XO Generate] Parsing as raw text for refinement');
@@ -125,7 +180,7 @@ export default async function handler(
             entryPath: safeEntryPath.toLowerCase() as any,
             timestamp: new Date().toISOString()
           };
-          microStory = await XONarrativeEngine.refine(rawStory, refinement);
+          microStory = await XONarrativeEngine.refine(rawStory, refinement, effectiveBrand);
         }
         break;
       }
@@ -136,13 +191,21 @@ export default async function handler(
           throw new Error('Purpose adaptation requires currentStory and purpose');
         }
 
-        console.log(`[XO Generate] Adapting for purpose: ${purpose.substring(0, 50)}`);
+        console.log(`[XO Generate] Adapting for purpose: ${purpose.substring(0, 50)}`, {
+          brand: effectiveBrand
+        });
         
         const inputText = currentStory + (purpose ? `\n\nPurpose: ${purpose}` : '');
         microStory = await XONarrativeEngine.generate(
           inputText,
           safeMarket,
-          skipBrand ? undefined : brand
+          effectiveBrand,
+          {
+            temperature: 0.7,
+            maxTokens: 500,
+            validateOutput: true,
+            tone: meaningContract?.interpretedMeaning?.emotionalState
+          }
         );
         break;
       }
@@ -150,11 +213,22 @@ export default async function handler(
       case 'micro-story':
       default: {
         // Standard story generation
-        console.log('[XO Generate] Generating micro-story');
+        console.log('[XO Generate] Generating micro-story', {
+          brand: effectiveBrand,
+          entryPath: safeEntryPath
+        });
+        
         microStory = await XONarrativeEngine.generate(
           seedMoment,
           safeMarket,
-          skipBrand ? undefined : brand
+          effectiveBrand,
+          {
+            temperature: 0.7,
+            maxTokens: 500,
+            validateOutput: true,
+            tone: meaningContract?.interpretedMeaning?.emotionalState,
+            entryPath: safeEntryPath.toLowerCase() as any
+          }
         );
         break;
       }
@@ -176,7 +250,8 @@ export default async function handler(
         description: beat.lines.join(' '),
         lines: beat.lines,
         emotion: beat.emotion,
-        tension: beat.tension
+        tension: beat.tension,
+        marker: beat.marker
       }));
     } else {
       throw new Error('Failed to generate story');
@@ -191,7 +266,7 @@ export default async function handler(
       entryPath: safeEntryPath,
       tone: tone as any,
       format: 'SHORT',
-      brandName: brand
+      brandName: effectiveBrand
     };
 
     console.log('[XO Generate] Validating output with context:', validationContext);
@@ -217,8 +292,8 @@ export default async function handler(
       narrativeTension: meaningContract?.interpretedMeaning?.narrativeTension || 'unresolved',
       intentCategory: meaningContract?.interpretedMeaning?.intentCategory || 'express',
       coreTheme: meaningContract?.interpretedMeaning?.coreTheme || 'human experience',
-      isBrandStory: !!brand && !skipBrand,
-      brandName: brand,
+      isBrandStory: !!effectiveBrand,
+      brandName: effectiveBrand,
       timestamp: new Date().toISOString(),
       beatCount: beats.length,
       wordCount: generatedText.split(/\s+/).length,
@@ -244,7 +319,8 @@ export default async function handler(
         beats: microStory.beats,
         market: microStory.market,
         entryPath: microStory.entryPath,
-        timestamp: microStory.timestamp
+        timestamp: microStory.timestamp,
+        brand: microStory.brand
       }
     };
 
@@ -261,6 +337,7 @@ export default async function handler(
     console.log('[XO Generate] Generation complete:', {
       market: safeMarket,
       entryPath: safeEntryPath,
+      brand: effectiveBrand,
       beatCount: beats.length,
       wordCount: metadata.wordCount,
       validationPassed: outputValidation.passed,
@@ -291,7 +368,8 @@ export default async function handler(
       // Handle validation errors specifically
       if (error.message.includes('validation failed') || 
           error.message.includes('Market leakage') ||
-          error.message.includes('Missing path marker')) {
+          error.message.includes('Missing path marker') ||
+          error.message.includes('Missing brand context')) {
         statusCode = 400;
         validationError = {
           type: 'validation_error',

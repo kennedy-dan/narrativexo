@@ -12,7 +12,7 @@ export interface MicroStoryBeat {
   lines: string[];
   emotion?: string;
   tension?: string;
-  marker?: string; // The path marker used for this beat
+  marker?: string;
 }
 
 export interface MicroStory {
@@ -29,6 +29,7 @@ export interface XONarrativeOptions {
   maxTokens?: number;
   validateOutput?: boolean;
   tone?: string;
+  entryPath?: 'emotion' | 'scene' | 'seed' | 'audience';
 }
 
 // ============================================================================
@@ -97,18 +98,19 @@ export class XONarrativeEngine {
     brand?: string,
     options: XONarrativeOptions = {}
   ): Promise<MicroStory> {
-    // Determine entry path from input
-    const entryPath = this.detectEntryPath(input);
+    // Use provided entryPath or detect from input
+    const entryPath = options.entryPath || this.detectEntryPath(input);
     
     console.log(`[XO Engine] Generating story:`, {
       entryPath,
       market,
-      hasBrand: !!brand,
-      inputLength: input.length
+      brand,
+      inputLength: input.length,
+      hasBrandRequest: !!brand || input.toLowerCase().includes('brand')
     });
     
-    // Build the system prompt
-    const systemPrompt = this.buildSystemPrompt(entryPath, market, options.tone);
+    // Build the system prompt with brand integration
+    const systemPrompt = this.buildSystemPrompt(entryPath, market, brand, options.tone);
     
     // Build the user prompt
     const userPrompt = this.buildUserPrompt(input, market, brand, entryPath);
@@ -127,7 +129,7 @@ export class XONarrativeEngine {
           }
         ],
         temperature: options.temperature || 0.7,
-        max_tokens: options.maxTokens || 600,
+        max_tokens: options.maxTokens || 500,
         frequency_penalty: 0.1,
         presence_penalty: 0.1
       });
@@ -136,7 +138,8 @@ export class XONarrativeEngine {
       
       console.log(`[XO Engine] Raw story generated:`, {
         length: rawStory.length,
-        first100: rawStory.substring(0, 100)
+        first100: rawStory.substring(0, 100),
+        hasBrand: brand ? rawStory.toLowerCase().includes(brand.toLowerCase()) : false
       });
       
       // Parse beats from the generated text
@@ -160,12 +163,21 @@ export class XONarrativeEngine {
         if (!isValid) {
           console.warn('[XO Engine] Generated story missing proper path markers');
         }
+        
+        // Validate brand inclusion if requested
+        if (brand) {
+          const hasBrand = this.checkBrandInclusion(microStory, brand);
+          if (!hasBrand) {
+            console.warn('[XO Engine] Generated story missing brand context');
+          }
+        }
       }
       
       console.log(`[XO Engine] Story generated successfully:`, {
         beatCount: beats.length,
         formattedLength: microStory.formattedText?.length,
-        hasMarkers: this.validatePathMarkers(microStory)
+        hasMarkers: this.validatePathMarkers(microStory),
+        hasBrand: brand ? this.checkBrandInclusion(microStory, brand) : false
       });
       
       return microStory;
@@ -181,11 +193,13 @@ export class XONarrativeEngine {
    */
   static async refine(
     story: MicroStory,
-    refinement: 'expand' | 'gentler' | 'harsher'
+    refinement: 'expand' | 'gentler' | 'harsher',
+    brand?: string
   ): Promise<MicroStory> {
     console.log(`[XO Engine] Refining story: ${refinement}`, {
       entryPath: story.entryPath,
-      beatCount: story.beats.length
+      beatCount: story.beats.length,
+      brand
     });
     
     const refinementInstructions = {
@@ -207,6 +221,9 @@ Keep the structure and markers exactly the same.`
     const instruction = refinementInstructions[refinement];
     const currentText = story.formattedText || this.formatWithPathMarkers(story);
     
+    // Add brand requirement to refinement if brand exists
+    const brandInstruction = brand ? `\nIMPORTANT: This story is for ${brand}. Ensure brand context is preserved or enhanced.` : '';
+    
     try {
       const completion = await openai.chat.completions.create({
         model: "gpt-4",
@@ -214,7 +231,7 @@ Keep the structure and markers exactly the same.`
           {
             role: "system",
             content: `You are refining a story. You MUST preserve the exact structure and path markers.
-Return the refined story with the same markers in the same order.`
+Return the refined story with the same markers in the same order.${brandInstruction}`
           },
           {
             role: "user",
@@ -222,7 +239,7 @@ Return the refined story with the same markers in the same order.`
           }
         ],
         temperature: 0.7,
-        max_tokens: 600
+        max_tokens: 500
       });
 
       const refinedText = completion.choices[0].message.content?.trim() || '';
@@ -234,6 +251,7 @@ Return the refined story with the same markers in the same order.`
       const refinedStory: MicroStory = {
         ...story,
         beats,
+        brand: brand || story.brand,
         timestamp: new Date().toISOString()
       };
       
@@ -243,7 +261,8 @@ Return the refined story with the same markers in the same order.`
       console.log(`[XO Engine] Story refined successfully:`, {
         originalBeats: story.beats.length,
         refinedBeats: beats.length,
-        hasMarkers: this.validatePathMarkers(refinedStory)
+        hasMarkers: this.validatePathMarkers(refinedStory),
+        hasBrand: brand ? this.checkBrandInclusion(refinedStory, brand) : false
       });
       
       return refinedStory;
@@ -258,20 +277,22 @@ Return the refined story with the same markers in the same order.`
    * Detect entry path from input text
    */
   private static detectEntryPath(input: string): 'emotion' | 'scene' | 'seed' | 'audience' {
+    if (!input) return 'scene';
+    
     const upperInput = input.toUpperCase();
     
-    // Check for Starter Pack v0.2 explicit markers in input
-    if (upperInput.includes('EMOTION INPUT:')) return 'emotion';
-    if (upperInput.includes('SCENE INPUT:')) return 'scene';
-    if (upperInput.includes('STORY SEED:')) return 'seed';
-    if (upperInput.includes('AUDIENCE SIGNAL:')) return 'audience';
+    // Check for Starter Pack v0.2 explicit markers in input FIRST
+    if (upperInput.includes('EMOTION_INPUT:')) return 'emotion';
+    if (upperInput.includes('SCENE_INPUT:')) return 'scene';
+    if (upperInput.includes('STORY_SEED:')) return 'seed';
+    if (upperInput.includes('AUDIENCE_SIGNAL:')) return 'audience';
     
     // Check for keywords (from Starter Pack test cases)
-    if (/(feel|felt|feeling|emotion|emotional|relief|anxiety|joy|sad|happy|angry|excited|calm)/i.test(input)) {
+    if (/(feel|felt|feeling|emotion|emotional|relief|anxiety|joy|sad|happy|angry|excited|calm|frustrated)/i.test(input)) {
       return 'emotion';
     }
     
-    if (/(scene|setting|place|location|room|space|environment|background|kitchen|office|street|park)/i.test(input)) {
+    if (/(scene|setting|place|location|room|space|environment|background|kitchen|office|street|park|laundry)/i.test(input)) {
       return 'scene';
     }
     
@@ -279,8 +300,12 @@ Return the refined story with the same markers in the same order.`
       return 'audience';
     }
     
-    // Default to seed (as per Starter Pack)
-    return 'seed';
+    if (/(seed|story seed|beginning|start|idea|concept)/i.test(input)) {
+      return 'seed';
+    }
+    
+    // Default to scene (most common for brand stories)
+    return 'scene';
   }
   
   /**
@@ -289,11 +314,21 @@ Return the refined story with the same markers in the same order.`
   private static buildSystemPrompt(
     entryPath: string,
     market: string,
+    brand?: string,
     tone?: string
   ): string {
     const markers = STARTER_PACK_MARKERS[entryPath];
     const marketGuidance = MARKET_GUIDANCE[market as keyof typeof MARKET_GUIDANCE] || MARKET_GUIDANCE.GLOBAL;
     const toneGuidance = tone ? TONE_GUIDANCE[tone as keyof typeof TONE_GUIDANCE] || '' : '';
+    
+    // CRITICAL: Brand integration requirement
+    const brandRequirement = brand ? `
+CRITICAL BRAND INTEGRATION:
+- This story is for the brand: ${brand}
+- The brand context MUST be naturally integrated into the STORY: section
+- If the user mentions ${brand} or related products/services in their request, reflect this in the story
+- Brand integration should feel organic, not forced or tacked on
+- Connect the story's theme to the brand's value proposition` : '';
     
     return `You are a master storyteller creating micro-stories for the XO system.
 
@@ -304,9 +339,10 @@ ${markers.map(marker => `   ${marker}`).join('\n')}
 2. Structure requirements:
    - Each marker gets its own section
    - Each section contains 1-2 lines of text maximum
-   - No paragraphs or long blocks
+   - Each line should be concise (15 words or less)
+   - No paragraphs or long blocks of text
    - Blank line between sections
-   - Total output: 3-5 sections (one per marker)
+   - Total output: exactly 3 sections (one per marker)
 
 3. Content requirements:
    - Show, don't tell
@@ -314,6 +350,7 @@ ${markers.map(marker => `   ${marker}`).join('\n')}
    - Use vivid, sensory language
    - Create emotional resonance
    - End with a meaningful close
+${brandRequirement}
 
 4. Market & Tone:
 ${marketGuidance}
@@ -321,21 +358,22 @@ ${toneGuidance}
 
 EXAMPLE FORMAT:
 ${markers[0]}
-A single line or two lines max
+A single line or two short lines max
 
 ${markers[1]}
-Another single line or two lines max
+Another single line or two short lines max
 
 ${markers[2]}
-Final section, 1-2 lines max
+Final section, 1-2 short lines max
 
 DO NOT:
-- Write paragraphs
+- Write paragraphs or long sentences
 - Use markdown formatting
 - Add extra commentary
 - Miss any markers
 - Change marker order
-- Exceed 2 lines per section`;
+- Exceed 2 lines per section
+- Make lines longer than 15 words`;
   }
   
   /**
@@ -352,9 +390,9 @@ DO NOT:
       scene: 'Focus on the sensory details and what they reveal.',
       seed: 'Focus on developing the seed into a complete arc.',
       audience: 'Focus on why this matters to the specific audience.'
-    }[entryPath || 'seed'];
+    }[entryPath || 'scene'];
     
-    const brandContext = brand ? `\nBrand Context: This story is for ${brand}. Integrate brand values naturally.` : '';
+    const brandContext = brand ? `\nBrand: ${brand}\nCreate a story that naturally integrates this brand context.` : '';
     
     return `Create a micro-story based on this input:
 
@@ -364,7 +402,7 @@ Market: ${market}
 ${entryPathContext}
 ${brandContext}
 
-Generate a compelling micro-story that follows all formatting rules.`;
+Generate a compelling micro-story that follows all formatting rules exactly.`;
   }
   
   /**
@@ -448,7 +486,7 @@ Generate a compelling micro-story that follows all formatting rules.`;
    * Format micro-story with Starter Pack path markers
    */
   static formatWithPathMarkers(story: MicroStory): string {
-    const entryPath = story.entryPath || 'seed';
+    const entryPath = story.entryPath || 'scene';
     const markers = STARTER_PACK_MARKERS[entryPath];
     
     let formatted = '';
@@ -500,6 +538,58 @@ Generate a compelling micro-story that follows all formatting rules.`;
   }
   
   /**
+   * Check if brand is included in the story
+   */
+  private static checkBrandInclusion(story: MicroStory, brand: string): boolean {
+    if (!brand || !story.formattedText) return true; // No brand requirement
+    
+    const lowerText = story.formattedText.toLowerCase();
+    const lowerBrand = brand.toLowerCase();
+    
+    // Check for brand name or related keywords
+    const brandKeywords = this.getBrandKeywords(brand);
+    
+    return brandKeywords.some(keyword => 
+      lowerText.includes(keyword.toLowerCase())
+    );
+  }
+  
+  /**
+   * Get relevant keywords for a brand
+   */
+  private static getBrandKeywords(brand: string): string[] {
+    const lowerBrand = brand.toLowerCase();
+    const keywords = [brand];
+    
+    // Add related keywords based on brand type
+    if (lowerBrand.includes('washing') || lowerBrand.includes('laundry')) {
+      keywords.push('machine', 'wash', 'clean', 'fabric', 'clothes', 'load', 'cycle');
+    }
+    if (lowerBrand.includes('detergent') || lowerBrand.includes('clean')) {
+      keywords.push('clean', 'fresh', 'stain', 'suds', 'rinse');
+    }
+    if (lowerBrand.includes('car') || lowerBrand.includes('auto')) {
+      keywords.push('drive', 'road', 'engine', 'wheel', 'journey');
+    }
+    if (lowerBrand.includes('bank') || lowerBrand.includes('financial')) {
+      keywords.push('money', 'secure', 'account', 'save', 'transaction');
+    }
+    
+    // Remove duplicates using a Set but convert back to array properly
+    const uniqueKeywords: string[] = [];
+    const seen = new Set<string>();
+    
+    keywords.forEach(keyword => {
+      if (!seen.has(keyword.toLowerCase())) {
+        seen.add(keyword.toLowerCase());
+        uniqueKeywords.push(keyword);
+      }
+    });
+    
+    return uniqueKeywords;
+  }
+
+  /**
    * Extract just the story text without markers (for display)
    */
   static extractStoryText(formattedText: string): string {
@@ -534,7 +624,7 @@ export async function generateXOStory(
   beatSheet: any[];
   metadata: any;
 }> {
-  const entryPath = meaningContract?.entryPath || 'seed';
+  const entryPath = meaningContract?.entryPath || 'scene';
   
   const microStory = await XONarrativeEngine.generate(
     input,
@@ -544,7 +634,8 @@ export async function generateXOStory(
       temperature: 0.7,
       maxTokens: 500,
       validateOutput: true,
-      tone: meaningContract?.interpretedMeaning?.emotionalState
+      tone: meaningContract?.interpretedMeaning?.emotionalState,
+      entryPath: entryPath as any
     }
   );
   
