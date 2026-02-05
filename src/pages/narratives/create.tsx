@@ -223,8 +223,6 @@ interface ValidationResult {
     entryPath?: string;
     hasPathMarkers?: boolean;
     validationResults?: Record<string, any>;
-        shouldShip?: boolean; // Add it here instead
-
   };
 }
 
@@ -278,7 +276,6 @@ export default function Create() {
           <p className="text-gray-600">
             I help you create compelling brand stories. Just describe what's on your mind...
           </p>
-        
         </div>
       ),
       timestamp: new Date(),
@@ -298,6 +295,41 @@ export default function Create() {
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const parseMicroStory = (storyText: string) => {
+    const lines = storyText.split('\n');
+    const beats: Array<{lines: string[], marker?: string}> = [];
+    let currentBeat: {lines: string[], marker?: string} | null = null;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      
+      const markerRegex = /^(SCENE_INPUT:|DETAILS_NOTICED:|STORY:|EMOTION_INPUT:|INSIGHT:|SEED:|ARC:|AUDIENCE_SIGNAL:|WHY_IT_MATTERS:)$/i;
+      const isMarker = markerRegex.test(line);
+      
+      if (isMarker) {
+        if (currentBeat && (currentBeat.lines.length > 0 || currentBeat.marker)) {
+          beats.push(currentBeat);
+        }
+        
+        currentBeat = {
+          lines: [],
+          marker: line.toUpperCase()
+        };
+      } else if (currentBeat) {
+        if (currentBeat.lines.length < 2) {
+          currentBeat.lines.push(line);
+        }
+      }
+    }
+    
+    if (currentBeat && (currentBeat.lines.length > 0 || currentBeat.marker)) {
+      beats.push(currentBeat);
+    }
+    
+    return beats;
   };
 
   useEffect(() => {
@@ -339,7 +371,7 @@ export default function Create() {
     type?: "selection" | "response" | "generated" | "question" | "validation"
   ): number => {
     const newMessage: Message = {
-      id: messages.length + 1,
+      id: Date.now(), // Use timestamp for unique IDs
       sender,
       content,
       timestamp: new Date(),
@@ -404,11 +436,11 @@ export default function Create() {
           </div>
         )}
         
-        {validation.metadata?.shouldShip === false && (
+        {/* {validation.metadata?.shouldShip === false && (
           <p className="text-xs text-amber-500 italic">
             This story wouldn't pass automated quality gates for deployment.
           </p>
-        )}
+        )} */}
       </div>
     );
   };
@@ -545,9 +577,25 @@ export default function Create() {
           
           await triggerStoryGeneration(fallbackContract);
         }
+      } else {
+        throw new Error(data.error || "Clarification failed");
       }
     } catch (error) {
       console.error("XO analysis error:", error);
+
+      addMessage(
+        "system",
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-amber-600">
+            <HelpCircle size={16} />
+            <span className="font-medium">Proceeding tentatively</span>
+          </div>
+          <div className="text-sm text-gray-600">
+            Creating a story based on your input...
+          </div>
+        </div>,
+        "response"
+      );
 
       await simulateTyping(800);
       
@@ -578,21 +626,6 @@ export default function Create() {
         seedMoment: inputToSend,
       };
 
-      addMessage(
-        "system",
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-amber-600">
-            <HelpCircle size={16} />
-            <span className="font-medium">Proceeding tentatively</span>
-          </div>
-          <div className="text-sm text-gray-600">
-            Creating a story based on your input...
-          </div>
-        </div>,
-        "response"
-      );
-
-      await simulateTyping(800);
       await triggerStoryGeneration(fallbackContract);
     } finally {
       setIsGenerating(false);
@@ -615,96 +648,98 @@ export default function Create() {
     setIsRewriteMode(false);
   };
 
-const triggerStoryGeneration = async (contract: MeaningContract) => {
-  setIsGenerating(true);
+  const triggerStoryGeneration = async (contract: MeaningContract) => {
+    setIsGenerating(true);
 
-  const loadingId = addMessage(
-    "system",
-    <div className="flex items-center gap-2">
-      <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-      <span>Generating your story...</span>
-    </div>,
-    "response"
-  );
-
-  try {
-    const res = await fetch("/api/xo/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userInput: contract.seedMoment || originalUserInput,
-        market: contract.marketContext?.market || "GLOBAL",
-        brand: brandName || undefined,
-        meaningContract: contract,
-        validationContext: {
-          validateStrict: true,
-          requirePathMarkers: true,
-          checkMarketLeakage: true
-        }
-      }),
-    });
-
-    if (!res.ok) {
-      throw new Error(`API error: ${res.status}`);
-    }
-
-    const data = await res.json();
-
-    if (!data.success) {
-      throw new Error(data.error || "Unknown error");
-    }
-
-    // Store validation result
-    if (data.validation) {
-      setValidationResult(data.validation);
-    }
-
-    const generatedStory: GeneratedStory = {
-      story: data.story || "Story generated",
-      beatSheet: data.beatSheet || [],
-      metadata: {
-        title: data.metadata?.title || `Story about ${contract.interpretedMeaning.coreTheme}`,
-        archetype: "Emergent Narrator",
-        tone: contract.interpretedMeaning.emotionalState,
-        totalBeats: data.beatSheet?.length || 0,
-        estimatedDuration: `${(data.beatSheet?.length || 0) * 5}s`,
-        emotionalState: contract.interpretedMeaning.emotionalState,
-        narrativeTension: contract.interpretedMeaning.narrativeTension,
-        intentCategory: contract.interpretedMeaning.intentCategory,
-        coreTheme: contract.interpretedMeaning.coreTheme,
-        wordCount: data.story?.split(/\s+/).length || 0,
-        isBrandStory: !!brandName,
-        brandName: brandName || undefined,
-        template: "micro-story",
-        lineCount: 0,
-        market: data.metadata?.market || "GLOBAL",
-        entryPath: data.metadata?.entryPath || "seed",
-        validation: data.validation,
-        shouldShip: data.metadata?.shouldShip
-      },
-    };
-
-    setStory(generatedStory);
-
-    // Remove loading message
-    setMessages((prev) =>
-      prev.filter((msg) => msg.id !== loadingId)
+    const loadingId = addMessage(
+      "system",
+      <div className="flex items-center gap-2">
+        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+        <span>Generating your story...</span>
+      </div>,
+      "response"
     );
 
-    // Show validation status first
-    if (data.validation) {
+    try {
+      const res = await fetch("/api/xo/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userInput: contract.seedMoment || originalUserInput,
+          market: contract.marketContext?.market || "GLOBAL",
+          brand: brandName || undefined,
+          meaningContract: contract,
+          validationContext: {
+            validateStrict: true,
+            requirePathMarkers: true,
+            checkMarketLeakage: true
+          }
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`API error: ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      if (!data.success) {
+        throw new Error(data.error || "Unknown error");
+      }
+
+      // Store validation result
+      if (data.validation) {
+        setValidationResult(data.validation);
+      }
+
+      const generatedStory: GeneratedStory = {
+        story: data.story || "Story generated",
+        beatSheet: data.beatSheet || [],
+        metadata: {
+          title: data.metadata?.title || `Story about ${contract.interpretedMeaning.coreTheme}`,
+          archetype: "Emergent Narrator",
+          tone: contract.interpretedMeaning.emotionalState,
+          totalBeats: data.beatSheet?.length || 0,
+          estimatedDuration: `${(data.beatSheet?.length || 0) * 5}s`,
+          emotionalState: contract.interpretedMeaning.emotionalState,
+          narrativeTension: contract.interpretedMeaning.narrativeTension,
+          intentCategory: contract.interpretedMeaning.intentCategory,
+          coreTheme: contract.interpretedMeaning.coreTheme,
+          wordCount: data.story?.split(/\s+/).length || 0,
+          isBrandStory: !!brandName,
+          brandName: brandName || undefined,
+          template: "micro-story",
+          lineCount: 0,
+          market: data.metadata?.market || "GLOBAL",
+          entryPath: data.metadata?.entryPath || "seed",
+          validation: data.validation,
+          shouldShip: data.metadata?.shouldShip
+        },
+      };
+
+      setStory(generatedStory);
+
+      // Remove loading message
+      setMessages((prev) =>
+        prev.filter((msg) => msg.id !== loadingId)
+      );
+
+      // Show validation status first
       addMessage(
         "system",
         <div className="space-y-4">
-          {renderValidationStatus(data.validation)}
+          {data.validation && renderValidationStatus(data.validation)}
           
           <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-6 rounded-r-lg">
             <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
-              {generatedStory.story}
+              {generatedStory?.beatSheet?.map((beat, index) => (
+                <div key={index} className="mb-6">
+                  {beat.description}
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* FIX: Add the refinement buttons here */}
           <div className="space-y-4">
             <p className="font-medium text-gray-700">
               Want to refine this story first?
@@ -739,65 +774,58 @@ const triggerStoryGeneration = async (contract: MeaningContract) => {
               </button>
               <button
                 onClick={() => {
-                  setMessages((prev) => [
-                    ...prev,
-                    {
-                      id: prev.length + 1,
-                      sender: "system",
-                      content: (
-                        <div className="space-y-3">
-                          <p className="font-medium text-gray-700">
-                            How do you want to use this story?
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            Tell me what this is for (e.g., "Turn this into a brand post", "This is for Instagram", "Make it more formal for LinkedIn", etc.)
-                          </p>
-                          {showPurposeButtons && (
-                            <div className="flex flex-wrap gap-2 pt-2">
-                              <button
-                                onClick={() => {
-                                  const purpose = "Turn this into a brand post";
-                                  setUserPurpose(purpose);
-                                  setShowPurposeButtons(false);
-                                  handleStoryPurpose(purpose);
-                                }}
-                                className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
-                              >
-                                Brand post
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const purpose = "This is for Instagram";
-                                  setUserPurpose(purpose);
-                                  setShowPurposeButtons(false);
-                                  handleStoryPurpose(purpose);
-                                }}
-                                className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                              >
-                                Instagram
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const purpose = "Make it more formal for LinkedIn";
-                                  setUserPurpose(purpose);
-                                  setShowPurposeButtons(false);
-                                  handleStoryPurpose(purpose);
-                                }}
-                                className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-                              >
-                                LinkedIn
-                              </button>
-                            </div>
-                          )}
-                          <p className="text-xs text-gray-500">
-                            I'll adapt the same story based on your specific use case.
-                          </p>
+                  addMessage(
+                    "system",
+                    <div className="space-y-3">
+                      <p className="font-medium text-gray-700">
+                        How do you want to use this story?
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        Tell me what this is for (e.g., "Turn this into a brand post", "This is for Instagram", "Make it more formal for LinkedIn", etc.)
+                      </p>
+                      {showPurposeButtons && (
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          <button
+                            onClick={() => {
+                              const purpose = "Turn this into a brand post";
+                              setUserPurpose(purpose);
+                              setShowPurposeButtons(false);
+                              handleStoryPurpose(purpose);
+                            }}
+                            className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
+                          >
+                            Brand post
+                          </button>
+                          <button
+                            onClick={() => {
+                              const purpose = "This is for Instagram";
+                              setUserPurpose(purpose);
+                              setShowPurposeButtons(false);
+                              handleStoryPurpose(purpose);
+                            }}
+                            className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                          >
+                            Instagram
+                          </button>
+                          <button
+                            onClick={() => {
+                              const purpose = "Make it more formal for LinkedIn";
+                              setUserPurpose(purpose);
+                              setShowPurposeButtons(false);
+                              handleStoryPurpose(purpose);
+                            }}
+                            className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+                          >
+                            LinkedIn
+                          </button>
                         </div>
-                      ),
-                      timestamp: new Date(),
-                      type: "question",
-                    },
-                  ]);
+                      )}
+                      <p className="text-xs text-gray-500">
+                        I'll adapt the same story based on your specific use case.
+                      </p>
+                    </div>,
+                    "question"
+                  );
                   setCurrentStep("story-purpose");
                 }}
                 className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
@@ -821,396 +849,313 @@ const triggerStoryGeneration = async (contract: MeaningContract) => {
         </div>,
         "generated"
       );
-    } else {
-      // Fallback if no validation data - STILL SHOW REFINEMENT BUTTONS
+
+      setCurrentStep("story-generated");
+    } catch (error) {
+      console.error("❌ Story generation error:", error);
+
+      // Remove loading message and show error
+      setMessages((prev) =>
+        prev.filter((msg) => msg.id !== loadingId)
+      );
+
       addMessage(
         "system",
         <div className="space-y-6">
-          <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-purple-500 p-6 rounded-r-lg">
-            <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
-              {generatedStory.story}
+          <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
+            <p>
+              I had trouble shaping your story. Let's try a different approach:
+            </p>
+          </div>
+          <div className="space-y-4">
+            <button
+              onClick={() => setCurrentStep("entry")}
+              className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
+            >
+              Start Over
+            </button>
+          </div>
+        </div>,
+        "response"
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleStoryExpansion = async (
+    expansionType: "expand" | "gentler" | "harsher",
+    storyToExpand: GeneratedStory,
+    contract: MeaningContract
+  ) => {
+    if (!storyToExpand || !storyToExpand.story) {
+      console.error("No valid story provided for expansion");
+      addMessage(
+        "system",
+        <div className="text-red-600">
+          Error: Invalid story provided for expansion.
+        </div>,
+        "response"
+      );
+      return;
+    }
+
+    // For "expand" type, we need to tell the API to convert to 5-beat structure
+    const isConvertToFullStory = expansionType === "expand";
+    
+    // Parse the current story
+    const beats = parseMicroStory(storyToExpand.story);
+    
+    const microStory = {
+      beats,
+      market: storyToExpand.metadata?.market || contract.marketContext?.market || "GLOBAL",
+      entryPath: storyToExpand.metadata?.entryPath?.toLowerCase() || contract.entryPath,
+      brand: storyToExpand.metadata?.brandName || undefined,
+      timestamp: new Date().toISOString(),
+      formattedText: storyToExpand.story
+    };
+
+    setIsGenerating(true);
+
+    addMessage(
+      "user",
+      <div className="flex items-center gap-2">
+        <Maximize2 size={16} />
+        <span className="font-medium">
+          Refining story
+        </span>
+      </div>,
+      "selection"
+    );
+
+    const loadingId = addMessage(
+      "system",
+      <div className="flex items-center gap-2">
+        <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+        <span>Expanding...</span>
+      </div>,
+      "response"
+    );
+
+    try {
+      // Special handling for "expand" - convert to 5-beat structure
+      let requestBody;
+      
+      if (expansionType === "expand") {
+        requestBody = {
+          meaningContract: {
+            ...contract,
+            entryPath: "scene"
+          },
+          originalInput: originalUserInput,
+          requestType: "story-conversion",
+          conversionType: "micro-to-full",
+          currentStory: JSON.stringify(microStory),
+          targetStructure: "full-story",
+          brand: storyToExpand.metadata?.brandName || undefined,
+          validationContext: {
+            validateStrict: true,
+            requirePathMarkers: true,
+            requireStorySections: true
+          }
+        };
+      } else {
+        requestBody = {
+          meaningContract: {
+            ...contract,
+            entryPath: storyToExpand.metadata?.entryPath?.toLowerCase() || contract.entryPath
+          },
+          originalInput: originalUserInput,
+          requestType: "refinement",
+          refinement: expansionType,
+          currentStory: JSON.stringify(microStory),
+          brand: storyToExpand.metadata?.brandName || undefined,
+          validationContext: {
+            validateStrict: true,
+            requirePathMarkers: true
+          }
+        };
+      }
+
+      const res = await fetch("/api/xo/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!res.ok) {
+        throw new Error(`API error: ${res.status}`);
+      }
+
+      const data = await res.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || "Unknown error");
+      }
+
+      const expandedStory: GeneratedStory = {
+        story: data.story || storyToExpand.story,
+        beatSheet: data.beatSheet || storyToExpand.beatSheet,
+        metadata: {
+          ...storyToExpand.metadata,
+          title: data.metadata?.title || `${storyToExpand.metadata?.title} - Expanded`,
+          market: data.metadata?.market || storyToExpand.metadata?.market,
+          entryPath: data.metadata?.entryPath || storyToExpand.metadata?.entryPath,
+          validation: data.validation,
+          shouldShip: data.metadata?.shouldShip,
+          template: expansionType === "expand" ? "full-story" : "micro-story",
+          totalBeats: expansionType === "expand" ? 5 : storyToExpand.metadata?.totalBeats
+        },
+      };
+
+      setStory(expandedStory);
+      
+      if (data.validation) {
+        setValidationResult(data.validation);
+      }
+
+      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
+
+      // Show the expanded story
+      addMessage(
+        "system",
+        <div className="space-y-6">
+          {data.validation && renderValidationStatus(data.validation)}
+          
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-6 rounded-r-lg">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                {expansionType === "expand" ? "Expanded Version" : 
+                 expansionType === "gentler" ? "Gentler Version" : "Harsher Version"}
+              </span>
+              {expansionType === "expand" && (
+                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                  3 → 5 beats
+                </span>
+              )}
+            </div>
+            <div className="text-gray-800 whitespace-pre-line leading-relaxed mt-3">
+              {expandedStory?.beatSheet?.map((beat, index) => (
+                <div key={index} className="mb-6">
+                  {beat.description}
+                </div>
+              ))}
             </div>
           </div>
-          
-          {/* FIX: Add refinement buttons even in fallback */}
-          <div className="space-y-4">
+
+          <div className="space-y-3">
             <p className="font-medium text-gray-700">
-              Want to refine this story first?
+              How do you want to use this {expansionType === "expand" ? "expanded" : "refined"} story?
             </p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <p className="text-sm text-gray-600">
+              Tell me what this is for (e.g., "brand post", "Instagram", "LinkedIn", etc.)
+            </p>
+            <div className="flex flex-wrap gap-2 pt-2">
               <button
-                onClick={() =>
-                  handleStoryExpansion("expand", generatedStory, contract)
-                }
-                className="px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
+                onClick={() => {
+                  const purpose = "Turn this into a brand post";
+                  setUserPurpose(purpose);
+                  handleStoryPurpose(purpose);
+                }}
+                className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
               >
-                <Maximize2 size={16} />
-                Expand this
-              </button>
-              <button
-                onClick={() =>
-                  handleStoryExpansion("gentler", generatedStory, contract)
-                }
-                className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-              >
-                <Zap size={16} />
-                Make it gentler
-              </button>
-              <button
-                onClick={() =>
-                  handleStoryExpansion("harsher", generatedStory, contract)
-                }
-                className="px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
-              >
-                <Zap size={16} />
-                Make it harsher
+                Brand post
               </button>
               <button
                 onClick={() => {
-                  setMessages((prev) => [
-                    ...prev,
-                    {
-                      id: prev.length + 1,
-                      sender: "system",
-                      content: (
-                        <div className="space-y-3">
-                          <p className="font-medium text-gray-700">
-                            How do you want to use this story?
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            Tell me what this is for...
-                          </p>
-                        </div>
-                      ),
-                      timestamp: new Date(),
-                      type: "question",
-                    },
-                  ]);
-                  setCurrentStep("story-purpose");
+                  const purpose = "This is for Instagram";
+                  setUserPurpose(purpose);
+                  handleStoryPurpose(purpose);
+                  setShowPurposeButtons(false);
                 }}
-                className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
+                className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
               >
-                Skip refinement →
+                Instagram
+              </button>
+              <button
+                onClick={() => {
+                  const purpose = "Make it more formal for LinkedIn";
+                  setUserPurpose(purpose);
+                  handleStoryPurpose(purpose);
+                  setShowPurposeButtons(false);
+                }}
+                className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
+              >
+                LinkedIn
               </button>
             </div>
           </div>
         </div>,
         "generated"
       );
-    }
 
-    setCurrentStep("story-generated");
-  } catch (error) {
-    console.error("❌ Story generation error:", error);
+      setCurrentStep("story-purpose");
+    } catch (error) {
+      console.error("Expansion error:", error);
 
-    // Remove loading message and show error
-    setMessages((prev) =>
-      prev.filter((msg) => msg.id !== loadingId)
-    );
+      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
 
-    addMessage(
-      "system",
-      <div className="space-y-6">
-        <div className="text-amber-600 p-4 bg-amber-50 rounded-lg">
-          <p>
-            I had trouble shaping your story. Let's try a different approach:
-          </p>
-        </div>
+      addMessage(
+        "system",
         <div className="space-y-4">
-          <button
-            onClick={() => setCurrentStep("entry")}
-            className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg"
-          >
-            Start Over
-          </button>
-        </div>
-      </div>,
-      "response"
-    );
-  } finally {
-    setIsGenerating(false);
-  }
-};
+          <div className="text-red-600 p-4 bg-red-50 rounded-lg">
+            <p>Failed to expand story. Please try again.</p>
+            <p className="text-sm mt-1">
+              Error: {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setCurrentStep("story-generated");
+                addMessage(
+                  "system",
+                  <div className="text-gray-600">
+                    You can continue with the original story.
+                  </div>,
+                  "response"
+                );
+              }}
+              className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg"
+            >
+              Back to Story
+            </button>
+            <button
+              onClick={() => {
+                setUserPurpose("");
+                setCurrentStep("story-purpose");
+                addMessage(
+                  "system",
+                  <div className="space-y-3">
+                    <p className="font-medium text-gray-700">
+                      How do you want to use the original story?
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Tell me what this is for (e.g., "brand post", "Instagram", "LinkedIn", etc.)
+                    </p>
+                  </div>,
+                  "question"
+                );
+              }}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Continue with Original
+            </button>
+          </div>
+        </div>,
+        "response"
+      );
 
-const handleStoryExpansion = async (
-  expansionType: "expand" | "gentler" | "harsher",
-  storyToExpand: GeneratedStory,
-  contract: MeaningContract
-) => {
-  if (!storyToExpand || !storyToExpand.story) {
-    console.error("No valid story provided for expansion");
-    addMessage(
-      "system",
-      <div className="text-red-600">
-        Error: Invalid story provided for expansion.
-      </div>,
-      "response"
-    );
-    return;
-  }
-
-  // Get the current story's entry path from metadata
-  const currentEntryPath = storyToExpand.metadata?.entryPath?.toLowerCase() || contract.entryPath;
-  
-  // Parse beats from current story
-// Use this more robust parsing:
-function parseStoryToBeats(storyText: string) {
-  const lines = storyText.split('\n');
-  const beats = [];
-  let currentBeat = { lines: [] as string[], marker: '' };
-  
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-    if (!trimmedLine) continue;
-    
-    // Check if this line is a marker
-    const isMarker = /^(SCENE_INPUT:|DETAILS_NOTICED:|STORY:|EMOTION_INPUT:|INSIGHT:|SEED:|ARC:|AUDIENCE_SIGNAL:|WHY_IT_MATTERS:)$/i.test(trimmedLine);
-    
-    if (isMarker) {
-      if (currentBeat.lines.length > 0 || currentBeat.marker) {
-        beats.push({...currentBeat});
-      }
-      currentBeat = {
-        lines: [],
-        marker: trimmedLine.toUpperCase()
-      };
-    } else if (currentBeat.marker) {
-      currentBeat.lines.push(trimmedLine);
+      setCurrentStep("story-purpose");
+    } finally {
+      setIsGenerating(false);
     }
-  }
-  
-  // Add the last beat
-  if (currentBeat.lines.length > 0 || currentBeat.marker) {
-    beats.push(currentBeat);
-  }
-  
-  return beats;
-}
-
-// Then use:
-const beats = parseStoryToBeats(storyToExpand.story);
-
-  // Create micro-story object
-  const microStory = {
-    beats,
-    market: storyToExpand.metadata?.market || contract.marketContext?.market || "GLOBAL",
-    entryPath: currentEntryPath,
-    brand: storyToExpand.metadata?.brandName || undefined,
-    timestamp: new Date().toISOString(),
-    formattedText: storyToExpand.story
   };
-
-  setIsGenerating(true);
-
-  addMessage(
-    "user",
-    <div className="flex items-center gap-2">
-      <Type size={16} />
-      <span className="font-medium">
-        {expansionType === "expand" && "Expand this"}
-        {expansionType === "gentler" && "Make it gentler"}
-        {expansionType === "harsher" && "Make it harsher"}
-      </span>
-    </div>,
-    "selection"
-  );
-
-  const loadingId = addMessage(
-    "system",
-    <div className="flex items-center gap-2">
-      <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-      <span>Shaping your story...</span>
-    </div>,
-    "response"
-  );
-
-  try {
-    const res = await fetch("/api/xo/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        meaningContract: {
-          ...contract,
-          entryPath: currentEntryPath // Use the story's actual entry path
-        },
-        originalInput: originalUserInput,
-        requestType: "refinement",
-        refinement: expansionType,
-        currentStory: JSON.stringify(microStory), // Pass the full micro-story object
-        brand: storyToExpand.metadata?.brandName || undefined,
-        validationContext: {
-          validateStrict: true,
-          requirePathMarkers: true
-        }
-      }),
-    });
-
-    if (!res.ok) {
-      throw new Error(`API error: ${res.status}`);
-    }
-
-    const data = await res.json();
-
-    if (!data.success) {
-      throw new Error(data.error || "Unknown error");
-    }
-
-    const expandedStory: GeneratedStory = {
-      story: data.story || storyToExpand.story,
-      beatSheet: data.beatSheet || storyToExpand.beatSheet,
-      metadata: {
-        ...storyToExpand.metadata,
-        title: data.metadata?.title || `${storyToExpand.metadata?.title} - ${expansionType}`,
-        market: data.metadata?.market || storyToExpand.metadata?.market,
-        entryPath: data.metadata?.entryPath || storyToExpand.metadata?.entryPath,
-        validation: data.validation,
-        shouldShip: data.metadata?.shouldShip
-      },
-    };
-
-    setStory(expandedStory);
-    
-    if (data.validation) {
-      setValidationResult(data.validation);
-    }
-
-    setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
-
-    addMessage(
-      "system",
-      <div className="space-y-6">
-        {data.validation && renderValidationStatus(data.validation)}
-        
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-6 rounded-r-lg">
-          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-            {expansionType === "expand"
-              ? "Expanded"
-              : expansionType === "gentler"
-              ? "Gentler"
-              : "Harsher"}
-          </span>
-          <div className="text-gray-800 whitespace-pre-line leading-relaxed mt-3">
-            {expandedStory.story}
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <p className="font-medium text-gray-700">
-            How do you want to use this refined story?
-          </p>
-          <p className="text-sm text-gray-600">
-            Tell me what this is for (e.g., "brand post", "Instagram", "LinkedIn", etc.)
-          </p>
-          <div className="flex flex-wrap gap-2 pt-2">
-            <button
-              onClick={() => {
-                const purpose = "Turn this into a brand post";
-                setUserPurpose(purpose);
-                handleStoryPurpose(purpose);
-                setShowPurposeButtons(false);
-              }}
-              className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 rounded-full hover:from-purple-200 hover:to-blue-200"
-            >
-              Brand post
-            </button>
-            <button
-              onClick={() => {
-                const purpose = "This is for Instagram";
-                setUserPurpose(purpose);
-                handleStoryPurpose(purpose);
-                setShowPurposeButtons(false);
-              }}
-              className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-            >
-              Instagram
-            </button>
-            <button
-              onClick={() => {
-                const purpose = "Make it more formal for LinkedIn";
-                setUserPurpose(purpose);
-                handleStoryPurpose(purpose);
-                setShowPurposeButtons(false);
-              }}
-              className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-full"
-            >
-              LinkedIn
-            </button>
-          </div>
-        </div>
-      </div>,
-      "generated"
-    );
-
-    setCurrentStep("story-purpose");
-  } catch (error) {
-    console.error("Expansion error:", error);
-
-    setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
-
-    addMessage(
-      "system",
-      <div className="space-y-4">
-        <div className="text-red-600 p-4 bg-red-50 rounded-lg">
-          <p>Failed to expand story. Please try again.</p>
-          <p className="text-sm mt-1">
-            Error: {error instanceof Error ? error.message : "Unknown error"}
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => {
-              setCurrentStep("story-generated");
-              addMessage(
-                "system",
-                <div className="text-gray-600">
-                  You can continue with the original story.
-                </div>,
-                "response"
-              );
-            }}
-            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg"
-          >
-            Back to Story
-          </button>
-          <button
-            onClick={() => {
-              setUserPurpose("");
-              setCurrentStep("story-purpose");
-              addMessage(
-                "system",
-                <div className="space-y-3">
-                  <p className="font-medium text-gray-700">
-                    How do you want to use the original story?
-                  </p>
-                  <p className="text-sm text-gray-600">
-                    Tell me what this is for (e.g., "brand post", "Instagram", "LinkedIn", etc.)
-                  </p>
-                </div>,
-                "question"
-              );
-            }}
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Continue with Original
-          </button>
-        </div>
-      </div>,
-      "response"
-    );
-
-    setCurrentStep("story-purpose");
-  } finally {
-    setIsGenerating(false);
-  }
-};
 
   const handleStoryPurpose = async (purpose: string) => {
     if (!purpose.trim() || !story || !meaningContract) return;
-    if (currentStep === "brand-details" || currentStep === "story-generated") {
-      console.log("Already processing purpose, skipping duplicate");
-      return;
-    }
-
+    
+    // Store the purpose immediately
     setUserPurpose(purpose);
 
     addMessage(
@@ -1245,6 +1190,18 @@ const beats = parseStoryToBeats(storyToExpand.story);
               <span className="font-medium">optional</span> - you can skip and continue without it.
             </p>
             <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Brand Name (Required)
+                </label>
+                <input
+                  type="text"
+                  value={brandName}
+                  onChange={(e) => setBrandName(e.target.value)}
+                  placeholder="Enter your brand name..."
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Brand Assets (Optional)
@@ -1306,11 +1263,11 @@ const beats = parseStoryToBeats(storyToExpand.story);
         "response"
       );
 
+      // Set current step after showing brand details
       setCurrentStep("brand-details");
     } else {
       await adaptStoryWithoutBrand(purpose);
     }
-    setUserPurpose("");
   };
 
   const adaptStoryWithBrand = async (purpose: string) => {
@@ -1319,6 +1276,10 @@ const beats = parseStoryToBeats(storyToExpand.story);
     setIsGenerating(true);
 
     try {
+      // Check if this is a full story (5 beats)
+      const isFullStory = story.metadata?.template === 'full-story' || 
+                         story.beatSheet?.length === 5;
+
       const res = await fetch("/api/xo/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1328,6 +1289,7 @@ const beats = parseStoryToBeats(storyToExpand.story);
           requestType: "purpose-adaptation",
           purpose: purpose,
           currentStory: story.story,
+          currentStructure: isFullStory ? "full-story" : "micro-story",
           brandContext: brandGuide
             ? {
                 name: brandName,
@@ -1338,7 +1300,8 @@ const beats = parseStoryToBeats(storyToExpand.story);
           brand: brandName,
           validationContext: {
             validateStrict: true,
-            checkMarketLeakage: true
+            checkMarketLeakage: true,
+            requireStorySections: isFullStory
           }
         }),
       });
@@ -1358,7 +1321,9 @@ const beats = parseStoryToBeats(storyToExpand.story);
           isBrandStory: true,
           brandName: brandName,
           validation: data.validation,
-          shouldShip: data.metadata?.shouldShip
+          shouldShip: data.metadata?.shouldShip,
+          template: isFullStory ? "full-story" : story.metadata?.template || "micro-story",
+          totalBeats: story.beatSheet?.length || story.metadata?.totalBeats
         },
       };
 
@@ -1411,8 +1376,10 @@ const beats = parseStoryToBeats(storyToExpand.story);
 
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 p-6 rounded-r-lg">
             <div className="flex items-center justify-between mb-4">
-              <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
-                Brand Adapted
+              <div className="flex items-center gap-2">
+                <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                  {isFullStory ? "" : "Brand Adapted"}
+                </div>
               </div>
               {data.validation?.passed && (
                 <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full flex items-center gap-1">
@@ -1421,7 +1388,11 @@ const beats = parseStoryToBeats(storyToExpand.story);
               )}
             </div>
             <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
-              {adaptedStory.story}
+              {adaptedStory?.beatSheet?.map((beat, index) => (
+                <div key={index} className="mb-6">
+                  {beat.description}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1527,6 +1498,10 @@ const beats = parseStoryToBeats(storyToExpand.story);
     );
 
     try {
+      // Check if this is a full story
+      const isFullStory = story.metadata?.template === 'full-story' || 
+                         story.beatSheet?.length === 5;
+
       const res = await fetch("/api/xo/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1536,9 +1511,11 @@ const beats = parseStoryToBeats(storyToExpand.story);
           requestType: "purpose-adaptation",
           purpose: purpose,
           currentStory: story.story,
+          currentStructure: isFullStory ? "full-story" : "micro-story",
           skipBrand: true,
           validationContext: {
-            validateStrict: true
+            validateStrict: true,
+            requireStorySections: isFullStory
           }
         }),
       });
@@ -1560,7 +1537,9 @@ const beats = parseStoryToBeats(storyToExpand.story);
           ...story.metadata,
           title: data.metadata?.title || `${story.metadata?.title || "Story"} (${purpose.substring(0, 20)}...)`,
           validation: data.validation,
-          shouldShip: data.metadata?.shouldShip
+          shouldShip: data.metadata?.shouldShip,
+          template: isFullStory ? "full-story" : story.metadata?.template || "micro-story",
+          totalBeats: story.beatSheet?.length || story.metadata?.totalBeats
         },
       };
 
@@ -1579,8 +1558,10 @@ const beats = parseStoryToBeats(storyToExpand.story);
           
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 p-6 rounded-r-lg">
             <div className="flex items-center justify-between mb-4">
-              <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
-                Adapted
+              <div className="flex items-center gap-2">
+                <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                  {isFullStory ? "Adapted" : "Adapted"}
+                </div>
               </div>
               {data.validation?.passed && (
                 <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full flex items-center gap-1">
@@ -1589,7 +1570,11 @@ const beats = parseStoryToBeats(storyToExpand.story);
               )}
             </div>
             <div className="text-gray-800 whitespace-pre-line leading-relaxed text-base">
-              {adaptedStory.story}
+              {adaptedStory?.beatSheet?.map((beat, index) => (
+                <div key={index} className="mb-6">
+                  {beat.description}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -2158,7 +2143,6 @@ const beats = parseStoryToBeats(storyToExpand.story);
           xoInterpretation,
           validation: validationResult
         },
-        // Include Starter Pack validation metadata
         validationMetadata: {
           market: story?.metadata?.market,
           entryPath: story?.metadata?.entryPath,
@@ -2432,6 +2416,11 @@ const beats = parseStoryToBeats(storyToExpand.story);
         return (
           <div className="p-4 border-t bg-white">
             <div className="space-y-4 max-w-4xl mx-auto">
+              <div className="mb-3">
+                <p className="text-sm text-gray-600 mb-2">
+                  Purpose: <span className="font-medium">{userPurpose}</span>
+                </p>
+              </div>
               <div className="flex items-center gap-3">
                 <div className="relative flex-1">
                   <input
@@ -2496,7 +2485,6 @@ const beats = parseStoryToBeats(storyToExpand.story);
             </div>
           </div>
         );
-
       case "story-generated":
         return (
           <div className="p-4 border-t bg-white">

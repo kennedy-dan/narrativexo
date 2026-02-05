@@ -124,6 +124,7 @@ function detectEntryPathFromInput(input: string): 'emotion' | 'scene' | 'seed' |
 }
 
 // Enhanced market detection with word boundaries and context awareness
+// Enhanced market detection with word boundaries and context awareness
 function detectMarketFromInput(input: string): 'NG' | 'GH' | 'KE' | 'ZA' | 'UK' | 'GLOBAL' {
   const lower = input.toLowerCase();
   
@@ -133,21 +134,26 @@ function detectMarketFromInput(input: string): 'NG' | 'GH' | 'KE' | 'ZA' | 'UK' 
   // Enhanced detection with word boundaries and context
   const marketMatches: Array<{market: string, confidence: number, reason: string}> = [];
   
-  // Check for complete country/region names (highest confidence)
-  if (/(^|\s)(nigeria|naija)($|\s|,|\.)/i.test(input)) {
-    marketMatches.push({market: 'NG', confidence: 0.95, reason: 'country name'});
+  // FIXED: More flexible regex patterns to match "nigerian" in different contexts
+  if (/(nigeria|naija|nigerian)/i.test(input)) {
+    marketMatches.push({market: 'NG', confidence: 0.95, reason: 'Nigeria reference'});
   }
-  if (/(^|\s)(ghana)($|\s|,|\.)/i.test(input)) {
-    marketMatches.push({market: 'GH', confidence: 0.95, reason: 'country name'});
+  
+  // FIXED: More flexible patterns for other countries too
+  if (/(ghana|ghanaian)/i.test(input)) {
+    marketMatches.push({market: 'GH', confidence: 0.95, reason: 'Ghana reference'});
   }
-  if (/(^|\s)(kenya)($|\s|,|\.)/i.test(input)) {
-    marketMatches.push({market: 'KE', confidence: 0.95, reason: 'country name'});
+  
+  if (/(kenya|kenyan)/i.test(input)) {
+    marketMatches.push({market: 'KE', confidence: 0.95, reason: 'Kenya reference'});
   }
-  if (/(^|\s)(south africa|southafrica)($|\s|,|\.)/i.test(input)) {
-    marketMatches.push({market: 'ZA', confidence: 0.95, reason: 'country name'});
+  
+  if (/(south africa|southafrica|south african)/i.test(input)) {
+    marketMatches.push({market: 'ZA', confidence: 0.95, reason: 'South Africa reference'});
   }
-  if (/(^|\s)(united kingdom|uk|britain|england|scotland|wales)($|\s|,|\.)/i.test(input)) {
-    marketMatches.push({market: 'UK', confidence: 0.95, reason: 'country/region name'});
+  
+  if (/(united kingdom|uk|britain|british|england|english|scotland|scottish|wales|welsh)/i.test(input)) {
+    marketMatches.push({market: 'UK', confidence: 0.95, reason: 'UK/region reference'});
   }
   
   // Check for major cities (high confidence)
