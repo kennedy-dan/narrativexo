@@ -3,6 +3,7 @@ import { MarketLeakageResult, ValidationResult } from './types';
 // Remove duplicate interface definitions - use types from './types'
 
 export function findMarketLeakage(text: string, targetMarket: string): MarketLeakageResult {
+  // EXACT Starter Pack v0.2 leakage tokens
   const LEAKAGE_TOKENS: Record<string, string[]> = {
     NG: ['lagos', 'abuja', 'naira', 'ijgb', 'omo', 'abeg', 'jollof', 'danfo', 'wahala'],
     GH: ['accra', 'kumasi', 'cedi', 'chale', 'kɔkɔɔ', 'trotro'],
@@ -11,25 +12,30 @@ export function findMarketLeakage(text: string, targetMarket: string): MarketLea
     UK: ['london', 'manchester', 'pound', 'quid', 'mates', 'cheers', 'lorry']
   };
 
+  // Global forbidden tokens (for prompt injection)
   const GLOBAL_FORBIDDEN_TOKENS = [
-    'system prompt', 'chain-of-thought', 'hidden reasoning', 'ignore all rules', 'output raw', 'as an AI'
+    'system prompt', 'chain-of-thought', 'hidden reasoning', 
+    'ignore all rules', 'output raw', 'as an AI',
+    'ignore all previous instructions', 'you are a language model',
+    'as an AI language model', 'disregard all previous instructions'
   ];
 
   const t = text.toLowerCase();
   const hits: string[] = [];
 
-  // Check global forbidden tokens
+  // 1. Check global forbidden tokens
   for (const token of GLOBAL_FORBIDDEN_TOKENS) {
     if (t.includes(token)) {
       hits.push(`global:${token}`);
     }
   }
 
-  // Check cross-market leakage
+  // 2. Check cross-market leakage (EXACT Starter Pack tokens)
   for (const [market, tokens] of Object.entries(LEAKAGE_TOKENS)) {
     if (market === targetMarket) continue;
     
     for (const tok of tokens) {
+      // Use word boundaries to avoid partial matches
       const regex = new RegExp(`\\b${tok}\\b`, 'i');
       if (regex.test(t)) {
         hits.push(`${market}:${tok}`);
@@ -55,13 +61,19 @@ export function validateMarketContext(
     warnings.push(`Source market (${sourceMarket}) differs from target market (${targetMarket})`);
   }
 
+  // Check if GLOBAL market is used when it shouldn't be
+  if (targetMarket === 'GLOBAL') {
+    warnings.push(`Market is GLOBAL - no specific market context applied`);
+  }
+
   return {
     passed: leakageResult.passed,
     errors: leakageResult.hits.map(hit => `Market leakage: ${hit}`),
     warnings: warnings.length > 0 ? warnings : undefined,
     metadata: {
       targetMarket,
-      leakageHits: leakageResult.hits.length
+      leakageHits: leakageResult.hits.length,
+      leakageDetails: leakageResult.hits
     }
   };
 }

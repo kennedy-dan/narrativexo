@@ -105,112 +105,119 @@ export interface XOCCNResponse {
 function detectEntryPathFromInput(input: string): 'emotion' | 'scene' | 'seed' | 'audience' {
   const upper = input.toUpperCase();
   
-  // Check for Starter Pack v0.2 path markers in input
+  // Check for EXACT Starter Pack v0.2 markers in input
   if (upper.includes('EMOTION INPUT:')) return 'emotion';
   if (upper.includes('SCENE INPUT:')) return 'scene';
   if (upper.includes('STORY SEED:')) return 'seed';
   if (upper.includes('AUDIENCE SIGNAL:')) return 'audience';
   
   // Check for emotion words
-  if (/(feel|felt|feeling|emotion|emotional|happy|sad|angry|excited|relief)/i.test(input)) return 'emotion';
+  if (/\b(feel|felt|feeling|emotion|emotional|happy|sad|angry|excited|relief|anxiety|joy|calm|frustrated|proud|grateful|delighted|hurt|disappointed|annoyed|upset)\b/i.test(input)) {
+    return 'emotion';
+  }
   
   // Check for scene words  
-  if (/(scene|setting|place|location|room|space|environment|background)/i.test(input)) return 'scene';
+  if (/\b(scene|setting|place|location|room|space|environment|background|kitchen|office|street|park|laundry|flat|airport|lounge|pub|desk|workshop|fleet|call)\b/i.test(input)) {
+    return 'scene';
+  }
   
   // Check for audience words
-  if (/(audience|viewer|reader|people|they|them|everyone|somebody|customer)/i.test(input)) return 'audience';
+  if (/\b(audience|viewer|reader|people|they|them|everyone|somebody|customer|user|consumer|family|married|households|professionals|fans|stakeholders)\b/i.test(input)) {
+    return 'audience';
+  }
   
-  return 'seed'; // Default as per Starter Pack
+  // Check for seed words
+  if (/\b(seed|story seed|beginning|start|idea|concept|expand|quote|applause|worked|stretch|pot|taste|wins|count|season|changed|plan|power|roads|explain|decision|trust|arrive|planned|tomorrow|built|sessions|dignity|delivery|standard|value|compromise|derby|excuses|raise|standard)\b/i.test(input)) {
+    return 'seed';
+  }
+  
+  // Default to scene as per Starter Pack
+  return 'scene';
 }
 
-// Enhanced market detection with word boundaries and context awareness
-// Enhanced market detection with word boundaries and context awareness
+// ============================================================================
+// ENHANCED MARKET DETECTION WITH WORD BOUNDARIES
+// ============================================================================
+
 function detectMarketFromInput(input: string): 'NG' | 'GH' | 'KE' | 'ZA' | 'UK' | 'GLOBAL' {
   const lower = input.toLowerCase();
   
-  // Split into words for better context analysis
-  const words = lower.split(/\s+/);
-  
-  // Enhanced detection with word boundaries and context
-  const marketMatches: Array<{market: string, confidence: number, reason: string}> = [];
-  
-  // FIXED: More flexible regex patterns to match "nigerian" in different contexts
-  if (/(nigeria|naija|nigerian)/i.test(input)) {
-    marketMatches.push({market: 'NG', confidence: 0.95, reason: 'Nigeria reference'});
+  // Use EXACT word boundaries for country names
+  if (/\b(nigeria|naija|nigerian)\b/i.test(input)) {
+    return 'NG';
   }
   
-  // FIXED: More flexible patterns for other countries too
-  if (/(ghana|ghanaian)/i.test(input)) {
-    marketMatches.push({market: 'GH', confidence: 0.95, reason: 'Ghana reference'});
+  if (/\b(ghana|ghanaian)\b/i.test(input)) {
+    return 'GH';
   }
   
-  if (/(kenya|kenyan)/i.test(input)) {
-    marketMatches.push({market: 'KE', confidence: 0.95, reason: 'Kenya reference'});
+  if (/\b(kenya|kenyan)\b/i.test(input)) {
+    return 'KE';
   }
   
-  if (/(south africa|southafrica|south african)/i.test(input)) {
-    marketMatches.push({market: 'ZA', confidence: 0.95, reason: 'South Africa reference'});
+  if (/\b(south\s+africa|southafrica|south\s+african)\b/i.test(input)) {
+    return 'ZA';
   }
   
-  if (/(united kingdom|uk|britain|british|england|english|scotland|scottish|wales|welsh)/i.test(input)) {
-    marketMatches.push({market: 'UK', confidence: 0.95, reason: 'UK/region reference'});
+  if (/\b(united\s+kingdom|uk|britain|british|england|english)\b/i.test(input)) {
+    return 'UK';
   }
   
-  // Check for major cities (high confidence)
-  if (/(lagos|abuja|kano|port harcourt)/i.test(input)) {
-    marketMatches.push({market: 'NG', confidence: 0.9, reason: 'Nigerian city'});
-  }
-  if (/(accra|kumasi)/i.test(input)) {
-    marketMatches.push({market: 'GH', confidence: 0.9, reason: 'Ghanaian city'});
-  }
-  if (/(nairobi|mombasa)/i.test(input)) {
-    marketMatches.push({market: 'KE', confidence: 0.9, reason: 'Kenyan city'});
-  }
-  if (/(johannesburg|joburg|cape town|durban|pretoria)/i.test(input)) {
-    marketMatches.push({market: 'ZA', confidence: 0.9, reason: 'South African city'});
-  }
-  if (/(london|manchester|birmingham|edinburgh|cardiff)/i.test(input)) {
-    marketMatches.push({market: 'UK', confidence: 0.9, reason: 'UK city'});
-  }
+  // Check for major cities (with context)
+  const cities = [
+    { city: 'lagos', market: 'NG' },
+    { city: 'abuja', market: 'NG' },
+    { city: 'kano', market: 'NG' },
+    { city: 'port harcourt', market: 'NG' },
+    { city: 'accra', market: 'GH' },
+    { city: 'kumasi', market: 'GH' },
+    { city: 'nairobi', market: 'KE' },
+    { city: 'mombasa', market: 'KE' },
+    { city: 'johannesburg', market: 'ZA' },
+    { city: 'joburg', market: 'ZA' },
+    { city: 'cape town', market: 'ZA' },
+    { city: 'durban', market: 'ZA' },
+    { city: 'pretoria', market: 'ZA' },
+    { city: 'london', market: 'UK' },
+    { city: 'manchester', market: 'UK' },
+    { city: 'birmingham', market: 'UK' },
+    { city: 'edinburgh', market: 'UK' },
+    { city: 'cardiff', market: 'UK' }
+  ];
   
-  // Check for slang/currency with word boundaries (medium confidence)
-  if (/\b(wahala|chai|oga|na wa|omo|jollof|danfo)\b/.test(lower)) {
-    marketMatches.push({market: 'NG', confidence: 0.8, reason: 'Nigerian slang'});
-  }
-  if (/\b(chale|cedi|kɔkɔɔ|trotro)\b/.test(lower)) {
-    marketMatches.push({market: 'GH', confidence: 0.8, reason: 'Ghanaian slang/currency'});
-  }
-  if (/\b(ksh|shilling|safaricom|matatu)\b/.test(lower)) {
-    marketMatches.push({market: 'KE', confidence: 0.8, reason: 'Kenyan currency/terms'});
-  }
-  if (/\b(rand|braai|eish)\b/.test(lower)) {
-    marketMatches.push({market: 'ZA', confidence: 0.8, reason: 'South African currency/slang'});
-  }
-  if (/\b(pint|pub|mate|quid|lorry)\b/.test(lower)) {
-    marketMatches.push({market: 'UK', confidence: 0.8, reason: 'UK slang'});
-  }
-  
-  // Special handling for "ZA" - only match as standalone or with context
-  if (/\bza\b/.test(lower)) {
-    // Check context to avoid false positives from words like "brand" or "amazing"
-    const zaIndex = lower.indexOf('za');
-    const contextWindow = lower.slice(Math.max(0, zaIndex - 20), Math.min(lower.length, zaIndex + 20));
-    
-    // Only match if "za" appears in a geographical or specific context
-    if (contextWindow.includes('south') || contextWindow.includes('africa') || 
-        contextWindow.includes('joburg') || contextWindow.includes('cape')) {
-      marketMatches.push({market: 'ZA', confidence: 0.7, reason: 'ZA abbreviation in context'});
+  for (const { city, market } of cities) {
+    if (lower.includes(city.toLowerCase())) {
+      return market as any;
     }
   }
   
-  // If no matches, return GLOBAL
-  if (marketMatches.length === 0) {
-    return 'GLOBAL';
+  // Check for currency/slang with EXACT Starter Pack v0.2 tokens
+  const tokens = [
+    { pattern: /\b(wahala|chai|oga|na wa|omo|jollof|danfo|abeg|ijgb|naira)\b/i, market: 'NG' },
+    { pattern: /\b(chale|cedi|trotro)\b/i, market: 'GH' },
+    { pattern: /\b(ksh|shilling|safaricom|matatu)\b/i, market: 'KE' },
+    { pattern: /\b(rand|braai|eish)\b/i, market: 'ZA' },
+    { pattern: /\b(pint|pub|mate|quid|lorry|cheers)\b/i, market: 'UK' }
+  ];
+  
+  for (const { pattern, market } of tokens) {
+    if (pattern.test(lower)) {
+      return market as any;
+    }
   }
   
-  // Return the highest confidence match
-  marketMatches.sort((a, b) => b.confidence - a.confidence);
-  return marketMatches[0].market as any;
+  // Strict "ZA" detection - only standalone
+  if (/\bZA\b|\bza\b(?![a-z])/.test(input)) {
+    const contextWindow = lower.slice(Math.max(0, lower.indexOf('za') - 30), 
+                                     Math.min(lower.length, lower.indexOf('za') + 30));
+    if (contextWindow.includes('south') || contextWindow.includes('africa') || 
+        contextWindow.includes('joburg') || contextWindow.includes('cape') ||
+        contextWindow.includes('johannesburg') || contextWindow.includes('rand')) {
+      return 'ZA';
+    }
+  }
+  
+  return 'GLOBAL';
 }
 
 // Detect register/tone from input

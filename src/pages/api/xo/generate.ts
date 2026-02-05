@@ -119,23 +119,18 @@ export default async function handler(
     const effectiveBrand = skipBrand ? undefined : brand || extractedBrand;
 
     // Validate market is one of Starter Pack markets
-    const validMarkets = ["NG", "GH", "KE", "ZA", "UK", "GLOBAL"] as const;
-    const safeMarket = validMarkets.includes(effectiveMarket as any)
-      ? (effectiveMarket as (typeof validMarkets)[number])
-      : "GLOBAL";
+   const validMarkets = ["NG", "GH", "KE", "ZA", "UK", "GLOBAL"] as const;
+const safeMarket = validMarkets.includes(effectiveMarket as any)
+  ? (effectiveMarket as (typeof validMarkets)[number])
+  : "GLOBAL";
+
 
     // Validate entry path is one of Starter Pack paths
-    const validEntryPaths = [
-      "EMOTION",
-      "SCENE",
-      "STORY_SEED",
-      "AUDIENCE_SIGNAL",
-    ] as const;
-    const safeEntryPath = validEntryPaths.includes(
-      entryPath.toUpperCase() as any,
-    )
-      ? (entryPath.toUpperCase() as (typeof validEntryPaths)[number])
-      : "SCENE"; // Default to SCENE
+const validEntryPaths = ["EMOTION", "SCENE", "STORY_SEED", "AUDIENCE_SIGNAL"] as const;
+const safeEntryPath = validEntryPaths.includes(entryPath.toUpperCase() as any)
+  ? (entryPath.toUpperCase() as (typeof validEntryPaths)[number])
+  : "SCENE";
+
 
     console.log("[XO Generate] Context determined:", {
       effectiveMarket: safeMarket,
