@@ -1,13 +1,10 @@
-import { NextApiRequest, NextApiResponse } from "next";
-import {
-  XONarrativeEngine,
-  generateXOStory,
-  MicroStory,
-} from "@/lib/xo-narrative-engine";
-import { XOValidator } from "@/lib/validator-engine";
-import { ValidationContext } from "@/lib/types";
+import { NextApiRequest, NextApiResponse } from 'next';
+import { XONarrativeEngine } from '@/lib/xo-narrative-engine';
+import { XORenderer, convertLegacyStory } from '@/lib/xo-renderer';
+import { XOValidator } from '@/lib/xo-validator';
+import { XOContractBuilder } from '@/lib/xo-contract';
 
-// Helper method to extract brand from input - MOVED OUTSIDE HANDLER
+// Helper method to extract brand from input
 function extractBrandFromInput(input: string): string | undefined {
   if (!input) return undefined;
 
@@ -15,22 +12,22 @@ function extractBrandFromInput(input: string): string | undefined {
 
   // Look for specific brand/product mentions
   if (
-    lowerInput.includes("washing machine") ||
-    lowerInput.includes("laundry")
+    lowerInput.includes('washing machine') ||
+    lowerInput.includes('laundry')
   ) {
-    return "washing machine brand";
+    return 'washing machine brand';
   }
-  if (lowerInput.includes("detergent") || lowerInput.includes("cleaning")) {
-    return "cleaning brand";
+  if (lowerInput.includes('detergent') || lowerInput.includes('cleaning')) {
+    return 'cleaning brand';
   }
-  if (lowerInput.includes("car") || lowerInput.includes("automotive")) {
-    return "automotive brand";
+  if (lowerInput.includes('car') || lowerInput.includes('automotive')) {
+    return 'automotive brand';
   }
-  if (lowerInput.includes("phone") || lowerInput.includes("mobile")) {
-    return "mobile brand";
+  if (lowerInput.includes('phone') || lowerInput.includes('mobile')) {
+    return 'mobile brand';
   }
-  if (lowerInput.includes("bank") || lowerInput.includes("financial")) {
-    return "financial brand";
+  if (lowerInput.includes('bank') || lowerInput.includes('financial')) {
+    return 'financial brand';
   }
 
   // Extract from phrases like "a [brand] could tell" or "stories for [brand]"
@@ -55,427 +52,289 @@ export default async function handler(
   res: NextApiResponse,
 ) {
   // CORS headers
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === "OPTIONS") {
+  if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  if (req.method !== "POST") {
+  if (req.method !== 'POST') {
     return res.status(405).json({
       success: false,
-      error: "Method not allowed",
+      error: 'Method not allowed',
     });
   }
 
   try {
-    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const {
       userInput,
-      market = "GLOBAL",
+      market = 'GLOBAL',
       brand,
       meaningContract,
-      requestType = "micro-story",
+      requestType = 'micro-story',
       purpose,
       currentStory,
       refinement,
       brandContext,
       skipBrand = false,
       validationContext: clientValidationContext = {},
-      targetStructure, // ADD THIS
-      conversionType, // ADD THIS
+      targetStructure,
+      conversionType,
     } = body;
 
-    console.log("[XO Generate] Request received:", {
+    console.log('[XO Generate] Request received:', {
       requestType,
       hasMeaningContract: !!meaningContract,
       hasCurrentStory: !!currentStory,
       refinement,
       purpose: purpose?.substring(0, 50),
       hasBrandRequest:
-        !!brand || userInput?.includes("brand") || userInput?.includes("Brand"),
+        !!brand || userInput?.includes('brand') || userInput?.includes('Brand'),
     });
 
     // ============================================================================
-    // STEP 1: DETERMINE CONTEXT FROM MEANING CONTRACT OR INPUT
+    // STEP 1: CREATE CONTRACT
     // ============================================================================
 
-    // Use meaning contract values when available (from /api/clarify)
-    const effectiveMarket = meaningContract?.marketContext?.market || market;
-    const entryPath = meaningContract?.entryPath || "scene"; // Default to scene if not specified
-    const tone =
-      meaningContract?.interpretedMeaning?.emotionalState?.toUpperCase() ||
-      "NEUTRAL";
-    const seedMoment =
-      meaningContract?.seedMoment ||
-      userInput ||
-      currentStory?.substring(0, 100) ||
-      "";
-
-    // Extract brand from input if not provided explicitly - FIXED: Call function directly
+    // Extract brand from input if not provided explicitly
     const extractedBrand = extractBrandFromInput(userInput);
     const effectiveBrand = skipBrand ? undefined : brand || extractedBrand;
 
-    // Validate market is one of Starter Pack markets
-   const validMarkets = ["NG", "GH", "KE", "ZA", "UK", "GLOBAL"] as const;
-const safeMarket = validMarkets.includes(effectiveMarket as any)
-  ? (effectiveMarket as (typeof validMarkets)[number])
-  : "GLOBAL";
+    // Use meaning contract values when available
+    const effectiveMarket = meaningContract?.marketContext?.market || market;
+    const entryPath = meaningContract?.entryPath || 'scene';
+    
+    // Build contract
+    const contractBuilder = new XOContractBuilder()
+      .withUserInput(userInput || currentStory || '')
+      .withMarket(effectiveMarket as any, meaningContract?.marketContext?.confidence || 0.5)
+      .withEntryPath(entryPath.toLowerCase() as any)
+      .withStrictMode(clientValidationContext.strictMode || false);
 
+    // Handle brand
+    if (effectiveBrand) {
+      contractBuilder.withBrand(effectiveBrand, 'EXPLICIT');
+    }
 
-    // Validate entry path is one of Starter Pack paths
-const validEntryPaths = ["EMOTION", "SCENE", "STORY_SEED", "AUDIENCE_SIGNAL"] as const;
-const safeEntryPath = validEntryPaths.includes(entryPath.toUpperCase() as any)
-  ? (entryPath.toUpperCase() as (typeof validEntryPaths)[number])
-  : "SCENE";
+    // Handle different request types
+    switch (requestType) {
+      case 'micro-story':
+        contractBuilder.withFormatMode('MICROSTORY');
+        break;
+      case 'full-story':
+      case 'story-conversion':
+        contractBuilder.withFormatMode('FULLSTORY');
+        break;
+      case 'purpose-adaptation':
+        // Keep existing format
+        contractBuilder.withFormatMode(
+          currentStory?.includes('HOOK:') ? 'FULLSTORY' : 'MICROSTORY'
+        );
+        break;
+    }
 
+    const contract = contractBuilder.build();
 
-    console.log("[XO Generate] Context determined:", {
-      effectiveMarket: safeMarket,
-      entryPath: safeEntryPath,
-      tone,
-      brand: effectiveBrand,
-      brandExtracted: !!extractedBrand,
-      seedMomentLength: seedMoment.length,
+    console.log('[XO Generate] Contract created:', {
+      entryPath: contract.entryPath,
+      marketCode: contract.marketCode,
+      marketState: contract.marketState,
+      brandMode: contract.brandMode,
+      strictMode: contract.strictMode,
     });
 
     // ============================================================================
-    // STEP 2: INITIALIZE VALIDATOR ENGINE
+    // STEP 2: GENERATE OR REFINE STORY
     // ============================================================================
 
-    const validator = new XOValidator({
-      validateMarketLeakage: true,
-      validateStructure: true,
-      validateTone: tone !== "NEUTRAL",
-      validateSchema: false,
-      validateBrandPresence: !!effectiveBrand,
-      validateLineLength: true,
-      requireStorySections: false,
-      failOnWarning: clientValidationContext.strictMode || false,
-      failOnMissingMarkers: true,
-      toneThreshold: 0.2,
-      maxWordsPerLine: 15,
-    });
-
-    // ============================================================================
-    // STEP 3: GENERATE OR REFINE STORY BASED ON REQUEST TYPE
-    // ============================================================================
-
-    let microStory: MicroStory | null = null;
-    let generatedText = "";
-    let beats: any[] = [];
+    let story: any;
 
     switch (requestType) {
-      case "refinement": {
-        // Handle refinement requests (expand, gentler, harsher)
+      case 'refinement': {
         if (!currentStory || !refinement) {
-          throw new Error(
-            "Refinement requires currentStory and refinement type",
-          );
+          throw new Error('Refinement requires currentStory and refinement type');
         }
 
-        console.log(`[XO Generate] Refining story: ${refinement}`, {
-          hasBrand: !!effectiveBrand,
-          brand: effectiveBrand,
-        });
+        console.log(`[XO Generate] Refining story: ${refinement}`);
 
+        // Convert legacy story to new format if needed
+        let existingStory;
         try {
-          // Parse the current story
-          const parsedStory: MicroStory = JSON.parse(currentStory);
-          microStory = await XONarrativeEngine.refine(
-            parsedStory,
-            refinement,
-            effectiveBrand,
-          );
-        } catch (error) {
-          // If JSON parsing fails, treat as raw text
-          console.log("[XO Generate] Parsing as raw text for refinement");
-          const rawStory: MicroStory = {
-            beats: currentStory.split("\n\n").map((beat) => ({
-              lines: beat.split("\n").filter((line) => line.trim()),
-            })),
-            market: safeMarket,
-            entryPath: safeEntryPath.toLowerCase() as any,
-            timestamp: new Date().toISOString(),
-          };
-          microStory = await XONarrativeEngine.refine(
-            rawStory,
-            refinement,
-            effectiveBrand,
-          );
+          const parsed = JSON.parse(currentStory);
+          existingStory = convertLegacyStory(parsed, contract);
+        } catch {
+          // If parsing fails, create new story from text
+          existingStory = convertLegacyStory({ formattedText: currentStory }, contract);
         }
+
+        story = await XONarrativeEngine.refine(existingStory, refinement as any);
         break;
       }
 
-// In your API handler (/api/xo/generate), update the 'purpose-adaptation' case:
-case 'purpose-adaptation': {
-  if (!currentStory || !purpose) {
-    throw new Error('Purpose adaptation requires currentStory and purpose');
-  }
+      case 'purpose-adaptation': {
+        if (!currentStory || !purpose) {
+          throw new Error('Purpose adaptation requires currentStory and purpose');
+        }
 
-  const isFullStory = body.currentStructure === 'full-story' || 
-                      currentStory.includes('HOOK:') || 
-                      currentStory.includes('CONFLICT:') ||
-                      currentStory.includes('TURN:') ||
-                      currentStory.includes('BRAND_ROLE:') ||
-                      currentStory.includes('CLOSE:');
+        console.log(`[XO Generate] Adapting for purpose: ${purpose.substring(0, 50)}`);
 
-  console.log(`[XO Generate] Adapting for purpose: ${purpose.substring(0, 50)}`, {
-    brand: effectiveBrand,
-    isFullStory,
-    currentStructure: body.currentStructure
-  });
-  
-  if (isFullStory) {
-    // For full stories, generate with 'full' entryPath
-    const inputText = `Adapt this full story for: ${purpose}\n\n${currentStory}`;
-    
-    microStory = await XONarrativeEngine.generate(
-      inputText,
-      safeMarket,
-      effectiveBrand,
-      {
-        temperature: 0.7,
-        maxTokens: 600,
-        validateOutput: true,
-        tone: meaningContract?.interpretedMeaning?.emotionalState,
-        entryPath: 'full' // Force full story structure
+        // Create input for adaptation
+        const inputText = `Adapt this story for: ${purpose}\n\n${currentStory}`;
+        story = await XONarrativeEngine.generate(
+          inputText,
+          contract.marketCode,
+          contract.brandName,
+          {},
+          meaningContract
+        );
+        break;
       }
-    );
-  } else {
-    // Handle as micro-story
-    const inputText = currentStory + (purpose ? `\n\nPurpose: ${purpose}` : '');
-    microStory = await XONarrativeEngine.generate(
-      inputText,
-      safeMarket,
-      effectiveBrand,
-      {
-        temperature: 0.7,
-        maxTokens: 500,
-        validateOutput: true,
-        tone: meaningContract?.interpretedMeaning?.emotionalState,
-        entryPath: safeEntryPath.toLowerCase() as any
-      }
-    );
-  }
-  break;
-}
-      // In your API handler, add this case:
-      case "story-conversion": {
-        console.log("[XO Generate] Converting micro-story to full story");
+
+      case 'story-conversion': {
+        console.log('[XO Generate] Converting micro-story to full story');
 
         if (!currentStory || !targetStructure) {
-          throw new Error(
-            "Story conversion requires currentStory and targetStructure",
-          );
+          throw new Error('Story conversion requires currentStory and targetStructure');
         }
 
-        // Parse the current micro-story
-        const parsedStory: MicroStory = JSON.parse(currentStory);
-
-        // Convert to full story (micro-to-full)
-        if (targetStructure === "full-story") {
-          microStory = await XONarrativeEngine.convertToFullStory(
-            parsedStory,
-            meaningContract,
-          );
-        } else {
-          throw new Error(`Unsupported target structure: ${targetStructure}`);
+        // Convert existing story
+        let existingStory;
+        try {
+          const parsed = JSON.parse(currentStory);
+          existingStory = convertLegacyStory(parsed, contract);
+        } catch {
+          existingStory = convertLegacyStory({ formattedText: currentStory }, contract);
         }
+
+        story = await XONarrativeEngine.convertToFullStory(existingStory, meaningContract);
         break;
       }
-      case "micro-story":
+
+      case 'micro-story':
       default: {
         // Standard story generation
-        console.log("[XO Generate] Generating micro-story", {
-          brand: effectiveBrand,
-          entryPath: safeEntryPath,
-        });
+        console.log('[XO Generate] Generating micro-story');
 
-        microStory = await XONarrativeEngine.generate(
-          seedMoment,
-          safeMarket,
-          effectiveBrand,
-          {
-            temperature: 0.7,
-            maxTokens: 500,
-            validateOutput: true,
-            tone: meaningContract?.interpretedMeaning?.emotionalState,
-            entryPath: safeEntryPath.toLowerCase() as any,
-          },
+        story = await XONarrativeEngine.generate(
+          userInput || currentStory || '',
+          contract.marketCode,
+          contract.brandName,
+          {},
+          meaningContract
         );
         break;
       }
     }
 
-    // Ensure microStory has the correct context
-    if (microStory) {
-      microStory.market = safeMarket;
-      microStory.entryPath = safeEntryPath.toLowerCase() as any;
-
-      // Ensure formatted text exists
-      if (!microStory.formattedText) {
-        microStory.formattedText =
-          XONarrativeEngine.formatWithPathMarkers(microStory);
-      }
-
-      generatedText = microStory.formattedText;
-      beats = microStory.beats.map((beat, index) => ({
-        beat: `Beat ${index + 1}`,
-        description: beat.lines.join(" "),
-        lines: beat.lines,
-        emotion: beat.emotion,
-        tension: beat.tension,
-        marker: beat.marker,
-      }));
-    } else {
-      throw new Error("Failed to generate story");
-    }
-
     // ============================================================================
-    // STEP 4: VALIDATE GENERATED OUTPUT
+    // STEP 3: VALIDATE STORY
     // ============================================================================
 
-    const validationContext: ValidationContext = {
-      market: safeMarket,
-      entryPath: safeEntryPath,
-      tone: tone as any,
-      format: "SHORT",
-      brandName: effectiveBrand,
-    };
+    const validator = new XOValidator({
+      strictMode: contract.strictMode,
+      failOnWarning: contract.strictMode,
+    });
 
-    console.log(
-      "[XO Generate] Validating output with context:",
-      validationContext,
-    );
-
-    const outputValidation = await validator.validateOutput(
-      generatedText,
-      validationContext,
-    );
-
-    // Check CI/CD gate
-    const shouldShip = validator.shouldShip(outputValidation);
+    const validation = await validator.validateStory(story);
+    const shouldShip = validator.shouldShip(validation);
 
     // ============================================================================
-    // STEP 5: PREPARE METADATA
+    // STEP 4: RENDER FORMATTED OUTPUT
     // ============================================================================
 
-    const metadata = {
-      title: `Story: ${meaningContract?.interpretedMeaning?.coreTheme || "Human Experience"}`,
-      market: safeMarket,
-      entryPath: safeEntryPath,
-      tone,
-      emotionalState:
-        meaningContract?.interpretedMeaning?.emotionalState || "neutral",
-      narrativeTension:
-        meaningContract?.interpretedMeaning?.narrativeTension || "unresolved",
-      intentCategory:
-        meaningContract?.interpretedMeaning?.intentCategory || "express",
-      coreTheme:
-        meaningContract?.interpretedMeaning?.coreTheme || "human experience",
-      isBrandStory: !!effectiveBrand,
-      brandName: effectiveBrand,
-      timestamp: new Date().toISOString(),
-      beatCount: beats.length,
-      wordCount: generatedText.split(/\s+/).length,
-      validation: outputValidation,
-      shouldShip,
-      // Include brand context if provided
-      ...(brandContext && {
-        brandPalette: brandContext.palette,
-        brandFonts: brandContext.fonts,
-      }),
-    };
+    const formattedText = XORenderer.renderMicroStory(story);
+    const storyText = XORenderer.extractStoryText(story.beats);
+
+    // Create beat sheet for backward compatibility
+    const beatSheet = story.beats.map((beat: any, index: number) => ({
+      beat: `Beat ${index + 1}`,
+      description: beat.lines.join(' '),
+      lines: beat.lines,
+      emotion: beat.emotion,
+      tension: beat.tension,
+      marker: beat.marker,
+    }));
 
     // ============================================================================
-    // STEP 6: VALIDATE RESPONSE FORMAT
+    // STEP 5: PREPARE RESPONSE
     // ============================================================================
 
     const response = {
       success: true,
-      story: generatedText,
-      beatSheet: beats,
-      metadata,
+      story: formattedText,
+      storyText, // Clean text without markers
+      beatSheet,
+      metadata: {
+        title: `Story: ${story.contract.context.seedMoment.substring(0, 50)}...`,
+        market: story.contract.marketCode,
+        entryPath: story.contract.entryPath,
+        marketState: story.contract.marketState,
+        brandMode: story.contract.brandMode,
+        brandName: story.contract.brandName,
+        timestamp: story.timestamp,
+        beatCount: story.beats.length,
+        wordCount: storyText.split(/\s+/).length,
+        validation,
+        shouldShip,
+        contract: story.contract, // Include full contract for debugging
+      },
       microStory: {
-        beats: microStory.beats,
-        market: microStory.market,
-        entryPath: microStory.entryPath,
-        timestamp: microStory.timestamp,
-        brand: microStory.brand,
+        beats: story.beats,
+        contract: story.contract,
+        timestamp: story.timestamp,
       },
     };
 
-    // Validate the response format itself
-    const formatValidation = validator.validateXOFormat(response);
-    if (!formatValidation.passed) {
-      console.warn(
-        "[XO Generate] Response format validation warnings:",
-        formatValidation.warnings,
-      );
-    }
-
     // ============================================================================
-    // STEP 7: LOG RESULTS AND RETURN
+    // STEP 6: LOG AND RETURN
     // ============================================================================
 
-    console.log("[XO Generate] Generation complete:", {
-      market: safeMarket,
-      entryPath: safeEntryPath,
-      brand: effectiveBrand,
-      beatCount: beats.length,
-      wordCount: metadata.wordCount,
-      validationPassed: outputValidation.passed,
+    console.log('[XO Generate] Generation complete:', {
+      market: story.contract.marketCode,
+      entryPath: story.contract.entryPath,
+      brand: story.contract.brandName,
+      beatCount: story.beats.length,
+      validationPassed: validation.passed,
       shouldShip,
-      validationErrors: outputValidation.errors?.length || 0,
-      validationWarnings: outputValidation.warnings?.length || 0,
+      validationErrors: validation.errors?.length || 0,
+      validationWarnings: validation.warnings?.length || 0,
     });
 
-    if (!outputValidation.passed) {
-      console.warn("[XO Generate] Validation failed:", {
-        errors: outputValidation.errors,
-        warnings: outputValidation.warnings,
+    if (!validation.passed) {
+      console.warn('[XO Generate] Validation failed:', {
+        errors: validation.errors,
+        warnings: validation.warnings,
       });
     }
 
     return res.status(200).json(response);
   } catch (error) {
-    console.error("[XO Generate] Error:", error);
+    console.error('[XO Generate] Error:', error);
 
-    let errorMessage = "Failed to generate story";
+    let errorMessage = 'Failed to generate story';
     let statusCode = 500;
-    let validationError = null;
 
     if (error instanceof Error) {
       errorMessage = error.message;
 
-      // Handle validation errors specifically
+      // Handle validation errors
       if (
-        error.message.includes("validation failed") ||
-        error.message.includes("Market leakage") ||
-        error.message.includes("Missing path marker") ||
-        error.message.includes("Missing brand context")
+        error.message.includes('validation') ||
+        error.message.includes('Market leakage') ||
+        error.message.includes('Invention found') ||
+        error.message.includes('Brand before meaning')
       ) {
         statusCode = 400;
-        validationError = {
-          type: "validation_error",
-          message: error.message,
-          shouldShip: false,
-        };
-      } else if (error.message.includes("market")) {
-        statusCode = 400;
-        errorMessage =
-          "Market validation error. Please check your market settings.";
       }
     }
 
     const errorResponse = {
       success: false,
       error: errorMessage,
-      details: error instanceof Error ? error.message : "Unknown error",
-      ...(validationError && { validation: validationError }),
+      details: error instanceof Error ? error.message : 'Unknown error',
     };
 
     return res.status(statusCode).json(errorResponse);

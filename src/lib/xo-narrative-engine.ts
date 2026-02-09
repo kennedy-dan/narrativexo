@@ -1,576 +1,459 @@
-import OpenAI from "openai";
-import { MeaningContract } from "@/types"; // Add this import
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+/**
+ * XO NARRATIVE ENGINE v2.0
+ * Contract-first, deterministic story generation
+ */
+
+import OpenAI from 'openai';
+import { XOContract, XOContractBuilder, createContractFromMeaningContract } from './xo-contract';
+import { XORenderer, MicroStory, MicroStoryBeat } from './xo-renderer';
+import { XOValidator } from './xo-validator';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export interface MicroStoryBeat {
-  lines: string[];
-  emotion?: string;
-  tension?: string;
-  marker?: string;
-}
-
-export interface MicroStory {
-  beats: MicroStoryBeat[];
-  market?: string;
-  entryPath?: "emotion" | "scene" | "seed" | "audience" | "full";
-  brand?: string;
-  timestamp: string;
-  formattedText?: string;
-}
-
 export interface XONarrativeOptions {
   temperature?: number;
   maxTokens?: number;
-  validateOutput?: boolean;
-  tone?: string;
-  entryPath?: "emotion" | "scene" | "seed" | "audience" | "full";
+  passes?: number;
+  validateEachPass?: boolean;
+}
+
+export interface GenerationPass {
+  passId: number;
+  beats: MicroStoryBeat[];
+  valid: boolean;
+  errors?: string[];
 }
 
 // ============================================================================
-// STARTER PACK v0.2 CONSTANTS
-// ============================================================================
-
-// Exact markers from Starter Pack v0.2
-const STARTER_PACK_MARKERS = {
-  emotion: ["EMOTION_INPUT:", "INSIGHT:", "STORY:"],
-  scene: ["SCENE_INPUT:", "DETAILS_NOTICED:", "STORY:"],
-  seed: ["SEED:", "ARC:", "STORY:"],
-  audience: ["AUDIENCE_SIGNAL:", "WHY_IT_MATTERS:", "STORY:"],
-} as const;
-
-// Market-specific guidance from Starter Pack
-const MARKET_GUIDANCE = {
-  NG: `Write for a Nigerian audience. Use relatable Nigerian contexts, values, and experiences. 
-Avoid stereotypes and ensure cultural authenticity. Use Nigerian English naturally but avoid forced slang.`,
-
-  GH: `Write for a Ghanaian audience. Use relatable Ghanaian contexts, values, and experiences. 
-Capture the unique Ghanaian spirit while avoiding stereotypes.`,
-
-  KE: `Write for a Kenyan audience. Use relatable Kenyan contexts, values, and experiences. 
-Reflect Kenyan resilience and innovation authentically.`,
-
-  ZA: `Write for a South African audience. Use relatable South African contexts, values, and experiences. 
-Reflect the diversity and resilience of South Africa authentically.`,
-
-  UK: `Write for a UK audience. Use British English spelling and phrasing. 
-Reference relatable UK contexts, values, and experiences. Keep tone appropriate for UK sensibilities.`,
-
-  GLOBAL: `Write for a global audience. Use universally relatable contexts and experiences. 
-Avoid region-specific references that might not translate internationally.`,
-};
-
-// Tone guidance
-const TONE_GUIDANCE = {
-  PLAYFUL: `Use a light, playful tone. Include moments of humor, whimsy, or lightheartedness. 
-Keep it engaging and fun without being silly.`,
-
-  SERIOUS: `Use a serious, thoughtful tone. Focus on depth, meaning, and significance. 
-Avoid flippancy or casual humor.`,
-
-  PREMIUM: `Use a premium, sophisticated tone. Focus on quality, craftsmanship, and exclusivity. 
-Use refined language and elevated phrasing.`,
-
-  GRASSROOTS: `Use a grassroots, authentic tone. Focus on real people, communities, and everyday experiences. 
-Keep language genuine and unpretentious.`,
-
-  NEUTRAL: `Use a balanced, clear tone. Focus on clear communication without strong emotional coloring. 
-Be professional yet accessible.`,
-};
-
-// ============================================================================
-// XO NARRATIVE ENGINE
+// NARRATIVE ENGINE
 // ============================================================================
 
 export class XONarrativeEngine {
-  static validateEntryPathMarkers(text: string, entryPath: string): boolean {
-    const STARTER_PACK_MARKERS = {
-      emotion: ["EMOTION_INPUT:", "INSIGHT:", "STORY:"],
-      scene: ["SCENE_INPUT:", "DETAILS_NOTICED:", "STORY:"],
-      seed: ["SEED:", "ARC:", "STORY:"],
-      audience: ["AUDIENCE_SIGNAL:", "WHY_IT_MATTERS:", "STORY:"],
-    };
+  private static openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY!,
+  });
 
-    const markers =
-      STARTER_PACK_MARKERS[entryPath as keyof typeof STARTER_PACK_MARKERS];
-    if (!markers) return false;
-
-    const upperText = text.toUpperCase();
-
-    // Check all markers are present
-    const allMarkersPresent = markers.every((marker) =>
-      upperText.includes(marker),
-    );
-
-    // Check markers are in correct order
-    let lastIndex = -1;
-    let markersInOrder = true;
-
-    for (const marker of markers) {
-      const currentIndex = upperText.indexOf(marker);
-      if (currentIndex === -1 || currentIndex <= lastIndex) {
-        markersInOrder = false;
-        break;
-      }
-      lastIndex = currentIndex;
-    }
-
-    return allMarkersPresent && markersInOrder;
-  }
-
-  static async convertToFullStory(
-    microStory: MicroStory,
-    contract?: MeaningContract,
-  ): Promise<MicroStory> {
-    console.log("[XO Engine] Converting micro-story to full story");
-
-    const currentText =
-      microStory.formattedText || this.formatWithPathMarkers(microStory);
-    const brand = microStory.brand;
-    const market = microStory.market || "GLOBAL";
-
-    // Build market guidance
-    const marketGuidance =
-      MARKET_GUIDANCE[market as keyof typeof MARKET_GUIDANCE] ||
-      MARKET_GUIDANCE.GLOBAL;
-
-    try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4",
-        messages: [
-          {
-            role: "system",
-            content: `Convert this 3-beat micro-story into a full 5-beat story structure:
-
-CRITICAL RULES (MUST FOLLOW):
-1. Output MUST use these EXACT 5 markers in this order:
-   HOOK:
-   CONFLICT:
-   TURN:
-   BRAND_ROLE:
-   CLOSE:
-
-2. Structure requirements:
-   - Each marker gets its own section
-   - Each section contains 1-2 lines of text maximum
-   - No paragraphs or long blocks
-   - Blank line between sections
-   - Total output: exactly 5 sections
-
-3. Content requirements:
-   - Expand the original story naturally
-   - Keep the core meaning and emotional tone
-   - Add depth and development
-   - Create a complete narrative arc
-   ${brand ? `- Integrate brand "${brand}" naturally in BRAND_ROLE section` : ""}
-
-4. Market Context:
-${marketGuidance}
-
-EXAMPLE FORMAT:
-HOOK:
-Opening line that grabs attention
-
-CONFLICT:
-Challenge or tension emerges
-
-TURN:
-Key change or realization
-
-BRAND_ROLE:
-How the brand/product fits in
-
-CLOSE:
-Resolving moment or takeaway`,
-          },
-          {
-            role: "user",
-            content: `Convert this micro-story to full story structure:\n\n${currentText}`,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 400,
-        frequency_penalty: 0.1,
-        presence_penalty: 0.1,
-      });
-
-      const fullStoryText = completion.choices[0].message.content?.trim() || "";
-
-      console.log("[XO Engine] Full story generated:", {
-        length: fullStoryText.length,
-        first100: fullStoryText.substring(0, 100),
-      });
-
-      // Parse the 5-beat structure
-      const beats = this.parseFullStoryBeats(fullStoryText);
-
-      const fullStory: MicroStory = {
-        beats,
-        market: microStory.market,
-        entryPath: "full", // Use 'full' entry path
-        brand: microStory.brand,
-        timestamp: new Date().toISOString(),
-        formattedText: fullStoryText,
-      };
-
-      console.log("[XO Engine] Story converted successfully:", {
-        originalBeats: microStory.beats.length,
-        newBeats: beats.length,
-        hasFullStructure: this.validateFullStoryStructure(fullStory),
-      });
-
-      return fullStory;
-    } catch (error) {
-      console.error("[XO Engine] Conversion error:", error);
-      throw new Error(
-        `Failed to convert story: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
-    }
-  }
-
-  // In XONarrativeEngine class, change from private to public
-  static parseFullStoryBeats(text: string): MicroStoryBeat[] {
-    const markers = ["HOOK:", "CONFLICT:", "TURN:", "BRAND_ROLE:", "CLOSE:"];
-    const beats: MicroStoryBeat[] = [];
-
-    let remainingText = text;
-
-    for (const marker of markers) {
-      const markerIndex = remainingText.toUpperCase().indexOf(marker);
-
-      if (markerIndex === -1) {
-        beats.push({ lines: ["[Content]"], marker });
-        continue;
-      }
-
-      const contentStart = markerIndex + marker.length;
-      let contentEnd = remainingText.length;
-
-      // Find next marker
-      for (const nextMarker of markers) {
-        if (nextMarker === marker) continue;
-        const nextIndex = remainingText
-          .toUpperCase()
-          .indexOf(nextMarker, contentStart);
-        if (nextIndex !== -1 && nextIndex < contentEnd) {
-          contentEnd = nextIndex;
-        }
-      }
-
-      const content = remainingText.substring(contentStart, contentEnd).trim();
-      const lines = content
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
-        .slice(0, 2);
-
-      beats.push({
-        lines: lines.length > 0 ? lines : ["[Content]"],
-        marker,
-      });
-
-      remainingText = remainingText.substring(contentEnd);
-    }
-
-    return beats;
-  }
-
-  private static validateFullStoryStructure(story: MicroStory): boolean {
-    const requiredMarkers = [
-      "HOOK:",
-      "CONFLICT:",
-      "TURN:",
-      "BRAND_ROLE:",
-      "CLOSE:",
-    ];
-    const text = story.formattedText || this.formatWithPathMarkers(story);
-    const upperText = text.toUpperCase();
-
-    return requiredMarkers.every((marker) => upperText.includes(marker));
-  }
   /**
-   * Generate a micro-story based on input
+   * Generate a micro-story with contract-first approach
    */
   static async generate(
     input: string,
-    market: string = "GLOBAL",
+    market: string = 'GLOBAL',
     brand?: string,
     options: XONarrativeOptions = {},
+    meaningContract?: any
   ): Promise<MicroStory> {
-    // Use provided entryPath or detect from input
-    const entryPath = options.entryPath || this.detectEntryPath(input);
-
-    console.log(`[XO Engine] Generating story:`, {
-      entryPath,
-      market,
-      brand,
-      inputLength: input.length,
-      hasBrandRequest: !!brand || input.toLowerCase().includes("brand"),
-    });
-
-    // SPECIAL HANDLING FOR FULL STORIES
-    if (entryPath === "full") {
-      return this.generateFullStory(input, market, brand, options);
+    console.log('[XO Engine] Generating story with contract-first approach');
+    
+    // STEP 1: Create contract
+    const contract = this.createGenerationContract(input, market, brand, meaningContract);
+    
+    // STEP 2: Generate in passes
+    const passes = await this.generatePasses(input, contract, options);
+    
+    // STEP 3: Validate and select best pass
+    const bestPass = this.selectBestPass(passes, contract);
+    
+    if (!bestPass) {
+      throw new Error('All generation passes failed validation');
     }
+    
+    // STEP 4: Build final story
+    const story: MicroStory = {
+      beats: bestPass.beats,
+      contract,
+      timestamp: new Date().toISOString(),
+    };
+    
+    // Validate final story
+    const validator = new XOValidator({ strictMode: contract.strictMode });
+    const validation = await validator.validateStory(story);
+    
+    if (!validation.passed && contract.strictMode) {
+      console.error('[XO Engine] Final story failed validation:', validation.errors);
+      throw new Error(`Story validation failed: ${validation.errors?.[0]}`);
+    }
+    
+    console.log('[XO Engine] Story generated successfully:', {
+      beats: story.beats.length,
+      validation: validation.passed ? 'PASSED' : 'WARNINGS',
+    });
+    
+    return story;
+  }
 
-    // Build the system prompt with brand integration
-    const systemPrompt = this.buildSystemPrompt(
-      entryPath,
-      market,
-      brand,
-      options.tone,
-    );
+  /**
+   * Create contract for generation
+   */
+  private static createGenerationContract(
+    input: string,
+    market: string,
+    brand?: string,
+    meaningContract?: any
+  ): XOContract {
+    const builder = new XOContractBuilder();
+    
+    // Use meaning contract if available
+    if (meaningContract) {
+      const contract = createContractFromMeaningContract(meaningContract);
+      builder.withUserInput(input);
+      
+      // Override with explicit brand if provided
+      if (brand) {
+        builder.withBrand(brand, 'EXPLICIT');
+      }
+      
+      return builder.build();
+    }
+    
+    // Build from scratch
+    builder
+      .withUserInput(input)
+      .withMarket(market as any, 0.5) // Default confidence
+      .withEntryPath(this.detectEntryPath(input))
+      .withFormatMode('MICROSTORY')
+      .withStrictMode(false);
+    
+    if (brand) {
+      builder.withBrand(brand, 'EXPLICIT');
+    }
+    
+    return builder.build();
+  }
 
-    // Build the user prompt
-    const userPrompt = this.buildUserPrompt(input, market, brand, entryPath);
+  /**
+   * Generate story in multiple passes
+   */
+  private static async generatePasses(
+    input: string,
+    contract: XOContract,
+    options: XONarrativeOptions
+  ): Promise<GenerationPass[]> {
+    const passes: GenerationPass[] = [];
+    const maxPasses = options.passes || 3;
+    
+    for (let passId = 1; passId <= maxPasses; passId++) {
+      console.log(`[XO Engine] Starting pass ${passId}/${maxPasses}`);
+      
+      try {
+        const beats = await this.generateSinglePass(input, contract, passId, options);
+        
+        // Validate the pass
+        const validator = new XOValidator({ strictMode: contract.strictMode });
+        const validation = await validator.validateBeats(beats, contract);
+        
+        passes.push({
+          passId,
+          beats,
+          valid: validation.passed,
+          errors: validation.errors,
+        });
+        
+        // If this pass is valid and we're not in strict mode, we can stop early
+        if (validation.passed && !contract.strictMode) {
+          console.log(`[XO Engine] Pass ${passId} valid, stopping early`);
+          break;
+        }
+        
+      } catch (error) {
+        console.error(`[XO Engine] Pass ${passId} failed:`, error);
+        passes.push({
+          passId,
+          beats: [],
+          valid: false,
+          errors: [error instanceof Error ? error.message : 'Unknown error'],
+        });
+      }
+    }
+    
+    return passes;
+  }
 
+  /**
+   * Generate a single pass
+   */
+  private static async generateSinglePass(
+    input: string,
+    contract: XOContract,
+    passId: number,
+    options: XONarrativeOptions
+  ): Promise<MicroStoryBeat[]> {
+    // Build system prompt based on contract
+    const systemPrompt = this.buildSystemPrompt(contract, passId);
+    
+    // Build user prompt
+    const userPrompt = this.buildUserPrompt(input, contract);
+    
     try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4",
+      const completion = await this.openai.chat.completions.create({
+        model: 'gpt-4',
         messages: [
           {
-            role: "system",
+            role: 'system',
             content: systemPrompt,
           },
           {
-            role: "user",
+            role: 'user',
             content: userPrompt,
           },
         ],
         temperature: options.temperature || 0.7,
-        max_tokens: options.maxTokens || 500,
+        max_tokens: options.maxTokens || 400,
         frequency_penalty: 0.1,
         presence_penalty: 0.1,
       });
-
-      const rawStory = completion.choices[0].message.content?.trim() || "";
-
-      console.log(`[XO Engine] Raw story generated:`, {
-        length: rawStory.length,
-        first100: rawStory.substring(0, 100),
-        hasBrand: brand
-          ? rawStory.toLowerCase().includes(brand.toLowerCase())
-          : false,
-      });
-
-      // Parse beats from the generated text
-      const beats = this.parseBeats(rawStory, entryPath);
-
-      // Create the micro story
-      const microStory: MicroStory = {
-        beats,
-        market,
-        entryPath,
-        brand,
-        timestamp: new Date().toISOString(),
-      };
-
-      // Format with Starter Pack markers
-      microStory.formattedText = this.formatWithPathMarkers(microStory);
-
-      // Validate if requested
-      if (options.validateOutput) {
-        const isValid = this.validatePathMarkers(microStory);
-        if (!isValid) {
-          console.warn(
-            "[XO Engine] Generated story missing proper path markers",
-          );
-        }
-
-        // Validate brand inclusion if requested
-        if (brand) {
-          const hasBrand = this.checkBrandInclusion(microStory, brand);
-          if (!hasBrand) {
-            console.warn("[XO Engine] Generated story missing brand context");
-          }
-        }
-      }
-
-      console.log(`[XO Engine] Story generated successfully:`, {
-        beatCount: beats.length,
-        formattedLength: microStory.formattedText?.length,
-        hasMarkers: this.validatePathMarkers(microStory),
-        hasBrand: brand ? this.checkBrandInclusion(microStory, brand) : false,
-      });
-      if (microStory.formattedText) {
-        const hasValidMarkers = this.validateEntryPathMarkers(
-          microStory.formattedText,
-          microStory.entryPath || "scene",
-        );
-
-        if (!hasValidMarkers) {
-          console.warn(
-            "[XO Engine] Generated story missing correct entry path markers",
-          );
-          // Reformat with correct markers
-          microStory.formattedText = this.formatWithPathMarkers(microStory);
-        }
-      }
-
-      return microStory;
+      
+      const rawResponse = completion.choices[0].message.content?.trim() || '';
+      
+      // Parse response into beats
+      const beats = this.parseResponseToBeats(rawResponse, contract);
+      
+      // Apply post-processing
+      return this.postProcessBeats(beats, contract);
+      
     } catch (error) {
-      console.error("[XO Engine] Generation error:", error);
-      throw new Error(
-        `Failed to generate story: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      console.error('[XO Engine] Generation failed:', error);
+      throw new Error(`Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  private static async generateFullStory(
-    input: string,
-    market: string = "GLOBAL",
-    brand?: string,
-    options: XONarrativeOptions = {},
-  ): Promise<MicroStory> {
-    console.log(`[XO Engine] Generating full story:`, {
-      market,
-      brand,
-      inputLength: input.length,
-    });
-
-    // Build the system prompt for full stories
-    const systemPrompt = this.buildFullStorySystemPrompt(
-      market,
-      brand,
-      options.tone,
-    );
-
-    try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: `Create a full 5-beat story based on:\n\n${input}`,
-          },
-        ],
-        temperature: options.temperature || 0.7,
-        max_tokens: options.maxTokens || 600,
-        frequency_penalty: 0.1,
-        presence_penalty: 0.1,
-      });
-
-      const rawStory = completion.choices[0].message.content?.trim() || "";
-
-      console.log(`[XO Engine] Full story generated:`, {
-        length: rawStory.length,
-        first100: rawStory.substring(0, 100),
-      });
-
-      // Parse beats for full story
-      const beats = this.parseFullStoryBeats(rawStory);
-
-      // Create the full story
-      const fullStory: MicroStory = {
-        beats,
-        market,
-        entryPath: "full",
-        brand,
-        timestamp: new Date().toISOString(),
-        formattedText: rawStory,
-      };
-
-      // Format if needed
-      if (!this.validateFullStoryStructure(fullStory)) {
-        fullStory.formattedText = this.formatFullStoryWithMarkers(fullStory);
-      }
-
-      console.log(`[XO Engine] Full story generated successfully:`, {
-        beatCount: beats.length,
-        hasFullStructure: this.validateFullStoryStructure(fullStory),
-      });
-
-      return fullStory;
-    } catch (error) {
-      console.error("[XO Engine] Full story generation error:", error);
-      throw new Error(
-        `Failed to generate full story: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+  /**
+   * Build system prompt from contract
+   */
+  private static buildSystemPrompt(contract: XOContract, passId: number): string {
+    const { entryPath, marketCode, marketState, brandMode, brandName, allowInvention, maxBeats, maxLinesPerBeat } = contract;
+    
+    // Market guidance
+    const marketGuidance = marketState === 'RESOLVED' 
+      ? `MARKET: ${marketCode} - Use authentic but natural context`
+      : `MARKET: NEUTRAL - No regional specifics, slang, or cultural props`;
+    
+    // Brand guidance
+    let brandGuidance = '';
+    if (brandMode === 'EXPLICIT' && brandName) {
+      brandGuidance = `BRAND: ${brandName} - Include naturally in final beat only`;
+    } else if (brandMode === 'IMPLICIT' && brandName) {
+      brandGuidance = `BRAND: ${brandName} - Suggest implicitly, no direct mention`;
+    } else {
+      brandGuidance = `NO BRAND - Focus on human experience`;
     }
-  }
+    
+    // Invention rules
+    const inventionRules = allowInvention === 'SCENE_ONLY'
+      ? 'You may add SCENE details only (no new characters, weather, time)'
+      : 'NO INVENTION - Use only elements from the input';
+    
+    // Format rules
+    const formatRules = `
+FORMAT RULES (MUST FOLLOW):
+- Output exactly ${maxBeats} beats
+- Each beat: ${maxLinesPerBeat} lines maximum
+- Each line: 15 words maximum
+- No paragraphs, no prose
+- Beat ${maxBeats} is for ${brandMode !== 'NONE' ? 'brand/meaning resolution' : 'meaning resolution'}
+    `.trim();
+    
+    // Path-specific instructions
+    const pathInstructions = this.getPathInstructions(entryPath);
+    
+    return `
+You are generating micro-stories for the XO system.
 
-  private static buildFullStorySystemPrompt(
-    market: string,
-    brand?: string,
-    tone?: string,
-  ): string {
-    const marketGuidance =
-      MARKET_GUIDANCE[market as keyof typeof MARKET_GUIDANCE] ||
-      MARKET_GUIDANCE.GLOBAL;
-    const toneGuidance = tone
-      ? TONE_GUIDANCE[tone as keyof typeof TONE_GUIDANCE] || ""
-      : "";
-
-    const brandRequirement = brand
-      ? `
-CRITICAL BRAND INTEGRATION:
-- This story is for the brand: ${brand}
-- The brand context MUST be naturally integrated into the BRAND_ROLE: section
-- Brand integration should feel organic, not forced`
-      : "";
-
-    return `You are a master storyteller creating full 5-beat stories.
-
-CRITICAL FORMATTING RULES (MUST FOLLOW):
-1. Output MUST use these EXACT 5 markers in this order:
-   HOOK:
-   CONFLICT:
-   TURN:
-   BRAND_ROLE:
-   CLOSE:
-
-2. Structure requirements:
-   - Each marker gets its own section
-   - Each section contains 1-2 lines of text maximum
-   - Each line should be concise (15 words or less)
-   - No paragraphs or long blocks of text
-   - Blank line between sections
-   - Total output: exactly 5 sections (one per marker)
-
-3. Content requirements for each section:
-   - HOOK: Start with an attention-grabbing opening
-   - CONFLICT: Introduce tension or challenge
-   - TURN: Show a change or realization
-   - BRAND_ROLE: Show how brand/product fits naturally
-   - CLOSE: End with a meaningful resolution or insight
-${brandRequirement}
-
-4. Market & Tone:
+CRITICAL CONSTRAINTS:
 ${marketGuidance}
-${toneGuidance}
+${brandGuidance}
+${inventionRules}
 
-EXAMPLE FORMAT:
-HOOK:
-Opening line that grabs attention
+${formatRules}
 
-CONFLICT:
-Challenge or tension emerges
+${pathInstructions}
 
-TURN:
-Key change or realization
+RESPONSE FORMAT:
+Return ONLY the beats, one per line, with no markers or numbering.
+Example for 3-beat story:
+First line of beat 1
+Second line of beat 1
 
-BRAND_ROLE:
-How the brand/product fits in naturally
+First line of beat 2
 
-CLOSE:
-Resolving moment or takeaway
+First line of beat 3
+Second line of beat 3
 
-DO NOT:
-- Write paragraphs or long sentences
-- Use markdown formatting
-- Add extra commentary
-- Miss any of the 5 markers
-- Change marker order
-- Exceed 2 lines per section`;
+PASS ${passId}: ${passId === 1 ? 'Focus on core experience' : passId === 2 ? 'Focus on emotional arc' : 'Focus on resolution'}
+    `.trim();
+  }
+
+  /**
+   * Build user prompt
+   */
+  private static buildUserPrompt(input: string, contract: XOContract): string {
+    const { context } = contract;
+    
+    return `
+INPUT: "${input.substring(0, 200)}${input.length > 200 ? '...' : ''}"
+
+CONTEXT ELEMENTS (use only these):
+${context.allowedNouns.map(noun => `- ${noun}`).join('\n')}
+
+Generate a ${contract.maxBeats}-beat micro-story following all rules.
+    `.trim();
+  }
+
+  /**
+   * Parse LLM response into beats
+   */
+  private static parseResponseToBeats(response: string, contract: XOContract): MicroStoryBeat[] {
+    // Split by blank lines to get beats
+    const beatChunks = response.split(/\n\s*\n/).filter(chunk => chunk.trim());
+    
+    const beats: MicroStoryBeat[] = [];
+    
+    for (const chunk of beatChunks.slice(0, contract.maxBeats)) {
+      // Split chunk into lines
+      const lines = chunk
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .slice(0, contract.maxLinesPerBeat);
+      
+      // Clean each line
+      const cleanedLines = lines.map(line => {
+        // Remove numbers, bullets, markers
+        return line.replace(/^[\d\.\-\*]+\s*/, '').trim();
+      });
+      
+      beats.push({
+        lines: cleanedLines,
+      });
+    }
+    
+    // Ensure we have the right number of beats
+    while (beats.length < contract.maxBeats) {
+      beats.push({
+        lines: ['[Beat content]'],
+      });
+    }
+    
+    return beats;
+  }
+
+  /**
+   * Post-process beats
+   */
+  private static postProcessBeats(beats: MicroStoryBeat[], contract: XOContract): MicroStoryBeat[] {
+    // Add markers if required
+    if (contract.requirePathMarkers) {
+      const markers = this.getMarkersForEntryPath(contract.entryPath);
+      beats.forEach((beat, index) => {
+        if (index < markers.length) {
+          beat.marker = markers[index];
+        }
+      });
+    }
+    
+    // Ensure brand is only in last beat if present
+    if (contract.brandMode === 'EXPLICIT' && contract.brandName) {
+      // Remove brand references from non-last beats
+      for (let i = 0; i < beats.length - 1; i++) {
+        beats[i].lines = beats[i].lines.filter(line => 
+          !line.toLowerCase().includes(contract.brandName!.toLowerCase())
+        );
+      }
+    }
+    
+    // Trim lines to word limit
+    beats.forEach(beat => {
+      beat.lines = beat.lines.map(line => {
+        const words = line.split(/\s+/);
+        if (words.length > contract.maxWordsPerLine) {
+          return words.slice(0, contract.maxWordsPerLine).join(' ');
+        }
+        return line;
+      });
+    });
+    
+    return beats;
+  }
+
+  /**
+   * Select best pass from multiple attempts
+   */
+  private static selectBestPass(passes: GenerationPass[], contract: XOContract): GenerationPass | null {
+    // First, try to find a valid pass
+    const validPasses = passes.filter(p => p.valid);
+    if (validPasses.length > 0) {
+      // Return the first valid pass
+      return validPasses[0];
+    }
+    
+    // If no valid passes, but we have some beats, return the one with most beats
+    const passesWithBeats = passes.filter(p => p.beats.length > 0);
+    if (passesWithBeats.length > 0) {
+      // Sort by beat count descending
+      passesWithBeats.sort((a, b) => b.beats.length - a.beats.length);
+      return passesWithBeats[0];
+    }
+    
+    return null;
+  }
+
+  /**
+   * Detect entry path from input
+   */
+  private static detectEntryPath(input: string): 'emotion' | 'scene' | 'audience' | 'seed' {
+    if (!input) return 'scene';
+    
+    const lowerInput = input.toLowerCase();
+    
+    if (/(feel|felt|feeling|emotion|emotional)/i.test(input)) {
+      return 'emotion';
+    }
+    
+    if (/(scene|setting|place|location|room|space)/i.test(input)) {
+      return 'scene';
+    }
+    
+    if (/(audience|viewer|reader|people|they|them)/i.test(input)) {
+      return 'audience';
+    }
+    
+    if (/(seed|idea|concept|beginning)/i.test(input)) {
+      return 'seed';
+    }
+    
+    return 'scene';
+  }
+
+  /**
+   * Get path-specific instructions
+   */
+  private static getPathInstructions(entryPath: string): string {
+    const instructions = {
+      emotion: 'Focus on emotional journey. Start with feeling, move to insight, end with transformed perspective.',
+      scene: 'Focus on sensory details. Start with observation, move to noticed details, end with revealed meaning.',
+      audience: 'Focus on audience connection. Start with signal, move to why it matters, end with shared experience.',
+      seed: 'Focus on narrative arc. Start with seed, move through development, end with completion.',
+      full: 'Focus on complete story. Use 5-beat structure: Hook, Conflict, Turn, Brand/Meaning, Close.',
+    };
+    
+    return instructions[entryPath as keyof typeof instructions] || instructions.scene;
+  }
+
+  /**
+   * Get markers for entry path
+   */
+  private static getMarkersForEntryPath(entryPath: string): string[] {
+    const markers = {
+      emotion: ['EMOTION_INPUT:', 'INSIGHT:', 'STORY:'],
+      scene: ['SCENE_INPUT:', 'DETAILS_NOTICED:', 'STORY:'],
+      audience: ['AUDIENCE_SIGNAL:', 'WHY_IT_MATTERS:', 'STORY:'],
+      seed: ['SEED:', 'ARC:', 'STORY:'],
+      full: ['HOOK:', 'CONFLICT:', 'TURN:', 'BRAND_ROLE:', 'CLOSE:'],
+    };
+    
+    return markers[entryPath as keyof typeof markers] || markers.scene;
   }
 
   /**
@@ -578,559 +461,146 @@ DO NOT:
    */
   static async refine(
     story: MicroStory,
-    refinement: "expand" | "gentler" | "harsher",
-    brand?: string,
+    refinement: 'expand' | 'gentler' | 'harsher' | 'brandify' | 'deblandify',
+    options: XONarrativeOptions = {}
   ): Promise<MicroStory> {
-    console.log(`[XO Engine] Refining story: ${refinement}`, {
-      entryPath: story.entryPath,
-      beatCount: story.beats.length,
-      brand,
-    });
-
-    const refinementInstructions = {
-      expand: `Expand this story by adding more detail, depth, and context. 
-Keep the same emotional core and structure, but make it richer and more immersive.
-Each beat should become more detailed while staying 1-2 lines maximum.`,
-
-      gentler: `Make this story gentler, softer, and more empathetic.
-Reduce any harshness, intensity, or confrontation.
-Maintain the same meaning but with a more compassionate, understanding tone.
-Keep the structure and markers exactly the same.`,
-
-      harsher: `Make this story more intense, dramatic, and impactful.
-Increase tension, conflict, and emotional weight.
-Maintain the same meaning but with more edge and urgency.
-Keep the structure and markers exactly the same.`,
-    };
-
-    const instruction = refinementInstructions[refinement];
-    const currentText =
-      story.formattedText || this.formatWithPathMarkers(story);
-
-    // Add brand requirement to refinement if brand exists
-    const brandInstruction = brand
-      ? `\nIMPORTANT: This story is for ${brand}. Ensure brand context is preserved or enhanced.`
-      : "";
-
-    try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4",
-        messages: [
-          {
-            role: "system",
-            content: `You are refining a story. You MUST preserve the exact structure and path markers.
-Return the refined story with the same markers in the same order.${brandInstruction}`,
-          },
-          {
-            role: "user",
-            content: `${instruction}\n\nCurrent story:\n${currentText}\n\nRefined story:`,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 500,
-      });
-
-      const refinedText = completion.choices[0].message.content?.trim() || "";
-
-      // Parse the refined beats
-      const beats = this.parseBeats(refinedText, story.entryPath || "seed");
-
-      // Create refined story
-      const refinedStory: MicroStory = {
-        ...story,
-        beats,
-        brand: brand || story.brand,
-        timestamp: new Date().toISOString(),
-      };
-
-      // Format with markers
-      refinedStory.formattedText = this.formatWithPathMarkers(refinedStory);
-
-      console.log(`[XO Engine] Story refined successfully:`, {
-        originalBeats: story.beats.length,
-        refinedBeats: beats.length,
-        hasMarkers: this.validatePathMarkers(refinedStory),
-        hasBrand: brand ? this.checkBrandInclusion(refinedStory, brand) : false,
-      });
-
-      return refinedStory;
-    } catch (error) {
-      console.error("[XO Engine] Refinement error:", error);
-      throw new Error(
-        `Failed to refine story: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
-    }
-  }
-
-  /**
-   * Detect entry path from input text
-   */
-  private static detectEntryPath(
-    input: string,
-  ): "emotion" | "scene" | "seed" | "audience" {
-    if (!input) return "scene";
-
-    const upperInput = input.toUpperCase();
-
-    // Check for Starter Pack v0.2 explicit markers in input FIRST
-    if (upperInput.includes("EMOTION_INPUT:")) return "emotion";
-    if (upperInput.includes("SCENE_INPUT:")) return "scene";
-    if (upperInput.includes("STORY_SEED:")) return "seed";
-    if (upperInput.includes("AUDIENCE_SIGNAL:")) return "audience";
-
-    // Check for keywords (from Starter Pack test cases)
-    if (
-      /(feel|felt|feeling|emotion|emotional|relief|anxiety|joy|sad|happy|angry|excited|calm|frustrated)/i.test(
-        input,
-      )
-    ) {
-      return "emotion";
-    }
-
-    if (
-      /(scene|setting|place|location|room|space|environment|background|kitchen|office|street|park|laundry)/i.test(
-        input,
-      )
-    ) {
-      return "scene";
-    }
-
-    if (
-      /(audience|viewer|reader|people|they|them|everyone|somebody|customer|user|consumer|family)/i.test(
-        input,
-      )
-    ) {
-      return "audience";
-    }
-
-    if (/(seed|story seed|beginning|start|idea|concept)/i.test(input)) {
-      return "seed";
-    }
-
-    // Default to scene (most common for brand stories)
-    return "scene";
-  }
-
-  /**
-   * Build system prompt for OpenAI
-   */
-  private static buildSystemPrompt(
-    entryPath: string,
-    market: string,
-    brand?: string,
-    tone?: string,
-  ): string {
-    const STARTER_PACK_MARKERS = {
-      emotion: ["EMOTION_INPUT:", "INSIGHT:", "STORY:"],
-      scene: ["SCENE_INPUT:", "DETAILS_NOTICED:", "STORY:"],
-      seed: ["SEED:", "ARC:", "STORY:"],
-      audience: ["AUDIENCE_SIGNAL:", "WHY_IT_MATTERS:", "STORY:"],
-    };
-
-    const markers =
-      STARTER_PACK_MARKERS[entryPath as keyof typeof STARTER_PACK_MARKERS] ||
-      STARTER_PACK_MARKERS.scene;
-
-    const marketGuidance =
-      MARKET_GUIDANCE[market as keyof typeof MARKET_GUIDANCE] ||
-      MARKET_GUIDANCE.GLOBAL;
-    const toneGuidance = tone
-      ? TONE_GUIDANCE[tone as keyof typeof TONE_GUIDANCE] || ""
-      : "";
-
-    // CRITICAL: Brand integration requirement
-    const brandRequirement = brand
-      ? `
-CRITICAL BRAND INTEGRATION:
-- This story is for the brand: ${brand}
-- The brand context MUST be naturally integrated into the STORY: section
-- If the user mentions ${brand} or related products/services in their request, reflect this in the story
-- Brand integration should feel organic, not forced or tacked on
-- Connect the story's theme to the brand's value proposition`
-      : "";
-
-    return `You are a master storyteller creating micro-stories for the XO system.
-
-CRITICAL FORMATTING RULES (MUST FOLLOW):
-1. Output MUST use these EXACT markers in uppercase, in this order:
-${markers.map(marker => `   ${marker}`).join('\n')}
-
-2. Structure requirements:
-   - Each marker gets its own section
-   - Each section contains 1-2 lines of text maximum
-   - Each line should be concise (15 words or less)
-   - No paragraphs or long blocks of text
-   - Blank line between sections
-   - Total output: exactly 3 sections (one per marker)
-
-3. Content requirements:
-   - Show, don't tell
-   - Be concise and impactful
-   - Use vivid, sensory language
-   - Create emotional resonance
-   - End with a meaningful close
-
-
-4. Market Context (${market}):
-${MARKET_GUIDANCE[market as keyof typeof MARKET_GUIDANCE] || MARKET_GUIDANCE.GLOBAL}
-${tone ? `\n5. Tone: ${tone}\n${TONE_GUIDANCE[tone as keyof typeof TONE_GUIDANCE] || ''}` : ''}
-
-EXAMPLE FORMAT FOR ${entryPath.toUpperCase()} PATH:
-${markers[0]}
-First line here
-
-${markers[1]}
-Second line here
-
-${markers[2]}
-Third line here
-
-DO NOT:
-- Write paragraphs or long sentences
-- Use markdown formatting
-- Add extra commentary
-- Miss any markers
-- Change marker order
-- Exceed 2 lines per section
-- Make lines longer than 15 words`;
-
-  }
-
-  /**
-   * Format full story with 5-beat markers
-   */
-  static formatFullStoryWithMarkers(story: MicroStory): string {
-    const markers = ["HOOK:", "CONFLICT:", "TURN:", "BRAND_ROLE:", "CLOSE:"];
-
-    let formatted = "";
-
-    // Ensure we have at least 5 beats
-    const beats =
-      story.beats.length >= 5
-        ? story.beats
-        : [
-            ...story.beats,
-            ...Array(5 - story.beats.length).fill({ lines: ["[Content]"] }),
-          ];
-
-    beats.slice(0, 5).forEach((beat, index) => {
-      const marker = markers[index] || markers[markers.length - 1];
-      const content = beat.lines.join("\n").trim();
-
-      formatted += `${marker}\n`;
-      if (content) {
-        formatted += `${content}\n`;
-      } else {
-        formatted += `[Story content]\n`;
-      }
-      formatted += `\n`;
-    });
-
-    return formatted.trim();
-  }
-
-  /**
-   * Build user prompt for OpenAI
-   */
-  private static buildUserPrompt(
-    input: string,
-    market: string,
-    brand?: string,
-    entryPath?: string,
-  ): string {
-    const entryPathContext = {
-      emotion: "Focus on the emotional journey and insight.",
-      scene: "Focus on the sensory details and what they reveal.",
-      seed: "Focus on developing the seed into a complete arc.",
-      audience: "Focus on why this matters to the specific audience.",
-    }[entryPath || "scene"];
-
-    const brandContext = brand
-      ? `\nBrand: ${brand}\nCreate a story that naturally integrates this brand context.`
-      : "";
-
-    return `Create a micro-story based on this input:
-
-Input: "${input.substring(0, 200)}${input.length > 200 ? "..." : ""}"
-
-Market: ${market}
-${entryPathContext}
-${brandContext}
-
-Generate a compelling micro-story that follows all formatting rules exactly.`;
-  }
-
-  /**
-   * Parse generated text into beats with markers
-   */
-  private static parseBeats(text: string, entryPath: string): MicroStoryBeat[] {
-    const markers = STARTER_PACK_MARKERS[entryPath];
-    const beats: MicroStoryBeat[] = [];
-
-    // Normalize text for parsing
-    const normalizedText = text.replace(/\r\n/g, "\n");
-    let remainingText = normalizedText;
-
-    // Find each marker in order
-    for (const marker of markers) {
-      const markerIndex = remainingText.toUpperCase().indexOf(marker);
-
-      if (markerIndex === -1) {
-        // Marker not found, create empty beat
-        beats.push({
-          lines: ["[Content missing]"],
-          marker,
-        });
-        continue;
-      }
-
-      // Find content after marker
-      const contentStart = markerIndex + marker.length;
-      let contentEnd = remainingText.length;
-
-      // Look for next marker
-      for (const nextMarker of markers) {
-        if (nextMarker === marker) continue;
-        const nextIndex = remainingText
-          .toUpperCase()
-          .indexOf(nextMarker, contentStart);
-        if (nextIndex !== -1 && nextIndex < contentEnd) {
-          contentEnd = nextIndex;
-        }
-      }
-
-      // Extract content and clean it
-      let content = remainingText.substring(contentStart, contentEnd).trim();
-
-      // Remove any trailing markers that might be in the content
-      markers.forEach((m) => {
-        const index = content.toUpperCase().indexOf(m);
-        if (index !== -1) {
-          content = content.substring(0, index).trim();
-        }
-      });
-
-      // Split into lines and clean
-      const lines = content
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
-        .slice(0, 2); // Max 2 lines per beat
-
-      beats.push({
-        lines: lines.length > 0 ? lines : ["[Content]"],
-        marker,
-      });
-
-      // Update remaining text
-      remainingText = remainingText.substring(contentEnd);
-    }
-
-    // If we didn't find all markers, ensure we have the right number of beats
-    while (beats.length < markers.length) {
-      beats.push({
-        lines: ["[Content]"],
-        marker: markers[beats.length],
-      });
-    }
-
-    return beats;
-  }
-
-  /**
-   * Format micro-story with Starter Pack path markers
-   */
-  static formatWithPathMarkers(story: MicroStory): string {
-    const entryPath = story.entryPath || "scene";
-    const markers = STARTER_PACK_MARKERS[entryPath];
-
-    let formatted = "";
-
-    story.beats.forEach((beat, index) => {
-      const marker =
-        index < markers.length ? markers[index] : markers[markers.length - 1];
-      const content = beat.lines.join("\n").trim();
-
-      formatted += `${marker}\n`;
-      if (content) {
-        formatted += `${content}\n`;
-      } else {
-        formatted += `[Story content]\n`;
-      }
-      formatted += `\n`;
-    });
-
-    return formatted.trim();
-  }
-
-  /**
-   * Validate that story has correct path markers
-   */
-  static validatePathMarkers(story: MicroStory): boolean {
-    if (!story.formattedText || !story.entryPath) {
-      return false;
-    }
-
-    const markers = STARTER_PACK_MARKERS[story.entryPath];
-    const upperText = story.formattedText.toUpperCase();
-
-    // Check all markers are present
-    const allMarkersPresent = markers.every((marker) =>
-      upperText.includes(marker),
+    console.log(`[XO Engine] Refining story: ${refinement}`);
+    
+    // Create new contract based on refinement type
+    const newContract = this.createRefinementContract(story.contract, refinement);
+    
+    // Convert beats to text for refinement
+    const storyText = XORenderer.extractStoryText(story.beats);
+    
+    // Generate refined version
+    const refinedStory = await this.generate(
+      `Refine this story to be ${refinement}:\n\n${storyText}`,
+      story.contract.marketCode,
+      story.contract.brandName,
+      options,
+      { entryPath: story.contract.entryPath }
     );
+    
+    // Preserve original contract metadata
+    refinedStory.contract = {
+      ...newContract,
+      context: story.contract.context, // Keep original context
+    };
+    
+    return refinedStory;
+  }
 
-    // Check markers are in correct order
-    let lastIndex = -1;
-    let markersInOrder = true;
-
-    for (const marker of markers) {
-      const currentIndex = upperText.indexOf(marker);
-      if (currentIndex === -1 || currentIndex <= lastIndex) {
-        markersInOrder = false;
+  /**
+   * Create contract for refinement
+   */
+  private static createRefinementContract(
+    originalContract: XOContract,
+    refinement: string
+  ): XOContract {
+    const builder = new XOContractBuilder(originalContract);
+    
+    switch (refinement) {
+      case 'expand':
+        builder.withMaxBeats(Math.min(originalContract.maxBeats + 1, 5));
         break;
-      }
-      lastIndex = currentIndex;
+      case 'brandify':
+        if (originalContract.brandName) {
+          builder.withBrand(originalContract.brandName, 'EXPLICIT');
+        }
+        break;
+      case 'deblandify':
+        builder.withoutBrand();
+        break;
+      // gentler/harsher don't change contract structure
     }
-
-    return allMarkersPresent && markersInOrder;
+    
+    return builder.build();
   }
 
   /**
-   * Check if brand is included in the story
+   * Convert micro-story to full story
    */
-  private static checkBrandInclusion(
+  static async convertToFullStory(
     story: MicroStory,
-    brand: string,
-  ): boolean {
-    if (!brand || !story.formattedText) return true; // No brand requirement
-
-    const lowerText = story.formattedText.toLowerCase();
-    const lowerBrand = brand.toLowerCase();
-
-    // Check for brand name or related keywords
-    const brandKeywords = this.getBrandKeywords(brand);
-
-    return brandKeywords.some((keyword) =>
-      lowerText.includes(keyword.toLowerCase()),
+    meaningContract?: any
+  ): Promise<MicroStory> {
+    console.log('[XO Engine] Converting to full story');
+    
+    // Create full story contract
+    const builder = new XOContractBuilder(story.contract)
+      .withFormatMode('FULLSTORY')
+      .withMaxBeats(5);
+    
+    const fullContract = builder.build();
+    
+    // Convert story text
+    const storyText = XORenderer.extractStoryText(story.beats);
+    
+    // Generate full story
+    const fullStory = await this.generate(
+      `Convert this to a 5-beat full story:\n\n${storyText}`,
+      fullContract.marketCode,
+      fullContract.brandName,
+      { temperature: 0.7, maxTokens: 500 },
+      { entryPath: 'full', ...meaningContract }
     );
-  }
-
-  /**
-   * Get relevant keywords for a brand
-   */
-  private static getBrandKeywords(brand: string): string[] {
-    const lowerBrand = brand.toLowerCase();
-    const keywords = [brand];
-
-    // Add related keywords based on brand type
-    if (lowerBrand.includes("washing") || lowerBrand.includes("laundry")) {
-      keywords.push(
-        "machine",
-        "wash",
-        "clean",
-        "fabric",
-        "clothes",
-        "load",
-        "cycle",
-      );
-    }
-    if (lowerBrand.includes("detergent") || lowerBrand.includes("clean")) {
-      keywords.push("clean", "fresh", "stain", "suds", "rinse");
-    }
-    if (lowerBrand.includes("car") || lowerBrand.includes("auto")) {
-      keywords.push("drive", "road", "engine", "wheel", "journey");
-    }
-    if (lowerBrand.includes("bank") || lowerBrand.includes("financial")) {
-      keywords.push("money", "secure", "account", "save", "transaction");
-    }
-
-    // Remove duplicates using a Set but convert back to array properly
-    const uniqueKeywords: string[] = [];
-    const seen = new Set<string>();
-
-    keywords.forEach((keyword) => {
-      if (!seen.has(keyword.toLowerCase())) {
-        seen.add(keyword.toLowerCase());
-        uniqueKeywords.push(keyword);
-      }
-    });
-
-    return uniqueKeywords;
-  }
-
-  /**
-   * Extract just the story text without markers (for display)
-   */
-  static extractStoryText(formattedText: string): string {
-    // Remove all marker lines and extra whitespace
-    const allMarkers = Object.values(STARTER_PACK_MARKERS).flat();
-    let text = formattedText;
-
-    allMarkers.forEach((marker) => {
-      const regex = new RegExp(`^${marker}\\s*$\\n?`, "gmi");
-      text = text.replace(regex, "");
-    });
-
-    // Clean up extra blank lines
-    return text.replace(/\n\s*\n\s*\n/g, "\n\n").trim();
+    
+    return fullStory;
   }
 }
 
 // ============================================================================
-// COMPATIBILITY FUNCTION FOR EXISTING CODE
+// LEGACY COMPATIBILITY
 // ============================================================================
 
 /**
- * Legacy compatibility function - used by existing /api/xo/generate
+ * Legacy function for compatibility
  */
 export async function generateXOStory(
   input: string,
-  market: string = "GLOBAL",
+  market: string = 'GLOBAL',
   brand?: string,
-  meaningContract?: any,
+  meaningContract?: any
 ): Promise<{
   story: string;
   beatSheet: any[];
   metadata: any;
 }> {
-  const entryPath = meaningContract?.entryPath || "scene";
-
-  const microStory = await XONarrativeEngine.generate(input, market, brand, {
-    temperature: 0.7,
-    maxTokens: 500,
-    validateOutput: true,
-    tone: meaningContract?.interpretedMeaning?.emotionalState,
-    entryPath: entryPath as any,
-  });
-
-  // Ensure formatted text exists
-  if (!microStory.formattedText) {
-    microStory.formattedText =
-      XONarrativeEngine.formatFullStoryWithMarkers(microStory);
-  }
-
-  // Convert to beat sheet format
-  const beatSheet = microStory.beats.map((beat, index) => ({
+  const story = await XONarrativeEngine.generate(
+    input,
+    market,
+    brand,
+    {},
+    meaningContract
+  );
+  
+  // Render to formatted text
+  const formattedText = XORenderer.renderMicroStory(story);
+  
+  // Create beat sheet
+  const beatSheet = story.beats.map((beat, index) => ({
     beat: `Beat ${index + 1}`,
-    description: beat.lines.join(" "),
+    description: beat.lines.join(' '),
     lines: beat.lines,
     marker: beat.marker,
     emotion: beat.emotion,
     tension: beat.tension,
   }));
-
+  
   return {
-    story: microStory.formattedText,
+    story: formattedText,
     beatSheet,
     metadata: {
-      title: `Story: ${meaningContract?.interpretedMeaning?.coreTheme || "Human Experience"}`,
-      market: microStory.market,
-      entryPath: microStory.entryPath?.toUpperCase(),
-      brand: microStory.brand,
-      timestamp: microStory.timestamp,
-      beatCount: microStory.beats.length,
-      wordCount: microStory.formattedText.split(/\s+/).length,
-      hasValidMarkers: XONarrativeEngine.validatePathMarkers(microStory),
+      title: `Story: ${story.contract.context.seedMoment.substring(0, 50)}...`,
+      market: story.contract.marketCode,
+      entryPath: story.contract.entryPath,
+      brand: story.contract.brandName,
+      timestamp: story.timestamp,
+      beatCount: story.beats.length,
+      wordCount: formattedText.split(/\s+/).length,
+      contract: story.contract,
     },
   };
 }
+
+export default XONarrativeEngine;
