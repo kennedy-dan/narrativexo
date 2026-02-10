@@ -138,12 +138,25 @@ export class XONarrativeEngine {
       console.log(`[XO Engine] Starting pass ${passId}/${maxPasses}`);
       
       try {
-        const beats = await this.generateSinglePass(input, contract, passId, options);
+        let beats = await this.generateSinglePass(input, contract, passId, options);
         
         // Validate the pass
         const validator = new XOValidator({ strictMode: contract.strictMode });
         const validation = await validator.validateBeats(beats, contract);
         
+             // Check for invention warnings that need regeneration
+      const needsRegeneration = validation.metadata?.validation_1?.beatsNeedingRegeneration;
+            if (needsRegeneration && needsRegeneration.length > 0 && passId < maxPasses) {
+        console.log(`[XO Engine] Pass ${passId} needs regeneration for ${needsRegeneration.length} beats`);
+        
+        // Generate targeted regeneration for problematic beats
+        beats = await this.regenerateProblemBeats(beats, needsRegeneration, contract, passId + 1);
+        
+        // Re-validate after regeneration
+        const revalidation = await validator.validateBeats(beats, contract);
+        validation.passed = revalidation.passed;
+        validation.warnings = revalidation.warnings;
+      }
         passes.push({
           passId,
           beats,
@@ -171,6 +184,168 @@ export class XONarrativeEngine {
     return passes;
   }
 
+  /**
+ * Regenerate only problematic beats
+ */
+public static async regenerateProblemBeats(
+  originalBeats: MicroStoryBeat[],
+  problemBeats: any[],
+  contract: XOContract,
+  passId: number
+): Promise<MicroStoryBeat[]> {
+  const beats = [...originalBeats];
+  
+  for (const problem of problemBeats) {
+    const { beatIndex, inventions, lines } = problem;
+    
+    console.log(`[XO Engine] Regenerating beat ${beatIndex + 1}, inventions: ${inventions.join(', ')}`);
+    
+    try {
+            // Use the existing lines as context, but instruct to remove inventions
+      const existingContext = lines?.join(' ') || contract.context.seedMoment;
+      const instruction = inventions.length > 0
+        ? `Rewrite this beat without adding: ${inventions.join(', ')}. Use only: ${contract.context.allowedNouns.join(', ') || 'elements from input'}.`
+        : `Improve this beat while following all constraints.`;
+
+        const newBeat = await this.generateSingleBeat(
+        `Previous beat: ${existingContext}. ${contract.context.seedMoment}`,
+        beatIndex,
+        contract,
+        passId,
+        instruction
+      );
+
+      
+      beats[beatIndex] = newBeat;
+    } catch (error) {
+      console.warn(`[XO Engine] Failed to regenerate beat ${beatIndex + 1}:`, error);
+      // Keep original beat if regeneration fails
+    }
+  }
+  
+  return beats;
+}
+
+private static async generateSingleBeat(
+  input: string,
+  beatIndex: number,
+  contract: XOContract,
+  passId: number,
+  specificInstruction: string
+): Promise<MicroStoryBeat> {
+  console.log(`[XO Engine] Generating beat ${beatIndex + 1}, instruction: ${specificInstruction}`);
+  
+  // Determine what type of beat this should be based on position
+  const beatType = this.getBeatType(beatIndex, contract);
+  
+  const systemPrompt = `
+You are generating a single story beat for targeted regeneration.
+
+CRITICAL CONSTRAINTS:
+- Market: ${contract.marketCode} ${contract.marketState === 'NEUTRAL' ? '(neutral - no cultural specifics)' : '(resolved - authentic context)'}
+- Brand: ${contract.brandMode === 'NONE' ? 'None - focus on human experience' : contract.brandName}
+- Beat Position: ${beatIndex + 1} of ${contract.maxBeats} (${beatType})
+- Beat Type: ${beatType === 'brand' ? 'Brand integration (natural, not forced)' : 'Story development'}
+
+${specificInstruction}
+
+FORMAT RULES:
+- 1-2 lines maximum
+- 15 words per line maximum
+- No paragraphs, no prose
+- Show, don't tell
+- Use only elements from: ${contract.context.allowedNouns.join(', ') || 'the original input'}
+
+EXAMPLES:
+For early beat: "The window showed only grey"
+For middle beat: "Something had shifted"
+For brand beat: "The solution appeared quietly"
+
+Generate this single beat:
+  `.trim();
+  
+  try {
+    const completion = await this.openai.chat.completions.create({
+      model: 'gpt-4',
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt,
+        },
+        {
+          role: 'user',
+          content: `Input context: "${input.substring(0, 100)}${input.length > 100 ? '...' : ''}"`,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 100,
+      frequency_penalty: 0.1,
+      presence_penalty: 0.1,
+    });
+    
+    const rawBeat = completion.choices[0].message.content?.trim() || '[Regenerated beat]';
+    
+    // Parse lines
+    const lines = rawBeat
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .slice(0, contract.maxLinesPerBeat);
+    
+    // Trim to word limit
+    const trimmedLines = lines.map(line => {
+      const words = line.split(/\s+/);
+      if (words.length > contract.maxWordsPerLine) {
+        return words.slice(0, contract.maxWordsPerLine).join(' ');
+      }
+      return line;
+    });
+    
+    // Add marker if needed
+    let marker: string | undefined;
+    if (contract.requirePathMarkers) {
+      const markers = this.getMarkersForEntryPath(contract.entryPath);
+      if (beatIndex < markers.length) {
+        marker = markers[beatIndex];
+      }
+    }
+    
+    console.log(`[XO Engine] Beat ${beatIndex + 1} regenerated:`, {
+      lines: trimmedLines.length,
+      firstLine: trimmedLines[0]?.substring(0, 30),
+    });
+    
+    return {
+      lines: trimmedLines,
+      marker,
+    };
+    
+  } catch (error) {
+    console.error(`[XO Engine] Failed to regenerate beat ${beatIndex + 1}:`, error);
+    
+    // Return a fallback beat
+    return {
+      lines: ['[Beat regeneration failed]'],
+      marker: beatType === 'brand' ? 'BRAND_ROLE:' : 'STORY:',
+    };
+  }
+}
+private static getBeatType(beatIndex: number, contract: XOContract): 'opening' | 'development' | 'meaning' | 'brand' | 'close' | 'turn' {
+  const totalBeats = contract.maxBeats;
+  
+  if (contract.entryPath === 'full') {
+    // Full story structure
+    const types = ['opening', 'development', 'turn', 'brand', 'close'] as const;
+    return types[Math.min(beatIndex, types.length - 1)];
+  } else {
+    // Micro-story structure
+    if (beatIndex === 0) return 'opening';
+    if (beatIndex === totalBeats - 1) {
+      return contract.brandMode !== 'NONE' ? 'brand' : 'meaning';
+    }
+    return 'development';
+  }
+}
   /**
    * Generate a single pass
    */

@@ -6,6 +6,7 @@
 // ============================================================================
 // CORE TYPES
 // ============================================================================
+import { ContractGovernance, FrozenXOContract } from './xo-contract-freeze';
 
 export type MarketCode = 'NG' | 'GH' | 'KE' | 'ZA' | 'UK' | 'GLOBAL';
 export type EntryPath = 'emotion' | 'scene' | 'audience' | 'seed' | 'full';
@@ -191,11 +192,16 @@ export class XOContractBuilder {
   }
   
   // Build
-  build(): XOContract {
-    // Validate contract
-    this.validateContract();
-    return { ...this.contract };
-  }
+  build(): FrozenXOContract {
+  // Validate contract
+  this.validateContract();
+  
+  // Apply governance
+  const contract = { ...this.contract };
+  return ContractGovernance.createImmutableContract(contract);
+}
+
+
   
   private validateContract(): void {
     // Validate market confidence

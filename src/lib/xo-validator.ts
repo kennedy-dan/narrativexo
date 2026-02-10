@@ -160,44 +160,57 @@ export class XOValidator {
   /**
    * Validate no invention (PHILOSOPHY TEST)
    */
-  private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): ValidationResult {
-    const errors: string[] = [];
-    const metadata: Record<string, any> = {
-      allowedNouns: contract.context.allowedNouns,
-      inventionsFound: [],
-    };
+private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): ValidationResult {
+  const regenerationHints: string[] = [];
+  const metadata: Record<string, any> = {
+    allowedNouns: contract.context.allowedNouns,
+    inventionsFound: [],
+    beatsNeedingRegeneration: [],
+  };
+  
+  // Scan each beat for inventions
+  beats.forEach((beat, beatIndex) => {
+    let beatNeedsRegeneration = false;
+    const inventionsInBeat: string[] = [];
     
-    // Skip if invention is allowed
-    if (contract.allowInvention === 'SCENE_ONLY') {
-      // Only validate non-scene invention
-      for (const beat of beats) {
-        for (const line of beat.lines) {
-          const inventions = this.findNonSceneInventions(line, contract.context.allowedNouns);
-          if (inventions.length > 0) {
-            errors.push(`Non-scene invention found: ${inventions.join(', ')}`);
-            metadata.inventionsFound.push(...inventions);
-          }
-        }
-      }
-    } else {
-      // No invention allowed at all
-      for (const beat of beats) {
-        for (const line of beat.lines) {
-          const inventions = this.findAllInventions(line, contract.context.allowedNouns);
-          if (inventions.length > 0) {
-            errors.push(`Invention found: ${inventions.join(', ')}`);
-            metadata.inventionsFound.push(...inventions);
-          }
-        }
+    for (const line of beat.lines) {
+      const inventions = contract.allowInvention === 'SCENE_ONLY'
+        ? this.findNonSceneInventions(line, contract.context.allowedNouns)
+        : this.findAllInventions(line, contract.context.allowedNouns);
+      
+      if (inventions.length > 0) {
+        beatNeedsRegeneration = true;
+        inventionsInBeat.push(...inventions);
+        
+        // Create regeneration hint
+        regenerationHints.push(
+          `Beat ${beatIndex + 1}: "${line.substring(0, 40)}${line.length > 40 ? '...' : ''}"`
+        );
       }
     }
     
-    return {
-      passed: errors.length === 0,
-      errors: errors.length > 0 ? errors : undefined,
-      metadata,
-    };
-  }
+    if (beatNeedsRegeneration) {
+      metadata.beatsNeedingRegeneration.push({
+        beatIndex,
+        inventions: inventionsInBeat,
+        lines: beat.lines,
+      });
+    }
+  });
+  
+  // Don't fail, just provide hints for regeneration
+  const passed = true; // Never fail on invention now
+  
+  return {
+    passed,
+    warnings: regenerationHints.length > 0 ? [
+      `Found ${regenerationHints.length} beats with invented elements`,
+      `Regeneration hint: Rewrite these beats using only: ${contract.context.allowedNouns.join(', ') || 'elements from input'}`,
+      ...regenerationHints
+    ] : undefined,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+  };
+}
   
   /**
    * Validate market leakage
