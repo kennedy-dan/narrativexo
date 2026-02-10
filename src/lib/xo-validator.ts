@@ -1,6 +1,6 @@
 /**
- * XO VALIDATOR v2.0
- * Philosophy-first validation with contract enforcement
+ * XO VALIDATOR v2.1
+ * Philosophy-first validation with Allowed Noun Scope enforcement
  */
 
 import { XOContract } from './xo-contract';
@@ -24,6 +24,16 @@ export interface ValidationOptions {
   validateMarketLeakage?: boolean;
   validateBrandPlacement?: boolean;
   validateStructure?: boolean;
+  validateAllowedNouns?: boolean;
+}
+
+export interface InventionDetection {
+  inventedNouns: string[];
+  beatsNeedingRegeneration: Array<{
+    beatIndex: number;
+    inventions: string[];
+    lines: string[];
+  }>;
 }
 
 // ============================================================================
@@ -41,6 +51,7 @@ export class XOValidator {
       validateMarketLeakage: true,
       validateBrandPlacement: true,
       validateStructure: true,
+      validateAllowedNouns: true,
       ...options,
     };
   }
@@ -57,32 +68,36 @@ export class XOValidator {
       results.push(this.validateBeatsStructure(beats, contract));
     }
     
-    // 2. Validate no invention (if enabled)
+    // 2. Validate allowed nouns scope (NEW - Critical)
+    if (this.options.validateAllowedNouns) {
+      results.push(this.validateAllowedNounsScope(beats, contract));
+    }
+    
+    // 3. Validate no invention
     if (this.options.validateInvention && contract.failOnInvention) {
       results.push(this.validateNoInvention(beats, contract));
     }
     
-    // 3. Validate market leakage (if enabled)
+    // 4. Validate market leakage with NEUTRAL lock
     if (this.options.validateMarketLeakage && contract.failOnMarketLeakage) {
       results.push(this.validateMarketLeakage(beats, contract));
     }
     
-    // 4. Validate brand placement (if enabled)
+    // 5. Validate brand placement
     if (this.options.validateBrandPlacement && contract.failOnBrandBeforeMeaning) {
       results.push(this.validateBrandPlacement(beats, contract));
     }
     
-    // 5. Validate brand is removable
+    // 6. Validate brand is removable
     if (contract.brandMode !== 'NONE') {
       results.push(this.validateBrandIsRemovable(beats, contract));
     }
     
-    // 6. Validate market restraint
+    // 7. Validate market restraint
     if (contract.marketState === 'NEUTRAL') {
       results.push(this.validateMarketRestraint(beats, contract));
     }
     
-    // Combine results
     return this.combineResults(results);
   }
   
@@ -92,12 +107,10 @@ export class XOValidator {
   async validateBeats(beats: MicroStoryBeat[], contract: XOContract): Promise<ValidationResult> {
     const results: ValidationResult[] = [];
     
-    // Basic structure validation
     results.push(this.validateBeatsStructure(beats, contract));
     
-    // Quick invention check
     if (contract.failOnInvention) {
-      results.push(this.validateNoInvention(beats, contract));
+      results.push(this.validateAllowedNounsScope(beats, contract));
     }
     
     return this.combineResults(results);
@@ -116,36 +129,35 @@ export class XOValidator {
     const metadata: Record<string, any> = {
       beatCount: beats.length,
       maxAllowed: contract.maxBeats,
+      beatsWithIssues: [],
     };
     
-    // Check beat count
     if (beats.length > contract.maxBeats) {
       errors.push(`Too many beats: ${beats.length} > ${contract.maxBeats}`);
     } else if (beats.length < Math.min(2, contract.maxBeats)) {
       warnings.push(`Few beats: ${beats.length} (minimum 2 recommended)`);
     }
     
-    // Check each beat
     beats.forEach((beat, index) => {
-      // Check lines per beat
       if (beat.lines.length > contract.maxLinesPerBeat) {
         errors.push(`Beat ${index + 1} has too many lines: ${beat.lines.length} > ${contract.maxLinesPerBeat}`);
+        metadata.beatsWithIssues.push(index);
       }
       
-      // Check words per line
       beat.lines.forEach((line, lineIndex) => {
         const wordCount = line.trim().split(/\s+/).length;
         if (wordCount > contract.maxWordsPerLine) {
           errors.push(`Beat ${index + 1}, line ${lineIndex + 1} too long: ${wordCount} > ${contract.maxWordsPerLine} words`);
+          metadata.beatsWithIssues.push(index);
         }
         if (wordCount < 2) {
           warnings.push(`Beat ${index + 1}, line ${lineIndex + 1} very short: ${wordCount} words`);
         }
       });
       
-      // Check for empty beats
       if (beat.lines.length === 0) {
         errors.push(`Beat ${index + 1} has no lines`);
+        metadata.beatsWithIssues.push(index);
       }
     });
     
@@ -153,76 +165,145 @@ export class XOValidator {
       passed: errors.length === 0,
       errors: errors.length > 0 ? errors : undefined,
       warnings: warnings.length > 0 ? warnings : undefined,
-      metadata,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     };
   }
   
   /**
-   * Validate no invention (PHILOSOPHY TEST)
+   * Validate all nouns are within allowed scope (CRITICAL FIX)
    */
-private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): ValidationResult {
-  const regenerationHints: string[] = [];
-  const metadata: Record<string, any> = {
-    allowedNouns: contract.context.allowedNouns,
-    inventionsFound: [],
-    beatsNeedingRegeneration: [],
-  };
-  
-  // Scan each beat for inventions
-  beats.forEach((beat, beatIndex) => {
-    let beatNeedsRegeneration = false;
-    const inventionsInBeat: string[] = [];
+  private validateAllowedNounsScope(beats: MicroStoryBeat[], contract: XOContract): ValidationResult {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const metadata: Record<string, any> = {
+      allowedNounsCount: contract.context.allowedNouns.length,
+      inventedNouns: [],
+      beatsNeedingRegeneration: [],
+    };
     
-    for (const line of beat.lines) {
-      const inventions = contract.allowInvention === 'SCENE_ONLY'
-        ? this.findNonSceneInventions(line, contract.context.allowedNouns)
-        : this.findAllInventions(line, contract.context.allowedNouns);
+    if (contract.allowInvention === 'SCENE_ONLY' && contract.entryPath === 'scene') {
+      return {
+        passed: true,
+        metadata: {
+          bypassed: true,
+          reason: 'SCENE_ONLY invention allowed for scene entry path',
+        },
+      };
+    }
+    
+    const allGeneratedNouns = this.extractNounsFromBeats(beats);
+    const allowedNouns = contract.context.allowedNouns.map(n => n.toLowerCase());
+    
+    for (const generatedNoun of allGeneratedNouns) {
+      if (generatedNoun.length < 3) continue;
+      if (this.isCommonWord(generatedNoun)) continue;
       
-      if (inventions.length > 0) {
-        beatNeedsRegeneration = true;
-        inventionsInBeat.push(...inventions);
+      const isAllowed = allowedNouns.some(allowedNoun => 
+        allowedNoun.includes(generatedNoun.toLowerCase()) ||
+        generatedNoun.toLowerCase().includes(allowedNoun)
+      );
+      
+      const isSceneNoun = this.isSceneDescriptionNoun(generatedNoun);
+      const sceneAllowed = contract.allowInvention === 'SCENE_ONLY' && 
+                          contract.entryPath === 'scene' && 
+                          isSceneNoun;
+      
+      if (!isAllowed && !sceneAllowed) {
+        metadata.inventedNouns.push(generatedNoun);
         
-        // Create regeneration hint
-        regenerationHints.push(
-          `Beat ${beatIndex + 1}: "${line.substring(0, 40)}${line.length > 40 ? '...' : ''}"`
-        );
+        beats.forEach((beat, beatIndex) => {
+          const beatText = beat.lines.join(' ').toLowerCase();
+          if (beatText.includes(generatedNoun.toLowerCase())) {
+            const existingBeat = metadata.beatsNeedingRegeneration.find(
+              (b: any) => b.beatIndex === beatIndex
+            );
+            
+            if (!existingBeat) {
+              metadata.beatsNeedingRegeneration.push({
+                beatIndex,
+                inventions: [generatedNoun],
+                lines: beat.lines,
+              });
+            } else {
+              existingBeat.inventions.push(generatedNoun);
+            }
+          }
+        });
       }
     }
     
-    if (beatNeedsRegeneration) {
-      metadata.beatsNeedingRegeneration.push({
-        beatIndex,
-        inventions: inventionsInBeat,
-        lines: beat.lines,
-      });
+    if (metadata.inventedNouns.length > 0) {
+      const nounList = metadata.inventedNouns.slice(0, 5).join(', ');
+      warnings.push(
+        `Found ${metadata.inventedNouns.length} invented nouns outside allowed scope`,
+        `Examples: ${nounList}${metadata.inventedNouns.length > 5 ? '...' : ''}`,
+        `Allowed nouns: ${allowedNouns.slice(0, 10).join(', ')}${allowedNouns.length > 10 ? '...' : ''}`
+      );
+      
+      if (contract.strictMode) {
+        errors.push(`Strict mode: ${metadata.inventedNouns.length} invented nouns found`);
+      }
     }
-  });
-  
-  // Don't fail, just provide hints for regeneration
-  const passed = true; // Never fail on invention now
-  
-  return {
-    passed,
-    warnings: regenerationHints.length > 0 ? [
-      `Found ${regenerationHints.length} beats with invented elements`,
-      `Regeneration hint: Rewrite these beats using only: ${contract.context.allowedNouns.join(', ') || 'elements from input'}`,
-      ...regenerationHints
-    ] : undefined,
-    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-  };
-}
+    
+    return {
+      passed: errors.length === 0,
+      errors: errors.length > 0 ? errors : undefined,
+      warnings: warnings.length > 0 ? warnings : undefined,
+      metadata: metadata.inventedNouns.length > 0 ? metadata : undefined,
+    };
+  }
   
   /**
-   * Validate market leakage
+   * Validate no invention (legacy method, softer now)
+   */
+  private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): ValidationResult {
+    const warnings: string[] = [];
+    const metadata: Record<string, any> = {
+      allowedNouns: contract.context.allowedNouns,
+      inventionsFound: [],
+    };
+    
+    beats.forEach((beat, beatIndex) => {
+      for (const line of beat.lines) {
+        const inventions = contract.allowInvention === 'SCENE_ONLY'
+          ? this.findNonSceneInventions(line, contract.context.allowedNouns)
+          : this.findAllInventions(line, contract.context.allowedNouns);
+        
+        if (inventions.length > 0) {
+          metadata.inventionsFound.push({
+            beatIndex,
+            inventions,
+            line: line.substring(0, 50),
+          });
+        }
+      }
+    });
+    
+    if (metadata.inventionsFound.length > 0) {
+      warnings.push(
+        `Found ${metadata.inventionsFound.length} beats with invented elements`,
+        `Use only: ${contract.context.allowedNouns.join(', ') || 'elements from input'}`
+      );
+    }
+    
+    return {
+      passed: true,
+      warnings: warnings.length > 0 ? warnings : undefined,
+      metadata: metadata.inventionsFound.length > 0 ? metadata : undefined,
+    };
+  }
+  
+  /**
+   * Validate market leakage with NEUTRAL lock
    */
   private validateMarketLeakage(beats: MicroStoryBeat[], contract: XOContract): ValidationResult {
     const errors: string[] = [];
     const metadata: Record<string, any> = {
       marketState: contract.marketState,
       leakageFound: [],
+      culturalTextureFound: [],
     };
     
-    // If market is resolved, allow cultural context
     if (contract.marketState === 'RESOLVED') {
       return {
         passed: true,
@@ -230,7 +311,27 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
       };
     }
     
-    // Market leakage tokens (from Starter Pack)
+    if (contract.marketState === 'NEUTRAL') {
+      for (const beat of beats) {
+        for (const line of beat.lines) {
+          const lowerLine = line.toLowerCase();
+          
+          if (this.containsCulturalTexture(lowerLine)) {
+            errors.push(`Cultural texture in NEUTRAL market: "${line.substring(0, 40)}..."`);
+            metadata.culturalTextureFound.push({
+              line: line.substring(0, 50),
+              textureType: this.detectTextureType(lowerLine),
+            });
+          }
+          
+          if (this.containsLocationSpecific(line)) {
+            errors.push(`Location specific in NEUTRAL market: "${line.substring(0, 40)}..."`);
+            metadata.leakageFound.push('location specific');
+          }
+        }
+      }
+    }
+    
     const LEAKAGE_TOKENS: Record<string, string[]> = {
       NG: ['lagos', 'abuja', 'naira', 'ijgb', 'omo', 'abeg', 'jollof', 'danfo', 'wahala'],
       GH: ['accra', 'kumasi', 'cedi', 'chale', 'kɔkɔɔ', 'trotro'],
@@ -239,12 +340,10 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
       UK: ['london', 'manchester', 'pound', 'quid', 'mates', 'cheers', 'lorry'],
     };
     
-    // Check each beat
     for (const beat of beats) {
       for (const line of beat.lines) {
         const lowerLine = line.toLowerCase();
         
-        // Check for leakage from other markets
         for (const [market, tokens] of Object.entries(LEAKAGE_TOKENS)) {
           if (market === contract.marketCode) continue;
           
@@ -255,34 +354,21 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
             }
           }
         }
-        
-        // Check for forced localization
-        if (contract.marketState === 'NEUTRAL') {
-          // Look for cultural props, slang, etc.
-          const culturalMarkers = [
-            /(local|traditional|native|ethnic|cultural)\s+\w+/i,
-            /\b(dis|dat|ting|bru|eya|sha)\b/i, // Common slang patterns
-          ];
-          
-          for (const pattern of culturalMarkers) {
-            if (pattern.test(line)) {
-              errors.push(`Forced localization in neutral market: "${line.substring(0, 30)}..."`);
-              metadata.leakageFound.push('forced localization');
-            }
-          }
-        }
       }
     }
     
     return {
       passed: errors.length === 0,
       errors: errors.length > 0 ? errors : undefined,
+      warnings: metadata.leakageFound.length > 0 ? [
+        `Found ${metadata.leakageFound.length} potential market leakage issues`
+      ] : undefined,
       metadata,
     };
   }
   
   /**
-   * Validate brand placement (PHILOSOPHY TEST)
+   * Validate brand placement
    */
   private validateBrandPlacement(beats: MicroStoryBeat[], contract: XOContract): ValidationResult {
     if (contract.brandMode === 'NONE') {
@@ -295,7 +381,6 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
       brandFoundInBeats: [],
     };
     
-    // Brand should only be in the last beat
     for (let i = 0; i < beats.length - 1; i++) {
       const beat = beats[i];
       const hasBrand = this.beatContainsBrand(beat, contract.brandName!);
@@ -306,7 +391,6 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
       }
     }
     
-    // Brand should be in the last beat (for EXPLICIT mode)
     if (contract.brandMode === 'EXPLICIT') {
       const lastBeat = beats[beats.length - 1];
       const hasBrand = this.beatContainsBrand(lastBeat, contract.brandName!);
@@ -326,13 +410,10 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
   }
   
   /**
-   * Validate brand is removable (PHILOSOPHY TEST)
+   * Validate brand is removable
    */
   private validateBrandIsRemovable(beats: MicroStoryBeat[], contract: XOContract): ValidationResult {
-    // Test: Remove last beat and see if story still works
     const storyWithoutBrand = beats.slice(0, -1);
-    
-    // Check if story has meaningful content without brand
     const hasMeaning = this.hasMeaningfulContent(storyWithoutBrand);
     
     return {
@@ -353,37 +434,31 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
     const metadata: Record<string, any> = {
       marketState: contract.marketState,
       confidence: contract.marketConfidence,
+      neutralViolations: [],
     };
     
-    // If confidence is low, market should be neutral
     if (contract.marketConfidence < 0.75 && contract.marketState !== 'NEUTRAL') {
       warnings.push(`Market confidence low (${contract.marketConfidence}) but state is ${contract.marketState}`);
     }
     
-    // Check for neutral violations
-    const neutralViolations: string[] = [];
-    
     for (const beat of beats) {
       for (const line of beat.lines) {
-        // Check for specific cultural references
         if (this.containsCulturalReference(line)) {
-          neutralViolations.push(`Cultural reference: "${line.substring(0, 30)}..."`);
+          metadata.neutralViolations.push(`Cultural reference: "${line.substring(0, 30)}..."`);
         }
         
-        // Check for location specifics
         if (this.containsLocationSpecific(line)) {
-          neutralViolations.push(`Location specific: "${line.substring(0, 30)}..."`);
+          metadata.neutralViolations.push(`Location specific: "${line.substring(0, 30)}..."`);
         }
       }
     }
     
-    if (neutralViolations.length > 0) {
-      warnings.push(`Neutral market violations: ${neutralViolations.length} found`);
-      metadata.neutralViolations = neutralViolations;
+    if (metadata.neutralViolations.length > 0) {
+      warnings.push(`Neutral market violations: ${metadata.neutralViolations.length} found`);
     }
     
     return {
-      passed: true, // Warnings only for this check
+      passed: true,
       warnings: warnings.length > 0 ? warnings : undefined,
       metadata,
     };
@@ -393,6 +468,83 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
   // HELPER METHODS
   // ==========================================================================
   
+/**
+ * Extract nouns from beats
+ */
+private extractNounsFromBeats(beats: MicroStoryBeat[]): string[] {
+  const nouns: string[] = [];
+  const excludedWords = ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'];
+  
+  beats.forEach(beat => {
+    beat.lines.forEach(line => {
+      const words = line.toLowerCase().split(/\W+/).filter(word => 
+        word.length > 2 && 
+        !excludedWords.includes(word) &&
+        !this.isCommonVerb(word)
+      );
+      
+      words.forEach(word => {
+        if (this.looksLikeNoun(word)) {
+          nouns.push(word);
+        }
+      });
+    });
+  });
+  
+  // Remove duplicates using Set and spread properly
+  const uniqueNouns = Array.from(new Set(nouns));
+  return uniqueNouns;
+}
+  
+  /**
+   * Check if word looks like a noun
+   */
+  private looksLikeNoun(word: string): boolean {
+    const nounEndings = ['tion', 'ment', 'ness', 'ity', 'ance', 'ence', 'er', 'or', 'ist'];
+    return nounEndings.some(ending => word.endsWith(ending)) || word.length >= 4;
+  }
+  
+  /**
+   * Check if word is a common verb
+   */
+  private isCommonVerb(word: string): boolean {
+    const commonVerbs = [
+      'is', 'was', 'are', 'were', 'be', 'been', 'being',
+      'have', 'has', 'had', 'do', 'does', 'did', 'done',
+      'make', 'makes', 'made', 'take', 'takes', 'took', 'taken',
+      'go', 'goes', 'went', 'gone', 'see', 'saw', 'seen',
+      'get', 'gets', 'got', 'gotten', 'know', 'knows', 'knew', 'known',
+    ];
+    return commonVerbs.includes(word);
+  }
+  
+  /**
+   * Check if word is common/abstract
+   */
+  private isCommonWord(word: string): boolean {
+    const commonWords = [
+      'thing', 'something', 'nothing', 'everything', 'anything',
+      'way', 'time', 'year', 'day', 'week', 'month', 'life', 'world',
+      'work', 'system', 'part', 'number', 'fact', 'point', 'area',
+      'level', 'case', 'end', 'place', 'state', 'hand', 'person',
+      'eye', 'woman', 'man', 'child', 'family', 'friend', 'people',
+    ];
+    return commonWords.includes(word);
+  }
+  
+  /**
+   * Check if noun is a scene description noun
+   */
+  private isSceneDescriptionNoun(noun: string): boolean {
+    const sceneNouns = [
+      'light', 'dark', 'shadow', 'shine', 'glow', 'bright',
+      'room', 'space', 'area', 'corner', 'wall', 'floor', 'ceiling',
+      'air', 'atmosphere', 'mood', 'feeling', 'sense',
+      'quiet', 'silence', 'sound', 'noise', 'echo',
+    ];
+    return sceneNouns.includes(noun.toLowerCase());
+  }
+  
   /**
    * Find all inventions in a line
    */
@@ -400,27 +552,14 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
     const inventions: string[] = [];
     const words = line.toLowerCase().split(/\W+/);
     
-    // Common invented elements to check for
-    const commonInventions = [
-      'weather', 'rain', 'sun', 'cloud', 'storm', // Weather
-      'time', 'morning', 'evening', 'night', 'today', // Time
-      'character', 'person', 'man', 'woman', 'they', // Characters
-      'place', 'location', 'city', 'town', // Locations
-    ];
-    
     for (const word of words) {
-      if (word.length < 3) continue;
+      if (word.length < 3 || this.isCommonWord(word)) continue;
       
-      // Check if word is an invention
       const isAllowed = allowedNouns.some(noun => 
         noun.toLowerCase().includes(word) || word.includes(noun.toLowerCase())
       );
       
-      const isCommonInvention = commonInventions.some(invention => 
-        invention.includes(word) || word.includes(invention)
-      );
-      
-      if (!isAllowed && isCommonInvention) {
+      if (!isAllowed) {
         inventions.push(word);
       }
     }
@@ -434,18 +573,15 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
   private findNonSceneInventions(line: string, allowedNouns: string[]): string[] {
     const inventions: string[] = [];
     const words = line.toLowerCase().split(/\W+/);
-    
-    // Non-scene inventions (not allowed even in SCENE_ONLY mode)
     const nonSceneInventions = [
-      'weather', 'rain', 'sun', 'cloud', 'storm', // Weather
-      'time', 'morning', 'evening', 'night', // Time
-      'character', 'person', 'man', 'woman', // Characters (unless in input)
+      'weather', 'rain', 'sun', 'cloud', 'storm',
+      'time', 'morning', 'evening', 'night',
+      'character', 'person', 'man', 'woman',
     ];
     
     for (const word of words) {
       if (word.length < 3) continue;
       
-      // Check if word is a non-scene invention
       const isNonScene = nonSceneInventions.some(invention => 
         invention.includes(word) || word.includes(invention)
       );
@@ -473,7 +609,6 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
         return true;
       }
       
-      // Check for brand keywords
       const brandKeywords = this.getBrandKeywords(brandName);
       for (const keyword of brandKeywords) {
         if (line.toLowerCase().includes(keyword.toLowerCase())) {
@@ -492,7 +627,6 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
     const lowerBrand = brandName.toLowerCase();
     const keywords = [brandName];
     
-    // Add related keywords based on brand type
     if (lowerBrand.includes('washing') || lowerBrand.includes('laundry')) {
       keywords.push('machine', 'wash', 'clean', 'fabric', 'clothes', 'load', 'cycle');
     }
@@ -506,7 +640,7 @@ private validateNoInvention(beats: MicroStoryBeat[], contract: XOContract): Vali
       keywords.push('money', 'secure', 'account', 'save', 'transaction');
     }
     
-return Array.from(new Set(keywords));
+    return Array.from(new Set(keywords));
   }
   
   /**
@@ -522,7 +656,6 @@ return Array.from(new Set(keywords));
       }
     }
     
-    // At least 10 words total for meaningful content
     return totalWords >= 10;
   }
   
@@ -534,7 +667,6 @@ return Array.from(new Set(keywords));
       'cultural', 'traditional', 'local', 'native', 'ethnic',
       'heritage', 'custom', 'ritual', 'ceremony',
     ];
-    
     const lowerLine = line.toLowerCase();
     return culturalTerms.some(term => lowerLine.includes(term));
   }
@@ -548,9 +680,39 @@ return Array.from(new Set(keywords));
       'street', 'road', 'avenue', 'boulevard',
       'mountain', 'river', 'lake', 'ocean',
     ];
-    
     const lowerLine = line.toLowerCase();
     return locationTerms.some(term => lowerLine.includes(term));
+  }
+  
+  /**
+   * Check for cultural texture
+   */
+  private containsCulturalTexture(line: string): boolean {
+    const texturePatterns = [
+      /\b(community|tradition|custom|ritual|heritage)\b/i,
+      /\b(extended\s+family|elders|ancestors)\b/i,
+      /\b(celebrat|festiv|ceremon|gathering)\b/i,
+      /\b(marketplace|street\s+vendor|informal\s+economy)\b/i,
+      /\b(savings|loan|informal\s+banking)\b/i,
+      /\b(communal|shared|collective)\b/i,
+      /\b(home\s+cooked|local\s+cuisine|street\s+food)\b/i,
+      /\b(public\s+transport|shared\s+ride)\b/i,
+      /\b(proverb|saying|expression)\b/i,
+      /\b(mother\s+tongue|local\s+language)\b/i,
+    ];
+    return texturePatterns.some(pattern => pattern.test(line));
+  }
+  
+  /**
+   * Detect type of cultural texture
+   */
+  private detectTextureType(line: string): string {
+    if (/\b(community|tradition|custom|ritual)\b/i.test(line)) return 'social';
+    if (/\b(marketplace|vendor|economy)\b/i.test(line)) return 'economic';
+    if (/\b(communal|shared|collective)\b/i.test(line)) return 'lifestyle';
+    if (/\b(food|cuisine|cooked)\b/i.test(line)) return 'culinary';
+    if (/\b(proverb|saying|expression)\b/i.test(line)) return 'linguistic';
+    return 'general';
   }
   
   /**
@@ -577,20 +739,16 @@ return Array.from(new Set(keywords));
       }
     }
     
-    // Determine if passed
     let passed = true;
     
-    // Fail on any error in strict mode
     if (this.options.strictMode && allErrors.length > 0) {
       passed = false;
     }
     
-    // Fail on warnings if configured
     if (this.options.failOnWarning && allWarnings.length > 0) {
       passed = false;
     }
     
-    // If not strict, only fail on critical errors
     if (!this.options.strictMode) {
       const criticalErrors = allErrors.filter(e => 
         e.includes('Market leakage') || 
@@ -617,7 +775,6 @@ return Array.from(new Set(keywords));
   shouldShip(validationResult: ValidationResult): boolean {
     if (!validationResult.passed) return false;
     
-    // Check for philosophy test failures
     if (validationResult.errors?.some(e => 
       e.includes('lacks meaning without brand') ||
       e.includes('Brand found in beat') ||
@@ -626,12 +783,10 @@ return Array.from(new Set(keywords));
       return false;
     }
     
-    // Check for market leakage in neutral mode
     if (validationResult.errors?.some(e => e.includes('Market leakage'))) {
       return false;
     }
     
-    // All checks passed
     return true;
   }
 }

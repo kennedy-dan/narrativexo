@@ -4,13 +4,11 @@ import { XORenderer, convertLegacyStory } from '@/lib/xo-renderer';
 import { XOValidator } from '@/lib/xo-validator';
 import { XOContractBuilder } from '@/lib/xo-contract';
 
-// Helper method to extract brand from input
 function extractBrandFromInput(input: string): string | undefined {
   if (!input) return undefined;
 
   const lowerInput = input.toLowerCase();
 
-  // Look for specific brand/product mentions
   if (
     lowerInput.includes('washing machine') ||
     lowerInput.includes('laundry')
@@ -30,7 +28,6 @@ function extractBrandFromInput(input: string): string | undefined {
     return 'financial brand';
   }
 
-  // Extract from phrases like "a [brand] could tell" or "stories for [brand]"
   const brandPatterns = [
     /(?:stories|story) for (?:an? )?([\w\s]+?) (?:brand|company)/i,
     /(?:create|write) (?:stories|story) for ([\w\s]+)/i,
@@ -51,7 +48,6 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -91,35 +87,30 @@ export default async function handler(
       hasCurrentStory: !!currentStory,
       refinement,
       purpose: purpose?.substring(0, 50),
-      hasBrandRequest:
-        !!brand || userInput?.includes('brand') || userInput?.includes('Brand'),
+      hasBrandRequest: !!brand || userInput?.includes('brand'),
     });
 
     // ============================================================================
     // STEP 1: CREATE CONTRACT
     // ============================================================================
 
-    // Extract brand from input if not provided explicitly
     const extractedBrand = extractBrandFromInput(userInput);
     const effectiveBrand = skipBrand ? undefined : brand || extractedBrand;
 
-    // Use meaning contract values when available
     const effectiveMarket = meaningContract?.marketContext?.market || market;
     const entryPath = meaningContract?.entryPath || 'scene';
     
-    // Build contract
     const contractBuilder = new XOContractBuilder()
       .withUserInput(userInput || currentStory || '')
       .withMarket(effectiveMarket as any, meaningContract?.marketContext?.confidence || 0.5)
       .withEntryPath(entryPath.toLowerCase() as any)
       .withStrictMode(clientValidationContext.strictMode || false);
 
-    // Handle brand
+    // Only add brand if explicitly requested or provided
     if (effectiveBrand) {
       contractBuilder.withBrand(effectiveBrand, 'EXPLICIT');
     }
 
-    // Handle different request types
     switch (requestType) {
       case 'micro-story':
         contractBuilder.withFormatMode('MICROSTORY');
@@ -129,7 +120,6 @@ export default async function handler(
         contractBuilder.withFormatMode('FULLSTORY');
         break;
       case 'purpose-adaptation':
-        // Keep existing format
         contractBuilder.withFormatMode(
           currentStory?.includes('HOOK:') ? 'FULLSTORY' : 'MICROSTORY'
         );
@@ -160,13 +150,11 @@ export default async function handler(
 
         console.log(`[XO Generate] Refining story: ${refinement}`);
 
-        // Convert legacy story to new format if needed
         let existingStory;
         try {
           const parsed = JSON.parse(currentStory);
           existingStory = convertLegacyStory(parsed, contract);
         } catch {
-          // If parsing fails, create new story from text
           existingStory = convertLegacyStory({ formattedText: currentStory }, contract);
         }
 
@@ -181,7 +169,6 @@ export default async function handler(
 
         console.log(`[XO Generate] Adapting for purpose: ${purpose.substring(0, 50)}`);
 
-        // Create input for adaptation
         const inputText = `Adapt this story for: ${purpose}\n\n${currentStory}`;
         story = await XONarrativeEngine.generate(
           inputText,
@@ -200,7 +187,6 @@ export default async function handler(
           throw new Error('Story conversion requires currentStory and targetStructure');
         }
 
-        // Convert existing story
         let existingStory;
         try {
           const parsed = JSON.parse(currentStory);
@@ -215,7 +201,6 @@ export default async function handler(
 
       case 'micro-story':
       default: {
-        // Standard story generation
         console.log('[XO Generate] Generating micro-story');
 
         story = await XONarrativeEngine.generate(
@@ -230,16 +215,41 @@ export default async function handler(
     }
 
     // ============================================================================
-    // STEP 3: VALIDATE STORY
+    // STEP 3: VALIDATE STORY WITH ALL FIXES
     // ============================================================================
 
     const validator = new XOValidator({
       strictMode: contract.strictMode,
       failOnWarning: contract.strictMode,
+      validateAllowedNouns: true,
+      validateMarketLeakage: true,
+      validateBrandPlacement: true,
     });
 
-    const validation = await validator.validateStory(story);
-    const shouldShip = validator.shouldShip(validation);
+    let validation = await validator.validateStory(story);
+    let shouldShip = validator.shouldShip(validation);
+
+    // Regenerate beats with invented nouns if found
+    if (validation.metadata?.validation_1?.beatsNeedingRegeneration?.length > 0) {
+      console.log('[XO Generate] Regenerating beats with invented nouns');
+      
+      try {
+        const regeneratedBeats = await XONarrativeEngine.regenerateProblemBeats(
+          story.beats,
+          validation.metadata.validation_1.beatsNeedingRegeneration,
+          contract,
+          2
+        );
+        
+        story.beats = regeneratedBeats;
+        
+        const revalidation = await validator.validateStory(story);
+        validation = revalidation;
+        shouldShip = validator.shouldShip(validation);
+      } catch (regenerationError) {
+        console.warn('[XO Generate] Regeneration failed:', regenerationError);
+      }
+    }
 
     // ============================================================================
     // STEP 4: RENDER FORMATTED OUTPUT
@@ -248,7 +258,6 @@ export default async function handler(
     const formattedText = XORenderer.renderMicroStory(story);
     const storyText = XORenderer.extractStoryText(story.beats);
 
-    // Create beat sheet for backward compatibility
     const beatSheet = story.beats.map((beat: any, index: number) => ({
       beat: `Beat ${index + 1}`,
       description: beat.lines.join(' '),
@@ -265,7 +274,7 @@ export default async function handler(
     const response = {
       success: true,
       story: formattedText,
-      storyText, // Clean text without markers
+      storyText,
       beatSheet,
       metadata: {
         title: `Story: ${story.contract.context.seedMoment.substring(0, 50)}...`,
@@ -279,7 +288,7 @@ export default async function handler(
         wordCount: storyText.split(/\s+/).length,
         validation,
         shouldShip,
-        contract: story.contract, // Include full contract for debugging
+        contract: story.contract,
       },
       microStory: {
         beats: story.beats,
@@ -320,7 +329,6 @@ export default async function handler(
     if (error instanceof Error) {
       errorMessage = error.message;
 
-      // Handle validation errors
       if (
         error.message.includes('validation') ||
         error.message.includes('Market leakage') ||
