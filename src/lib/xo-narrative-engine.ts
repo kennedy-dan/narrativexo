@@ -248,6 +248,10 @@ private static async generateSingleBeat(
   // Determine what type of beat this should be based on position
   const beatType = this.getBeatType(beatIndex, contract);
   
+  // Get marker for this beat
+  const markers = this.getMarkersForEntryPath(contract.entryPath);
+  const marker = beatIndex < markers.length ? markers[beatIndex] : 'STORY:';
+  
   const systemPrompt = `
 You are generating a single story beat for targeted regeneration.
 
@@ -255,11 +259,11 @@ CRITICAL CONSTRAINTS:
 - Market: ${contract.marketCode} ${contract.marketState === 'NEUTRAL' ? '(neutral - no cultural specifics)' : '(resolved - authentic context)'}
 - Brand: ${contract.brandMode === 'NONE' ? 'None - focus on human experience' : contract.brandName}
 - Beat Position: ${beatIndex + 1} of ${contract.maxBeats} (${beatType})
-- Beat Type: ${beatType === 'brand' ? 'Brand integration (natural, not forced)' : 'Story development'}
 
 ${specificInstruction}
 
-FORMAT RULES:
+FORMAT RULES (MUST FOLLOW):
+- Output ONLY the content - NO marker, NO meta text like "This beat:", "Beat X:", etc.
 - 1-2 lines maximum
 - 15 words per line maximum
 - No paragraphs, no prose
@@ -271,7 +275,7 @@ For early beat: "The window showed only grey"
 For middle beat: "Something had shifted"
 For brand beat: "The solution appeared quietly"
 
-Generate this single beat:
+Generate ONLY the content line(s):
   `.trim();
   
   try {
@@ -293,7 +297,18 @@ Generate this single beat:
       presence_penalty: 0.1,
     });
     
-    const rawBeat = completion.choices[0].message.content?.trim() || '[Regenerated beat]';
+    let rawBeat = completion.choices[0].message.content?.trim() || '[Regenerated beat]';
+    
+    // Clean the content
+    rawBeat = rawBeat
+      .replace(/^Beat\s+\d+[:.\-–—]\s*/gi, '')
+      .replace(/^This\s+beat[:.\-–—]\s*/gi, '')
+      .replace(/^In\s+this\s+beat[:.\-–—]\s*/gi, '')
+      .replace(/^Following\s+beat[:.\-–—]\s*/gi, '')
+      .replace(/^Final\s+beat[:.\-–—]\s*/gi, '')
+      .replace(/^In\s+this\s+final\s+beat[:.\-–—]\s*/gi, '')
+      .replace(/^[\d\-\*\.]+\s*/, '')
+      .trim();
     
     // Parse lines
     const lines = rawBeat
@@ -311,15 +326,6 @@ Generate this single beat:
       return line;
     });
     
-    // Add marker if needed
-    let marker: string | undefined;
-    if (contract.requirePathMarkers) {
-      const markers = this.getMarkersForEntryPath(contract.entryPath);
-      if (beatIndex < markers.length) {
-        marker = markers[beatIndex];
-      }
-    }
-    
     console.log(`[XO Engine] Beat ${beatIndex + 1} regenerated:`, {
       lines: trimmedLines.length,
       firstLine: trimmedLines[0]?.substring(0, 30),
@@ -336,7 +342,7 @@ Generate this single beat:
     // Return a fallback beat
     return {
       lines: ['[Beat regeneration failed]'],
-      marker: beatType === 'brand' ? 'BRAND_ROLE:' : 'STORY:',
+      marker,
     };
   }
 }
@@ -407,43 +413,75 @@ private static getBeatType(beatIndex: number, contract: XOContract): 'opening' |
   /**
    * Build system prompt from contract
    */
-  private static buildSystemPrompt(contract: XOContract, passId: number): string {
-    const { entryPath, marketCode, marketState, brandMode, brandName, allowInvention, maxBeats, maxLinesPerBeat } = contract;
-    
-    // Market guidance
-    const marketGuidance = marketState === 'RESOLVED' 
-      ? `MARKET: ${marketCode} - Use authentic but natural context`
-      : `MARKET: NEUTRAL - No regional specifics, slang, or cultural props`;
-    
-    // Brand guidance
-    let brandGuidance = '';
-    if (brandMode === 'EXPLICIT' && brandName) {
-      brandGuidance = `BRAND: ${brandName} - Include naturally in final beat only`;
-    } else if (brandMode === 'IMPLICIT' && brandName) {
-      brandGuidance = `BRAND: ${brandName} - Suggest implicitly, no direct mention`;
-    } else {
-      brandGuidance = `NO BRAND - Focus on human experience`;
-    }
-    
-    // Invention rules
-    const inventionRules = allowInvention === 'SCENE_ONLY'
-      ? 'You may add SCENE details only (no new characters, weather, time)'
-      : 'NO INVENTION - Use only elements from the input';
-    
-    // Format rules
-    const formatRules = `
-FORMAT RULES (MUST FOLLOW):
-- Output exactly ${maxBeats} beats
-- Each beat: ${maxLinesPerBeat} lines maximum
-- Each line: 15 words maximum
-- No paragraphs, no prose
-- Beat ${maxBeats} is for ${brandMode !== 'NONE' ? 'brand/meaning resolution' : 'meaning resolution'}
-    `.trim();
-    
-    // Path-specific instructions
-    const pathInstructions = this.getPathInstructions(entryPath);
-    
-    return `
+ /**
+ * Build system prompt from contract
+ */
+/**
+ * Build system prompt from contract
+ */
+private static buildSystemPrompt(contract: XOContract, passId: number): string {
+  const { entryPath, marketCode, marketState, brandMode, brandName, allowInvention, maxBeats, maxLinesPerBeat } = contract;
+  
+  // Market guidance
+  const marketGuidance = marketState === 'RESOLVED' 
+    ? `MARKET: ${marketCode} - Use authentic but natural context`
+    : `MARKET: NEUTRAL - No regional specifics, slang, or cultural props`;
+  
+  // Brand guidance
+  let brandGuidance = '';
+  if (brandMode === 'EXPLICIT' && brandName) {
+    brandGuidance = `BRAND: ${brandName} - Include naturally in final beat only`;
+  } else if (brandMode === 'IMPLICIT' && brandName) {
+    brandGuidance = `BRAND: ${brandName} - Suggest implicitly, no direct mention`;
+  } else {
+    brandGuidance = `NO BRAND - Focus on human experience`;
+  }
+  
+  // Invention rules
+  const inventionRules = allowInvention === 'SCENE_ONLY'
+    ? 'You may add SCENE details only (no new characters, weather, time)'
+    : 'NO INVENTION - Use only elements from the input';
+  
+  // Get markers for this path
+  const markers = this.getMarkersForEntryPath(entryPath);
+  const markerList = markers.map(m => `"${m}"`).join(', ');
+  
+  // Format rules - MUCH MORE STRICT
+  const formatRules = `
+CRITICAL - YOU MUST FOLLOW THESE RULES EXACTLY:
+
+1. OUTPUT EXACTLY ${maxBeats} BEATS - NO MORE, NO LESS
+2. Each beat MUST start with one of these markers: ${markerList}
+3. After the marker, write ONLY the story content - NO META TEXT like "This beat:", "Beat 2:", "In this final beat:", etc.
+4. Each beat: ${maxLinesPerBeat} line${maxLinesPerBeat > 1 ? 's' : ''} maximum
+5. Each line: ${contract.maxWordsPerLine} words maximum
+6. No paragraphs, no prose - just the content
+7. Beat ${maxBeats} is for ${brandMode !== 'NONE' ? 'brand/meaning resolution' : 'meaning resolution'}
+
+EXAMPLE OF CORRECT FORMAT (for ${entryPath} path):
+${markers[0]}
+The quiet room held morning light.
+
+${markers[1]}
+Small details revealed themselves slowly.
+
+${markers[2]}
+Understanding arrived without words.
+
+DO NOT add:
+- "This beat:" or "Beat X:" before the content
+- "In this beat:" or "In this final beat:" 
+- "Following beat:" or any other meta commentary
+- Any numbering or bullet points
+- Any explanatory text
+
+JUST THE MARKER FOLLOWED DIRECTLY BY THE CONTENT LINE(S).
+  `.trim();
+  
+  // Path-specific instructions
+  const pathInstructions = this.getPathInstructions(entryPath);
+  
+  return `
 You are generating micro-stories for the XO system.
 
 CRITICAL CONSTRAINTS:
@@ -455,20 +493,9 @@ ${formatRules}
 
 ${pathInstructions}
 
-RESPONSE FORMAT:
-Return ONLY the beats, one per line, with no markers or numbering.
-Example for 3-beat story:
-First line of beat 1
-Second line of beat 1
-
-First line of beat 2
-
-First line of beat 3
-Second line of beat 3
-
 PASS ${passId}: ${passId === 1 ? 'Focus on core experience' : passId === 2 ? 'Focus on emotional arc' : 'Focus on resolution'}
-    `.trim();
-  }
+  `.trim();
+}
 
   /**
    * Build user prompt
@@ -489,40 +516,95 @@ Generate a ${contract.maxBeats}-beat micro-story following all rules.
   /**
    * Parse LLM response into beats
    */
-  private static parseResponseToBeats(response: string, contract: XOContract): MicroStoryBeat[] {
-    // Split by blank lines to get beats
-    const beatChunks = response.split(/\n\s*\n/).filter(chunk => chunk.trim());
+/**
+ * Parse LLM response into beats
+ */
+private static parseResponseToBeats(response: string, contract: XOContract): MicroStoryBeat[] {
+  // Get markers for this path
+  const markers = this.getMarkersForEntryPath(contract.entryPath);
+  
+  // Split by markers to extract beats
+  const beats: MicroStoryBeat[] = [];
+  let remainingText = response;
+  
+  for (let i = 0; i < markers.length; i++) {
+    const marker = markers[i];
+    const markerIndex = remainingText.indexOf(marker);
     
-    const beats: MicroStoryBeat[] = [];
-    
-    for (const chunk of beatChunks.slice(0, contract.maxBeats)) {
-      // Split chunk into lines
-      const lines = chunk
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0)
-        .slice(0, contract.maxLinesPerBeat);
-      
-      // Clean each line
-      const cleanedLines = lines.map(line => {
-        // Remove numbers, bullets, markers
-        return line.replace(/^[\d\.\-\*]+\s*/, '').trim();
-      });
-      
-      beats.push({
-        lines: cleanedLines,
-      });
+    if (markerIndex === -1) {
+      // Marker not found, create empty beat
+      beats.push({ lines: ['[Content]'], marker });
+      continue;
     }
     
-    // Ensure we have the right number of beats
-    while (beats.length < contract.maxBeats) {
-      beats.push({
-        lines: ['[Beat content]'],
-      });
+    // Find content after marker
+    let contentStart = markerIndex + marker.length;
+    let contentEnd = remainingText.length;
+    
+    // Look for next marker
+    for (let j = i + 1; j < markers.length; j++) {
+      const nextMarker = markers[j];
+      const nextIndex = remainingText.indexOf(nextMarker, contentStart);
+      if (nextIndex !== -1 && nextIndex < contentEnd) {
+        contentEnd = nextIndex;
+        break;
+      }
     }
     
-    return beats;
+    // Extract and clean content
+    let content = remainingText.substring(contentStart, contentEnd).trim();
+    
+    // AGGRESSIVELY CLEAN THE CONTENT
+    // Remove common meta-text patterns
+    content = content
+      // Remove "Beat X:" or "Beat X -" patterns
+      .replace(/^Beat\s+\d+[:.\-–—]\s*/gi, '')
+      // Remove "This beat:" patterns
+      .replace(/^This\s+beat[:.\-–—]\s*/gi, '')
+      // Remove "In this beat:" patterns
+      .replace(/^In\s+this\s+beat[:.\-–—]\s*/gi, '')
+      // Remove "Following beat:" patterns
+      .replace(/^Following\s+beat[:.\-–—]\s*/gi, '')
+      // Remove "Final beat:" patterns
+      .replace(/^Final\s+beat[:.\-–—]\s*/gi, '')
+      // Remove "In this final beat:" patterns
+      .replace(/^In\s+this\s+final\s+beat[:.\-–—]\s*/gi, '')
+      // Remove any remaining numbers/bullets at start
+      .replace(/^[\d\-\*\.]+\s*/, '')
+      .trim();
+    
+    // Split into lines
+    let lines = content
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .slice(0, contract.maxLinesPerBeat);
+    
+    // If no lines, add placeholder
+    if (lines.length === 0) {
+      lines = ['[Content]'];
+    }
+    
+    // Trim each line to word limit
+    lines = lines.map(line => {
+      const words = line.split(/\s+/);
+      if (words.length > contract.maxWordsPerLine) {
+        return words.slice(0, contract.maxWordsPerLine).join(' ');
+      }
+      return line;
+    });
+    
+    beats.push({ lines, marker });
   }
+  
+  // Ensure we have the right number of beats
+  while (beats.length < contract.maxBeats) {
+    const marker = markers[beats.length] || 'STORY:';
+    beats.push({ lines: ['[Content]'], marker });
+  }
+  
+  return beats.slice(0, contract.maxBeats);
+}
 
   /**
    * Post-process beats
