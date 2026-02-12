@@ -87,41 +87,51 @@ export class XONarrativeEngine {
   /**
    * Create contract for generation
    */
-  private static createGenerationContract(
-    input: string,
-    market: string,
-    brand?: string,
-    meaningContract?: any
-  ): XOContract {
-    const builder = new XOContractBuilder();
+/**
+ * Create contract for generation
+ */
+private static createGenerationContract(
+  input: string,
+  market: string,
+  brand?: string,
+  meaningContract?: any
+): XOContract {
+  const builder = new XOContractBuilder();
+  
+  // Use meaning contract if available
+  if (meaningContract) {
+    const contract = createContractFromMeaningContract(meaningContract);
+    builder.withUserInput(input);
     
-    // Use meaning contract if available
-    if (meaningContract) {
-      const contract = createContractFromMeaningContract(meaningContract);
-      builder.withUserInput(input);
-      
-      // Override with explicit brand if provided
-      if (brand) {
-        builder.withBrand(brand, 'EXPLICIT');
-      }
-      
-      return builder.build();
-    }
-    
-    // Build from scratch
-    builder
-      .withUserInput(input)
-      .withMarket(market as any, 0.5) // Default confidence
-      .withEntryPath(this.detectEntryPath(input))
-      .withFormatMode('MICROSTORY')
-      .withStrictMode(false);
-    
+    // Override with explicit brand if provided
     if (brand) {
       builder.withBrand(brand, 'EXPLICIT');
     }
     
+    // Force FULLSTORY and maxBeats if specified
+    if (meaningContract.formatMode === 'FULLSTORY' || meaningContract.maxBeats === 5) {
+      builder.withFormatMode('FULLSTORY');
+      builder.withMaxBeats(5);
+      builder.withEntryPath('full');
+    }
+    
     return builder.build();
   }
+  
+  // Build from scratch
+  builder
+    .withUserInput(input)
+    .withMarket(market as any, 0.5)
+    .withEntryPath(this.detectEntryPath(input))
+    .withFormatMode('MICROSTORY')
+    .withStrictMode(false);
+  
+  if (brand) {
+    builder.withBrand(brand, 'EXPLICIT');
+  }
+  
+  return builder.build();
+}
 
   /**
    * Generate story in multiple passes
@@ -695,33 +705,54 @@ Generate a ${contract.maxBeats}-beat micro-story following all rules.
   /**
    * Convert micro-story to full story
    */
-  static async convertToFullStory(
-    story: MicroStory,
-    meaningContract?: any
-  ): Promise<MicroStory> {
-    console.log('[XO Engine] Converting to full story');
-    
-    // Create full story contract
-    const builder = new XOContractBuilder(story.contract)
-      .withFormatMode('FULLSTORY')
-      .withMaxBeats(5);
-    
-    const fullContract = builder.build();
-    
-    // Convert story text
-    const storyText = XORenderer.extractStoryText(story.beats);
-    
-    // Generate full story
-    const fullStory = await this.generate(
-      `Convert this to a 5-beat full story:\n\n${storyText}`,
-      fullContract.marketCode,
-      fullContract.brandName,
-      { temperature: 0.7, maxTokens: 500 },
-      { entryPath: 'full', ...meaningContract }
-    );
-    
-    return fullStory;
-  }
+/**
+ * Convert micro-story to full story
+ */
+static async convertToFullStory(
+  story: MicroStory,
+  meaningContract?: any
+): Promise<MicroStory> {
+  console.log('[XO Engine] Converting to full story');
+  
+  // Create full story contract with explicit maxBeats = 5
+  const builder = new XOContractBuilder(story.contract)
+    .withFormatMode('FULLSTORY')
+    .withMaxBeats(5); // Force 5 beats
+  
+  // Ensure we're not using the micro-story's maxBeats
+  const fullContract = builder.build();
+  
+  // Convert story text
+  const storyText = XORenderer.extractStoryText(story.beats);
+  
+  // Generate full story with explicit instruction
+  const fullStory = await this.generate(
+    `Convert this to a 5-beat full story. You MUST generate exactly 5 beats:\n\n${storyText}`,
+    fullContract.marketCode,
+    fullContract.brandName,
+    { 
+      temperature: 0.7, 
+      maxTokens: 500,
+      passes: 3 
+    },
+    { 
+      entryPath: 'full', 
+      formatMode: 'FULLSTORY',
+      maxBeats: 5, // Pass explicitly
+      ...meaningContract 
+    }
+  );
+  
+  // Double-check the contract after generation
+  fullStory.contract = {
+    ...fullStory.contract,
+    maxBeats: 5,
+    formatMode: 'FULLSTORY',
+    entryPath: 'full'
+  };
+  
+  return fullStory;
+}
 }
 
 // ============================================================================

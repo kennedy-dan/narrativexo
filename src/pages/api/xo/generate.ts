@@ -180,24 +180,35 @@ export default async function handler(
         break;
       }
 
-      case 'story-conversion': {
-        console.log('[XO Generate] Converting micro-story to full story');
-
-        if (!currentStory || !targetStructure) {
-          throw new Error('Story conversion requires currentStory and targetStructure');
-        }
-
-        let existingStory;
-        try {
-          const parsed = JSON.parse(currentStory);
-          existingStory = convertLegacyStory(parsed, contract);
-        } catch {
-          existingStory = convertLegacyStory({ formattedText: currentStory }, contract);
-        }
-
-        story = await XONarrativeEngine.convertToFullStory(existingStory, meaningContract);
-        break;
-      }
+  case 'story-conversion': {
+  console.log('[XO Generate] Converting micro-story to full story');
+  
+  if (!currentStory || !targetStructure) {
+    throw new Error('Story conversion requires currentStory and targetStructure');
+  }
+  
+  let existingStory;
+  try {
+    const parsed = JSON.parse(currentStory);
+    existingStory = convertLegacyStory(parsed, contract);
+  } catch {
+    existingStory = convertLegacyStory({ formattedText: currentStory }, contract);
+  }
+  
+  // Ensure meaningContract has FULLSTORY format
+  const enhancedMeaningContract = {
+    ...meaningContract,
+    formatMode: 'FULLSTORY',
+    maxBeats: 5,
+    entryPath: 'full'
+  };
+  
+  story = await XONarrativeEngine.convertToFullStory(
+    existingStory, 
+    enhancedMeaningContract
+  );
+  break;
+}
 
       case 'micro-story':
       default: {
