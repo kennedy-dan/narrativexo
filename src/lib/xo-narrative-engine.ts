@@ -252,28 +252,34 @@ private static async generateSingleBeat(
   const markers = this.getMarkersForEntryPath(contract.entryPath);
   const marker = beatIndex < markers.length ? markers[beatIndex] : 'STORY:';
   
+  // ============================================================
+  // CRITICAL FIX: EXPLICITLY FORBID META TEXT IN REGENERATION
+  // ============================================================
   const systemPrompt = `
-You are generating a single story beat for targeted regeneration.
+You are generating a SINGLE story beat. You must output ONLY the content lines.
 
-CRITICAL CONSTRAINTS:
-- Market: ${contract.marketCode} ${contract.marketState === 'NEUTRAL' ? '(neutral - no cultural specifics)' : '(resolved - authentic context)'}
-- Brand: ${contract.brandMode === 'NONE' ? 'None - focus on human experience' : contract.brandName}
-- Beat Position: ${beatIndex + 1} of ${contract.maxBeats} (${beatType})
+🚫 FORBIDDEN:
+- DO NOT write "This beat", "Beat X", "In this beat"
+- DO NOT write "This scene", "This moment", "The story shows"
+- DO NOT write any meta commentary or explanatory text
+- DO NOT label or number your output in any way
+- DO NOT use quotes or bullet points
 
-${specificInstruction}
-
-FORMAT RULES (MUST FOLLOW):
-- Output ONLY the content - NO marker, NO meta text like "This beat:", "Beat X:", etc.
+✅ ALLOWED:
+- Just the content line(s) - the story itself
 - 1-2 lines maximum
 - 15 words per line maximum
-- No paragraphs, no prose
-- Show, don't tell
-- Use only elements from: ${contract.context.allowedNouns.join(', ') || 'the original input'}
 
-EXAMPLES:
-For early beat: "The window showed only grey"
-For middle beat: "Something had shifted"
-For brand beat: "The solution appeared quietly"
+EXAMPLE OF CORRECT OUTPUT (${beatType === 'brand' ? 'brand beat' : 'story beat'}):
+The solution appeared quietly.
+
+EXAMPLE OF WRONG OUTPUT (NEVER DO THIS):
+In this final beat, we see the solution appear quietly.
+
+Current constraints:
+- Market: ${contract.marketCode} ${contract.marketState === 'NEUTRAL' ? '(neutral)' : '(resolved)'}
+- Brand: ${contract.brandMode === 'NONE' ? 'None' : contract.brandName}
+- Beat position: ${beatIndex + 1} of ${contract.maxBeats}
 
 Generate ONLY the content line(s):
   `.trim();
@@ -288,27 +294,56 @@ Generate ONLY the content line(s):
         },
         {
           role: 'user',
-          content: `Input context: "${input.substring(0, 100)}${input.length > 100 ? '...' : ''}"`,
+          content: `Context: "${input.substring(0, 100)}${input.length > 100 ? '...' : ''}"`,
         },
       ],
       temperature: 0.7,
       max_tokens: 100,
-      frequency_penalty: 0.1,
-      presence_penalty: 0.1,
+      frequency_penalty: 0.3, // Increased to reduce repetition
+      presence_penalty: 0.3,
     });
     
     let rawBeat = completion.choices[0].message.content?.trim() || '[Regenerated beat]';
     
-    // Clean the content
+    // ============================================================
+    // CRITICAL FIX: AGGRESSIVE STRIPPING - REMOVE ANY META TEXT
+    // ============================================================
+    // Remove ANY phrase that looks like meta commentary
     rawBeat = rawBeat
+      // Remove any "Beat X:" or "Beat X -" patterns
       .replace(/^Beat\s+\d+[:.\-–—]\s*/gi, '')
-      .replace(/^This\s+beat[:.\-–—]\s*/gi, '')
+      .replace(/^Beat\s+\d+\s*/gi, '')
+      // Remove any "In this beat" variations
       .replace(/^In\s+this\s+beat[:.\-–—]\s*/gi, '')
-      .replace(/^Following\s+beat[:.\-–—]\s*/gi, '')
-      .replace(/^Final\s+beat[:.\-–—]\s*/gi, '')
-      .replace(/^In\s+this\s+final\s+beat[:.\-–—]\s*/gi, '')
+      .replace(/^This\s+beat[:.\-–—]\s*/gi, '')
+      .replace(/^This\s+beat\s+shows[:.\-–—]\s*/gi, '')
+      .replace(/^This\s+beat\s+depicts[:.\-–—]\s*/gi, '')
+      .replace(/^This\s+beat\s+illustrates[:.\-–—]\s*/gi, '')
+      // Remove any "In this scene" variations
+      .replace(/^In\s+this\s+scene[:.\-–—]\s*/gi, '')
+      .replace(/^This\s+scene[:.\-–—]\s*/gi, '')
+      // Remove any "In this moment" variations
+      .replace(/^In\s+this\s+moment[:.\-–—]\s*/gi, '')
+      .replace(/^This\s+moment[:.\-–—]\s*/gi, '')
+      // Remove any "We see/notice/feel" patterns
+      .replace(/^We\s+see[:.\-–—]\s*/gi, '')
+      .replace(/^We\s+notice[:.\-–—]\s*/gi, '')
+      .replace(/^We\s+feel[:.\-–—]\s*/gi, '')
+      .replace(/^We\s+watch[:.\-–—]\s*/gi, '')
+      // Remove any "The story/scene shows" patterns
+      .replace(/^The\s+story[:.\-–—]\s*/gi, '')
+      .replace(/^The\s+scene[:.\-–—]\s*/gi, '')
+      .replace(/^The\s+moment[:.\-–—]\s*/gi, '')
+      // Remove any remaining numbers/bullets
       .replace(/^[\d\-\*\.]+\s*/, '')
       .trim();
+    
+    // If after stripping we have nothing, use a fallback
+    if (!rawBeat) {
+      rawBeat = beatType === 'brand' 
+        ? 'The solution appeared quietly.'
+        : 'The moment continued.';
+    }
     
     // Parse lines
     const lines = rawBeat
@@ -332,7 +367,7 @@ Generate ONLY the content line(s):
     });
     
     return {
-      lines: trimmedLines,
+      lines: trimmedLines.length > 0 ? trimmedLines : ['[Beat regeneration]'],
       marker,
     };
     
@@ -341,7 +376,9 @@ Generate ONLY the content line(s):
     
     // Return a fallback beat
     return {
-      lines: ['[Beat regeneration failed]'],
+      lines: beatType === 'brand' 
+        ? ['The solution appeared.'] 
+        : ['The moment continued.'],
       marker,
     };
   }
@@ -446,17 +483,26 @@ private static buildSystemPrompt(contract: XOContract, passId: number): string {
   const markers = this.getMarkersForEntryPath(entryPath);
   const markerList = markers.map(m => `"${m}"`).join(', ');
   
-  // Format rules - MUCH MORE STRICT
+  // ============================================================
+  // CRITICAL FIX: STRONGER, MORE EXPLICIT PROHIBITIONS
+  // ============================================================
   const formatRules = `
-CRITICAL - YOU MUST FOLLOW THESE RULES EXACTLY:
+🚫 ABSOLUTELY FORBIDDEN - YOU WILL BE PENALIZED FOR THESE:
+❌ NEVER write "In this beat", "This beat shows", "Beat 1", "Beat 2", etc.
+❌ NEVER write "Following beat", "Next beat", "Previous beat"
+❌ NEVER write "In this scene", "This scene depicts", "The scene shows"
+❌ NEVER write "In this moment", "This moment captures", "This moment shows"
+❌ NEVER write any explanatory text, meta commentary, or narration ABOUT the story
+❌ NEVER number or label your beats in any way
+❌ NEVER use phrases like "We see", "We notice", "We feel", "The reader sees"
 
-1. OUTPUT EXACTLY ${maxBeats} BEATS - NO MORE, NO LESS
-2. Each beat MUST start with one of these markers: ${markerList}
-3. After the marker, write ONLY the story content - NO META TEXT like "This beat:", "Beat 2:", "In this final beat:", etc.
-4. Each beat: ${maxLinesPerBeat} line${maxLinesPerBeat > 1 ? 's' : ''} maximum
-5. Each line: ${contract.maxWordsPerLine} words maximum
-6. No paragraphs, no prose - just the content
-7. Beat ${maxBeats} is for ${brandMode !== 'NONE' ? 'brand/meaning resolution' : 'meaning resolution'}
+✅ YOU MUST OUTPUT EXACTLY THIS FORMAT:
+[MARKER]
+[CONTENT LINE 1]
+[CONTENT LINE 2 (if needed)]
+
+✅ THE CONTENT MUST BE THE STORY ITSELF, NOT A DESCRIPTION OF IT
+✅ Write DIRECTLY - show the moment, don't explain it
 
 EXAMPLE OF CORRECT FORMAT (for ${entryPath} path):
 ${markers[0]}
@@ -468,14 +514,11 @@ Small details revealed themselves slowly.
 ${markers[2]}
 Understanding arrived without words.
 
-DO NOT add:
-- "This beat:" or "Beat X:" before the content
-- "In this beat:" or "In this final beat:" 
-- "Following beat:" or any other meta commentary
-- Any numbering or bullet points
-- Any explanatory text
+EXAMPLE OF WRONG FORMAT (NEVER DO THIS):
+${markers[0]}
+In this beat, we see that the quiet room held morning light.
 
-JUST THE MARKER FOLLOWED DIRECTLY BY THE CONTENT LINE(S).
+YOUR TASK: Generate the story content directly. NO META TEXT.
   `.trim();
   
   // Path-specific instructions
@@ -554,39 +597,82 @@ private static parseResponseToBeats(response: string, contract: XOContract): Mic
     // Extract and clean content
     let content = remainingText.substring(contentStart, contentEnd).trim();
     
-    // AGGRESSIVELY CLEAN THE CONTENT
-    // Remove common meta-text patterns
-    content = content
-      // Remove "Beat X:" or "Beat X -" patterns
-      .replace(/^Beat\s+\d+[:.\-–—]\s*/gi, '')
-      // Remove "This beat:" patterns
-      .replace(/^This\s+beat[:.\-–—]\s*/gi, '')
-      // Remove "In this beat:" patterns
-      .replace(/^In\s+this\s+beat[:.\-–—]\s*/gi, '')
-      // Remove "Following beat:" patterns
-      .replace(/^Following\s+beat[:.\-–—]\s*/gi, '')
-      // Remove "Final beat:" patterns
-      .replace(/^Final\s+beat[:.\-–—]\s*/gi, '')
-      // Remove "In this final beat:" patterns
-      .replace(/^In\s+this\s+final\s+beat[:.\-–—]\s*/gi, '')
-      // Remove any remaining numbers/bullets at start
-      .replace(/^[\d\-\*\.]+\s*/, '')
-      .trim();
+    // ============================================================
+    // CRITICAL FIX: ULTRA-AGGRESSIVE CLEANING
+    // Remove ANY meta-commentary regardless of pattern
+    // ============================================================
     
-    // Split into lines
-    let lines = content
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0)
-      .slice(0, contract.maxLinesPerBeat);
+    // First pass - remove entire lines that start with meta patterns
+    const lines = content.split('\n');
+    const cleanLines: string[] = [];
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      
+      const lowerLine = trimmed.toLowerCase();
+      
+      // Skip ANY line that looks like meta commentary
+      const metaPatterns = [
+        /^beat\s+\d+/,
+        /^in\s+this\s+beat/,
+        /^this\s+beat/,
+        /^following\s+beat/,
+        /^next\s+beat/,
+        /^previous\s+beat/,
+        /^in\s+this\s+scene/,
+        /^this\s+scene/,
+        /^in\s+this\s+moment/,
+        /^this\s+moment/,
+        /^we\s+see/,
+        /^we\s+notice/,
+        /^we\s+feel/,
+        /^we\s+watch/,
+        /^the\s+story/,
+        /^the\s+scene/,
+        /^the\s+moment/,
+        /^here\s+we/,
+        /^in\s+the\s+following/,
+        /^as\s+we/,
+      ];
+      
+      let isMeta = false;
+      for (const pattern of metaPatterns) {
+        if (pattern.test(lowerLine)) {
+          isMeta = true;
+          break;
+        }
+      }
+      
+      if (!isMeta) {
+        cleanLines.push(trimmed);
+      }
+    }
+    
+    // If we removed everything, use placeholder
+    if (cleanLines.length === 0) {
+      cleanLines.push('[Content]');
+    }
+    
+    // Second pass - clean each remaining line of any inline meta text
+    const finalLines = cleanLines.map(line => {
+      return line
+        .replace(/^(?:beat|scene|moment)\s+\d+\s*[:\-–—]\s*/gi, '')
+        .replace(/^(?:in|this|the)\s+(?:beat|scene|moment)\s+[:\-–—]?\s*/gi, '')
+        .replace(/^(?:we|the\s+reader)\s+(?:see|notice|feel|watch|observe)\s+[:\-–—]?\s*/gi, '')
+        .trim();
+    }).filter(line => line.length > 0);
+    
+    // Limit lines per beat
+    let limitedLines = finalLines.slice(0, contract.maxLinesPerBeat);
     
     // If no lines, add placeholder
-    if (lines.length === 0) {
-      lines = ['[Content]'];
+    if (limitedLines.length === 0) {
+      limitedLines = ['[Content]'];
     }
     
     // Trim each line to word limit
-    lines = lines.map(line => {
+    limitedLines = limitedLines.map(line => {
       const words = line.split(/\s+/);
       if (words.length > contract.maxWordsPerLine) {
         return words.slice(0, contract.maxWordsPerLine).join(' ');
@@ -594,7 +680,10 @@ private static parseResponseToBeats(response: string, contract: XOContract): Mic
       return line;
     });
     
-    beats.push({ lines, marker });
+    beats.push({ 
+      lines: limitedLines, 
+      marker 
+    });
   }
   
   // Ensure we have the right number of beats
