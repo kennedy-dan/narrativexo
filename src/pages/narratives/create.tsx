@@ -41,6 +41,7 @@ import {
   AlertTriangle,
   CheckCircle,
   Loader2,
+  Lock,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 
@@ -225,6 +226,115 @@ interface ValidationResult {
     validationResults?: Record<string, any>;
   };
 }
+
+// Password Modal Component
+interface PasswordModalProps {
+  isOpen: boolean;
+  onSuccess: () => void;
+}
+
+
+const PasswordModal = ({ isOpen, onSuccess }: PasswordModalProps) => {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(false);
+  const [attempts, setAttempts] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (password === "password") {
+      setError(false);
+      setPassword("");
+      onSuccess();
+    } else {
+      setError(true);
+      setAttempts(prev => prev + 1);
+      setPassword("");
+      
+      // Refocus input after error
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div 
+        className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-8 relative overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Decorative gradient line */}
+        <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500"></div>
+        
+        <div className="text-center mb-8">
+          <div className="inline-flex p-4 bg-purple-100 rounded-full mb-4">
+            <Lock className="w-8 h-8 text-purple-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Protected Content
+          </h2>
+          <p className="text-gray-600">
+            This page is in development. Enter the password to continue.
+          </p>
+          {attempts > 0 && (
+            <p className="text-xs text-gray-500 mt-2">
+              Attempts: {attempts}
+            </p>
+          )}
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              Password
+            </label>
+            <input
+              ref={inputRef}
+              type="password"
+              id="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError(false);
+              }}
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
+                error ? "border-red-500 bg-red-50" : "border-gray-300"
+              }`}
+              placeholder="Enter password..."
+              autoComplete="off"
+            />
+            {error && (
+              <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
+                <AlertTriangle size={14} />
+                Incorrect password. Try again.
+              </p>
+            )}
+          </div>
+          
+          <button
+            type="submit"
+            className="w-full px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg transition-all duration-200 font-medium flex items-center justify-center gap-2"
+          >
+            <Lock size={18} />
+            Unlock Page
+          </button>
+        </form>
+
+     
+      </div>
+    </div>
+  );
+};
 
 export default function Create() {
   // State
@@ -1028,11 +1138,7 @@ export default function Create() {
                 {expansionType === "expand" ? "Expanded Version" : 
                  expansionType === "gentler" ? "Gentler Version" : "Harsher Version"}
               </span>
-              {expansionType === "expand" && (
-                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                  3 → 5 beats
-                </span>
-              )}
+           
             </div>
             <div className="text-gray-800 whitespace-pre-line leading-relaxed mt-3">
               {expandedStory?.beatSheet?.map((beat, index) => (
@@ -2572,6 +2678,37 @@ export default function Create() {
         description: scene.description,
       }))
       .filter((item) => item.url) || [];
+
+        const [showPasswordModal, setShowPasswordModal] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+        // Handle password success
+  const handlePasswordSuccess = () => {
+    setIsAuthenticated(true);
+    setShowPasswordModal(false);
+  };
+
+  // If not authenticated, show password modal
+  if (!isAuthenticated) {
+    return (
+      <Layout>
+        <div className="mx-16">
+          <PasswordModal 
+            isOpen={showPasswordModal} 
+            onSuccess={handlePasswordSuccess} 
+          />
+          {/* Optionally show a loading or blank state while modal is visible */}
+          <div className="h-screen bg-[#FAF9F6] flex items-center justify-center">
+            <div className="text-center">
+              <Lock className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">This page is password protected</p>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
 
   return (
     <Layout>
