@@ -1,4 +1,3 @@
-// /api/clarify/index.ts
 import { NextApiRequest, NextApiResponse } from 'next';
 import OpenAI from 'openai';
 
@@ -7,7 +6,7 @@ const openai = new OpenAI({
 });
 
 // ============================================================================
-// ENHANCED MEANING CONTRACT WITH MARKET CONTEXT
+// TYPES
 // ============================================================================
 
 export type MeaningRisk = 
@@ -19,7 +18,8 @@ export type MeaningRisk =
   | 'irony-missed'
   | 'positive-negative-ambiguity'
   | 'insufficient-context'
-  | 'possible-gibberish';
+  | 'possible-gibberish'
+  | 'setup-without-substance';
 
 export interface MeaningRiskAssessment {
   risks: MeaningRisk[];
@@ -30,7 +30,6 @@ export interface MeaningRiskAssessment {
   hypothesis?: string;
 }
 
-// ENHANCED MEANING CONTRACT with market context
 export interface MeaningContract {
   interpretedMeaning: {
     emotionalState: 'positive' | 'negative' | 'neutral' | 'layered' | 'complex' | 'ambiguous';
@@ -39,34 +38,26 @@ export interface MeaningContract {
     intentCategory: 'share' | 'inquire' | 'emphasize' | 'reflect' | 'process' | 'express' | 'connect';
     coreTheme: string;
   };
-  
-  // STARTER PACK: Market context for validation
   marketContext: {
     market: 'NG' | 'GH' | 'KE' | 'ZA' | 'UK' | 'GLOBAL';
     language: string;
     register: 'formal' | 'casual' | 'colloquial';
   };
-  
-  // STARTER PACK: Entry path detection
   entryPath: 'emotion' | 'scene' | 'seed' | 'audience';
-  
   confidence: number;
   certaintyMode: 'tentative-commit' | 'reflection-only' | 'clarification-needed';
   reversible: boolean;
   safeToNarrate: boolean;
   understandingSummary?: string;
-  
   provenance: {
     source: 'ccn-interpretation';
     riskLevel: 'low' | 'medium' | 'high';
     distortionLikelihood: number;
     risksAcknowledged: MeaningRisk[];
   };
-  
   seedMoment: string;
 }
 
-// XO Interpretation
 export interface XOInterpretation {
   coreTension: string;
   emotionalWeight: string;
@@ -79,7 +70,7 @@ export interface XOInterpretation {
   minimalAssumptions: {
     emotionDirection: 'positive' | 'negative' | 'neutral' | 'layered' | 'unknown';
     tensionType: 'contrast' | 'desire' | 'observation' | 'reflection' | 'unknown';
-    intentCategory: 'share' | 'inquire' | 'emphasize' | 'reflect' | 'unknown';
+    intentCategory: 'share' | 'inquire' | 'emphasize' | 'reflect' | 'express' | 'unknown';
   };
   meaningContract?: MeaningContract;
 }
@@ -99,128 +90,225 @@ export interface XOCCNResponse {
 }
 
 // ============================================================================
-// ENHANCED MARKET DETECTION WITH WORD BOUNDARIES
+// CONTEXT DETECTION - CRITICAL FIX
 // ============================================================================
 
-function detectEntryPathFromInput(input: string): 'emotion' | 'scene' | 'seed' | 'audience' {
-  const upper = input.toUpperCase();
+function hasSubstantiveContent(text: string): boolean {
+  const lower = text.toLowerCase();
   
-  // Check for EXACT Starter Pack v0.2 markers in input
-  if (upper.includes('EMOTION INPUT:')) return 'emotion';
-  if (upper.includes('SCENE INPUT:')) return 'scene';
-  if (upper.includes('STORY SEED:')) return 'seed';
-  if (upper.includes('AUDIENCE SIGNAL:')) return 'audience';
+  // Check for quoted speech
+  if (/["'"].*?["'']/.test(text)) return true;
   
-  // Check for emotion words
-  if (/\b(feel|felt|feeling|emotion|emotional|happy|sad|angry|excited|relief|anxiety|joy|calm|frustrated|proud|grateful|delighted|hurt|disappointed|annoyed|upset)\b/i.test(input)) {
-    return 'emotion';
+  // Check for complete thoughts with emotion/action
+  const substantivePatterns = [
+    // Emotions
+    /\b(feel|felt|feeling|emotion|happy|sad|angry|excited|relief|anxiety|joy|calm|frustrated|proud|grateful|delighted|hurt|disappointed|annoyed|upset|cynical|cold|breaks|down)\b/i,
+    
+    // Specific requests
+    /\b(create|tell|write|make|build|generate|craft)\b.*?\b(story|narrative|brand|script|video)\b/i,
+    
+    // Complete quotes
+    /:.*?["'].*?["']|:.*?\b(the world is|it is|this is|that is)\b/i,
+    
+    // Specific observations
+    /\b(reaction|responded|answered|said|told|asked|replied)\b.*?\b(was|were|is|are)\b/i,
+    
+    // Brand/creative context
+    /\b(brand|company|product|marketing|campaign|advert|washing machine)\b.*?\b(story|narrative|attract|appeal)\b/i
+  ];
+  
+  for (const pattern of substantivePatterns) {
+    if (pattern.test(text)) return true;
   }
   
-  // Check for scene words  
-  if (/\b(scene|setting|place|location|room|space|environment|background|kitchen|office|street|park|laundry|flat|airport|lounge|pub|desk|workshop|fleet|call)\b/i.test(input)) {
-    return 'scene';
+  return false;
+}
+
+function detectLackingContext(text: string): { 
+  lacksContext: boolean; 
+  reason?: string;
+  wordCount: number;
+  isPureSetup: boolean;
+} {
+  const original = text;
+  const lower = text.toLowerCase().trim();
+  const words = lower.split(/\s+/).filter(w => w.length > 0);
+  const wordCount = words.length;
+  
+  let lacksContext = false;
+  let reason = '';
+  let isPureSetup = false;
+  
+  // PATTERN 1: Extremely short inputs (1-2 words)
+  if (wordCount <= 2) {
+    lacksContext = true;
+    isPureSetup = true;
+    reason = `too brief (${wordCount} words) - no interpretable meaning`;
+    return { lacksContext, reason, wordCount, isPureSetup };
   }
   
-  // Check for audience words
-  if (/\b(audience|viewer|reader|people|they|them|everyone|somebody|customer|user|consumer|family|married|households|professionals|fans|stakeholders)\b/i.test(input)) {
-    return 'audience';
+  // PATTERN 2: Scene setup WITHOUT the actual moment
+  const sceneSetupPatterns = [
+    { pattern: /^overheard at (a|the)?\s*(coffee shop|cafe|bus|train|street|park|bar|restaurant)\s*$/i, weight: 1.0 },
+    { pattern: /^heard at (a|the)?\s*(coffee shop|cafe|bus|train|street|park)\s*$/i, weight: 1.0 },
+    { pattern: /^at (a|the)?\s*(coffee shop|cafe|bus stop|train station)\s*$/i, weight: 1.0 },
+    { pattern: /^in (a|the)?\s*(coffee shop|cafe|lobby|waiting room)\s*$/i, weight: 1.0 },
+    { pattern: /^the other day\s*$/i, weight: 0.9 },
+    { pattern: /^yesterday\s*$/i, weight: 0.9 },
+    { pattern: /^this morning\s*$/i, weight: 0.9 },
+    { pattern: /^a conversation (i )?overheard\s*$/i, weight: 1.0 },
+    { pattern: /^someone said\s*$/i, weight: 1.0 },
+    { pattern: /^this person said\s*$/i, weight: 1.0 }
+  ];
+  
+  for (const { pattern, weight } of sceneSetupPatterns) {
+    if (pattern.test(lower)) {
+      lacksContext = true;
+      isPureSetup = true;
+      reason = `scene setup without the actual moment: "${original}"`;
+      return { lacksContext, reason, wordCount, isPureSetup };
+    }
   }
   
-  // Check for seed words
-  if (/\b(seed|story seed|beginning|start|idea|concept|expand|quote|applause|worked|stretch|pot|taste|wins|count|season|changed|plan|power|roads|explain|decision|trust|arrive|planned|tomorrow|built|sessions|dignity|delivery|standard|value|compromise|derby|excuses|raise|standard)\b/i.test(input)) {
-    return 'seed';
+  // PATTERN 3: Incomplete sentences (trailing off)
+  const incompletePatterns = [
+    /:\s*$/,
+    /\-\s*$/,
+    /because\s*$/,
+    /so\s*$/,
+    /then\s*$/,
+    /and\s*$/,
+    /but\s*$/,
+    /when\s*$/,
+    /\.\.\.$/
+  ];
+  
+  for (const pattern of incompletePatterns) {
+    if (pattern.test(lower)) {
+      lacksContext = true;
+      isPureSetup = true;
+      reason = `incomplete sentence ending with "${original.slice(-5)}"`;
+      return { lacksContext, reason, wordCount, isPureSetup };
+    }
   }
   
-  // Default to scene as per Starter Pack
-  return 'scene';
+  // PATTERN 4: Setup phrases with minimal words
+  if (wordCount <= 5) {
+    const pureSetupPhrases = [
+      /\boverheard at\b/i,
+      /\bsomeone said\b/i,
+      /\ba conversation\b/i,
+      /\bheard this\b/i,
+      /\bthe other day\b/i,
+      /\byesterday i\b/i,
+      /\bthis morning\b/i,
+      /\bwhen i was\b/i
+    ];
+    
+    for (const pattern of pureSetupPhrases) {
+      if (pattern.test(lower)) {
+        lacksContext = true;
+        isPureSetup = true;
+        reason = `setup phrase without the actual content: "${original}"`;
+        return { lacksContext, reason, wordCount, isPureSetup };
+      }
+    }
+  }
+  
+  // PATTERN 5: Has setup framing but NO substantive content
+  const hasFraming = /overheard|heard|said|told|asked|replied|conversation|yesterday|morning|afternoon|evening|today/i.test(lower);
+  
+  if (hasFraming && wordCount <= 8) {
+    const hasContent = hasSubstantiveContent(original);
+    if (!hasContent) {
+      lacksContext = true;
+      isPureSetup = true;
+      reason = `framing without substantive content: "${original}"`;
+      return { lacksContext, reason, wordCount, isPureSetup };
+    }
+  }
+  
+  // PATTERN 6: Check if this is a COMPLETE meaningful input
+  // This is the positive case - what SHOULD pass
+  const isCompleteThought = (
+    // Has a quote
+    /["'].*?["']/.test(original) ||
+    // Has a colon with content after
+    /:.*\S+/.test(original) ||
+    // Has a specific creative request
+    /\b(create|make|write|generate|build)\b.*\b(story|narrative|brand|script|video|content)\b/i.test(original) ||
+    // Has emotional content
+    /\b(feel|felt|emotion|happy|sad|angry|cynical|cold|breaks|down)\b/i.test(original) ||
+    // Has a complete question/observation
+    (wordCount >= 10 && /\b(when|why|how|what)\b.*\?/.test(original))
+  );
+  
+  if (isCompleteThought) {
+    lacksContext = false;
+    isPureSetup = false;
+    return { lacksContext, wordCount, isPureSetup };
+  }
+  
+  // Default: if it's between 3-8 words and not clearly complete, flag it
+  if (wordCount >= 3 && wordCount <= 8 && !isCompleteThought) {
+    lacksContext = true;
+    isPureSetup = true;
+    reason = `brief statement (${wordCount} words) without clear narrative intent`;
+    return { lacksContext, reason, wordCount, isPureSetup };
+  }
+  
+  return { lacksContext: false, wordCount, isPureSetup: false };
 }
 
 // ============================================================================
-// ENHANCED MARKET DETECTION WITH WORD BOUNDARIES
+// MARKET DETECTION
 // ============================================================================
 
 function detectMarketFromInput(input: string): 'NG' | 'GH' | 'KE' | 'ZA' | 'UK' | 'GLOBAL' {
   const lower = input.toLowerCase();
   
-  // Use EXACT word boundaries for country names
-  if (/\b(nigeria|naija|nigerian)\b/i.test(input)) {
-    return 'NG';
-  }
-  
-  if (/\b(ghana|ghanaian)\b/i.test(input)) {
-    return 'GH';
-  }
-  
-  if (/\b(kenya|kenyan)\b/i.test(input)) {
-    return 'KE';
-  }
-  
-  if (/\b(south\s+africa|southafrica|south\s+african)\b/i.test(input)) {
-    return 'ZA';
-  }
-  
-  if (/\b(united\s+kingdom|uk|britain|british|england|english)\b/i.test(input)) {
-    return 'UK';
-  }
-  
-  // Check for major cities (with context)
-  const cities = [
-    { city: 'lagos', market: 'NG' },
-    { city: 'abuja', market: 'NG' },
-    { city: 'kano', market: 'NG' },
-    { city: 'port harcourt', market: 'NG' },
-    { city: 'accra', market: 'GH' },
-    { city: 'kumasi', market: 'GH' },
-    { city: 'nairobi', market: 'KE' },
-    { city: 'mombasa', market: 'KE' },
-    { city: 'johannesburg', market: 'ZA' },
-    { city: 'joburg', market: 'ZA' },
-    { city: 'cape town', market: 'ZA' },
-    { city: 'durban', market: 'ZA' },
-    { city: 'pretoria', market: 'ZA' },
-    { city: 'london', market: 'UK' },
-    { city: 'manchester', market: 'UK' },
-    { city: 'birmingham', market: 'UK' },
-    { city: 'edinburgh', market: 'UK' },
-    { city: 'cardiff', market: 'UK' }
+  const marketPatterns = [
+    { pattern: /\b(nigeria|naija|nigerian|lagos|abuja|kano|port harcourt|wahala|chai|oga|na wa|omo|jollof|danfo|abeg|ijgb|naira)\b/i, market: 'NG' },
+    { pattern: /\b(ghana|ghanaian|accra|kumasi|chale|cedi|trotro)\b/i, market: 'GH' },
+    { pattern: /\b(kenya|kenyan|nairobi|mombasa|ksh|shilling|safaricom|matatu)\b/i, market: 'KE' },
+    { pattern: /\b(south\s+africa|southafrica|south\s+african|joburg|johannesburg|cape\s+town|durban|pretoria|rand|braai|eish)\b/i, market: 'ZA' },
+    { pattern: /\b(united\s+kingdom|uk|britain|british|england|english|london|manchester|birmingham|edinburgh|cardiff|pint|pub|mate|quid|lorry|cheers)\b/i, market: 'UK' }
   ];
   
-  for (const { city, market } of cities) {
-    if (lower.includes(city.toLowerCase())) {
-      return market as any;
-    }
-  }
-  
-  // Check for currency/slang with EXACT Starter Pack v0.2 tokens
-  const tokens = [
-    { pattern: /\b(wahala|chai|oga|na wa|omo|jollof|danfo|abeg|ijgb|naira)\b/i, market: 'NG' },
-    { pattern: /\b(chale|cedi|trotro)\b/i, market: 'GH' },
-    { pattern: /\b(ksh|shilling|safaricom|matatu)\b/i, market: 'KE' },
-    { pattern: /\b(rand|braai|eish)\b/i, market: 'ZA' },
-    { pattern: /\b(pint|pub|mate|quid|lorry|cheers)\b/i, market: 'UK' }
-  ];
-  
-  for (const { pattern, market } of tokens) {
+  for (const { pattern, market } of marketPatterns) {
     if (pattern.test(lower)) {
       return market as any;
-    }
-  }
-  
-  // Strict "ZA" detection - only standalone
-  if (/\bZA\b|\bza\b(?![a-z])/.test(input)) {
-    const contextWindow = lower.slice(Math.max(0, lower.indexOf('za') - 30), 
-                                     Math.min(lower.length, lower.indexOf('za') + 30));
-    if (contextWindow.includes('south') || contextWindow.includes('africa') || 
-        contextWindow.includes('joburg') || contextWindow.includes('cape') ||
-        contextWindow.includes('johannesburg') || contextWindow.includes('rand')) {
-      return 'ZA';
     }
   }
   
   return 'GLOBAL';
 }
 
-// Detect register/tone from input
+function detectEntryPathFromInput(input: string): 'emotion' | 'scene' | 'seed' | 'audience' {
+  const upper = input.toUpperCase();
+  
+  if (upper.includes('EMOTION INPUT:')) return 'emotion';
+  if (upper.includes('SCENE INPUT:')) return 'scene';
+  if (upper.includes('STORY SEED:')) return 'seed';
+  if (upper.includes('AUDIENCE SIGNAL:')) return 'audience';
+  
+  const lower = input.toLowerCase();
+  
+  if (/\b(feel|felt|feeling|emotion|emotional|happy|sad|angry|excited|relief|anxiety|joy|calm|frustrated|proud|grateful|delighted|hurt|disappointed|annoyed|upset|cynical|cold)\b/i.test(lower)) {
+    return 'emotion';
+  }
+  
+  if (/\b(scene|setting|place|location|room|space|environment|background|kitchen|office|street|park|laundry|flat|airport|lounge|pub|desk|workshop|fleet|call|coffee shop|cafe|bus|train)\b/i.test(lower)) {
+    return 'scene';
+  }
+  
+  if (/\b(audience|viewer|reader|people|they|them|everyone|somebody|customer|user|consumer|family|married|households|professionals|fans|stakeholders)\b/i.test(lower)) {
+    return 'audience';
+  }
+  
+  return 'seed';
+}
+
 function detectRegisterFromInput(input: string): 'formal' | 'casual' | 'colloquial' {
   const lower = input.toLowerCase();
   
@@ -236,7 +324,7 @@ function detectRegisterFromInput(input: string): 'formal' | 'casual' | 'colloqui
 }
 
 // ============================================================================
-// HELPER FUNCTIONS
+// GIBBERISH DETECTION
 // ============================================================================
 
 function calculateGibberishScore(text: string): { score: number; isGibberish: boolean; reason: string } {
@@ -321,324 +409,155 @@ function calculateGibberishScore(text: string): { score: number; isGibberish: bo
   return { score, isGibberish, reason: reason || 'looks like normal text' };
 }
 
-function isPunctuationOrQuestion(text: string): boolean {
-  return /\?$/.test(text) || /!$/.test(text) || /\.\.\.$/.test(text) || /\.$/.test(text);
-}
-
-function isCommonWord(word: string): boolean {
-  const commonWords = new Set([
-    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
-    'am', 'is', 'are', 'was', 'were', 'be', 'been', 'the', 'a', 'an', 'and', 'but',
-    'or', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'as', 'from', 'up',
-    'down', 'out', 'off', 'over', 'under', 'yes', 'no', 'ok', 'okay', 'hi', 'hello',
-    'hey', 'going', 'coming', 'doing', 'being', 'having', 'making', 'taking', 'got',
-    'get', 'make', 'take', 'come', 'go', 'see', 'look', 'watch', 'hear', 'listen',
-    'say', 'tell', 'talk', 'speak', 'know', 'think', 'feel', 'want', 'need', 'like',
-    'love', 'hate', 'good', 'bad', 'big', 'small', 'hot', 'cold', 'happy', 'sad',
-    'kennedy', 'president', 'family', 'brother', 'sister', 'mother', 'father',
-    'create', 'brand', 'story', 'shoe', 'company' // Added business terms
-  ]);
-  
-  return commonWords.has(word.toLowerCase());
-}
-
-function detectInsufficientInformation(text: string, wordCount: number, isGibberish: boolean = false): boolean {
-  if (isGibberish) return false;
-  
-  if (wordCount <= 2 && !isPunctuationOrQuestion(text)) {
-    return true;
-  }
-  
-  if (wordCount === 1 && /^[A-Z][a-z]+$/.test(text) && !isCommonWord(text)) {
-    return true;
-  }
-  
-  if (wordCount <= 3 && /^(going to|coming from|doing|making|taking|got to|have to|make|take)/i.test(text)) {
-    return true;
-  }
-  
-  const shortPhrases = [
-    'going out', 'coming in', 'getting up', 'sitting down', 'looking at', 'thinking of',
-    'feeling good', 'feeling bad', 'making it', 'taking it', 'got it'
-  ];
-  
-  if (shortPhrases.includes(text.toLowerCase())) {
-    return true;
-  }
-  
-  return false;
-}
-
 // ============================================================================
-// RISK DETECTION
+// RISK DETECTION - COMPLETELY REWRITTEN FOR ACCURACY
 // ============================================================================
 
 function detectMeaningRisks(input: string): MeaningRiskAssessment {
   const trimmed = input.trim();
-  const lowerInput = trimmed.toLowerCase();
-  const words = lowerInput.split(/\s+/);
-  const wordCount = words.length;
+  const wordCount = trimmed.split(/\s+/).length;
   
+  // FIRST: Check for lacking context - this overrides everything else
+  const contextCheck = detectLackingContext(trimmed);
+  
+  // Initialize risks array
   const risks: MeaningRisk[] = [];
   let specificDoubt = '';
   let confidentInterpretation = '';
-  let hypothesis: string | undefined;
+  let hypothesis = '';
+  let distortionLikelihood = 0;
   
+  // CASE 1: Gibberish
   const gibberishAnalysis = calculateGibberishScore(trimmed);
-  
   if (gibberishAnalysis.isGibberish) {
-    risks.push('possible-gibberish', 'intent-misinterpretation');
+    risks.push('possible-gibberish');
     specificDoubt = `possible gibberish: ${gibberishAnalysis.reason}`;
-    hypothesis = 'I\'m not sure I\'m reading this correctly — could you clarify what you mean?';
-    confidentInterpretation = 'unclear meaning - may be gibberish or mistyped';
+    hypothesis = "I'm not sure I'm reading this correctly — could you rephrase or say more about what you mean?";
+    confidentInterpretation = 'unclear meaning - may be gibberish';
+    distortionLikelihood = 0.9;
     
-    const assessment: MeaningRiskAssessment = {
+    return {
       risks,
       riskLevel: 'high',
-      distortionLikelihood: Math.max(0.8, gibberishAnalysis.score),
+      distortionLikelihood,
       specificDoubt,
       confidentInterpretation,
       hypothesis
     };
-    
-    return assessment;
   }
   
-  const isInsufficient = detectInsufficientInformation(trimmed, wordCount, false);
-  
-  if (isInsufficient) {
+  // CASE 2: Setup without substance - CRITICAL FIX
+  if (contextCheck.lacksContext) {
     risks.push('insufficient-context');
+    if (contextCheck.isPureSetup) {
+      risks.push('setup-without-substance');
+    }
     
-    if (wordCount === 1) {
-      const word = words[0];
-      
-      if (isCommonWord(word)) {
-        specificDoubt = `single common word "${word}" without context`;
-        hypothesis = `"${word}" could mean many different things depending on context.`;
-        confidentInterpretation = 'single word - needs context';
-      } else if (/^[A-Z][a-z]+$/.test(word)) {
-        specificDoubt = `name or proper noun "${word}" without context`;
-        hypothesis = `"${word}" might refer to a person, place, or concept — could you say more about what you mean?`;
-        confidentInterpretation = 'proper noun - context needed';
-      } else {
-        specificDoubt = `single word "${word}" without clear intent`;
-        hypothesis = `"${word}" could mean many things — could you say more about what you're pointing to?`;
-        confidentInterpretation = 'single word - multiple possible meanings';
-      }
-    } else if (wordCount === 2) {
-      specificDoubt = `short phrase "${trimmed}" without context`;
-      
-      if (trimmed.toLowerCase() === 'going out') {
-        hypothesis = '"Going out" could mean physically leaving, socially going out, or something else entirely.';
-      } else if (trimmed.toLowerCase() === 'make sense') {
-        hypothesis = '"Make sense" could refer to understanding, logical coherence, or creating meaning.';
-      } else {
-        hypothesis = `"${trimmed}" is brief — I may be missing what you're referring to.`;
-      }
-      
-      confidentInterpretation = 'short phrase - needs context';
+    specificDoubt = contextCheck.reason || 'lacks narrative substance';
+    
+    // Generate appropriate hypothesis based on the case
+    if (contextCheck.wordCount <= 2) {
+      hypothesis = `"${trimmed}" — I need more context to understand what you're referring to.`;
+      confidentInterpretation = 'too brief to interpret';
+    } else if (contextCheck.isPureSetup) {
+      hypothesis = "I hear that you're setting up a scene, but I don't yet understand the actual moment or feeling you want me to work with.";
+      confidentInterpretation = 'setup without substance';
     } else {
-      specificDoubt = 'insufficient context for clear interpretation';
-      hypothesis = 'This needs some clarification to understand fully.';
-      confidentInterpretation = 'brief statement - context needed';
+      hypothesis = `"${trimmed}" — I might be missing the context here. Could you say more about what you mean?`;
+      confidentInterpretation = 'needs additional context';
+    }
+    
+    // Calculate distortion likelihood - HIGH for lacking context
+    distortionLikelihood = 0.7 + (Math.min(contextCheck.wordCount, 10) * 0.02);
+    distortionLikelihood = Math.min(distortionLikelihood, 0.85);
+    
+    const riskLevel = distortionLikelihood > 0.7 ? 'high' : 'medium';
+    
+    return {
+      risks,
+      riskLevel,
+      distortionLikelihood: Math.round(distortionLikelihood * 100) / 100,
+      specificDoubt,
+      confidentInterpretation,
+      hypothesis
+    };
+  }
+  
+  // CASE 3: Has substance - proceed with normal risk detection
+  // But still check for specific risks
+  
+  // Check for insufficient context in longer but vague inputs
+  if (wordCount <= 5 && !hasSubstantiveContent(trimmed)) {
+    risks.push('insufficient-context');
+    specificDoubt = `brief statement (${wordCount} words) without clear narrative intent`;
+    hypothesis = "This is brief — I may be making assumptions about what you mean.";
+    confidentInterpretation = 'needs more context';
+    distortionLikelihood = 0.5;
+  }
+  
+  // Check for emotion distortion
+  const ambiguousEmotionWords = ['heavy', 'light', 'hard', 'soft', 'cold', 'warm'];
+  for (const word of ambiguousEmotionWords) {
+    if (new RegExp(`\\b${word}\\b`, 'i').test(trimmed)) {
+      risks.push('emotion-distortion');
+      specificDoubt = `"${word}" has multiple possible readings`;
+      hypothesis = `I might be reading "${word}" as a particular quality — adjust me if that's off.`;
+      confidentInterpretation = 'emotional nuance possible';
+      distortionLikelihood = Math.max(distortionLikelihood, 0.45);
+      break;
     }
   }
   
-  if (risks.length === 0 && wordCount > 2) {
-    const ambiguousWords = [
-      { word: 'heavy', hypothesis: 'I might be reading "heavy" as burden rather than seriousness.' },
-      { word: 'light', hypothesis: 'I might be reading "light" as trivial rather than gentle.' },
-      { word: 'hard', hypothesis: 'I might be reading "hard" as difficult rather than unyielding.' },
-      { word: 'cold', hypothesis: 'I might be reading "cold" as unfeeling rather than chilly.' },
-      { word: 'warm', hypothesis: 'I might be reading "warm" as kind rather than heated.' }
-    ];
-    
-    for (const { word, hypothesis: wordHypothesis } of ambiguousWords) {
-      if (words.includes(word)) {
-        risks.push('emotion-distortion');
-        specificDoubt = `"${word}" has multiple possible readings`;
-        hypothesis = wordHypothesis;
-        break;
-      }
-    }
-    
-    if (/(perfect|great|wonderful)\s+(?!day|news|work|job|effort)/i.test(trimmed)) {
-      const match = trimmed.match(/(perfect|great|wonderful)\s+\w+/i);
-      if (match) {
-        risks.push('irony-missed');
-        specificDoubt = 'possible irony or sarcasm';
-        hypothesis = `I might be missing irony in "${match[0]}".`;
-      }
-    }
-    
-    const hasPositive = /(good|great|nice|positive|better)/i.test(trimmed);
-    const hasNegative = /(bad|hard|difficult|negative|worse)/i.test(trimmed);
-    const hasBut = /\s+but\s+/i.test(trimmed);
-    
-    if (hasPositive && hasNegative && !hasBut && trimmed.length > 10) {
-      risks.push('positive-negative-ambiguity');
-      specificDoubt = 'mixed positive and negative signals';
-      hypothesis = 'I might be misreading the overall emotional direction.';
-    }
-    
-    const metaphorMatch = trimmed.match(/(heart|mind|wave|storm|weight|light)\s+(of|in|on|for)/i);
-    if (metaphorMatch && trimmed.length < 40) {
+  // Check for possible irony
+  if (/(perfect|great|wonderful|amazing|fantastic)\s+(?!day|news|work|job|effort)/i.test(trimmed) && 
+      wordCount <= 15) {
+    risks.push('irony-missed');
+    specificDoubt = 'possible irony or sarcasm';
+    hypothesis = 'I might be missing a particular tone here.';
+    confidentInterpretation = 'possible ironic tone';
+    distortionLikelihood = Math.max(distortionLikelihood, 0.6);
+  }
+  
+  // Check for literal vs metaphor
+  const metaphorPatterns = ['heart of', 'mind of', 'wave of', 'storm of', 'weight of', 'light of'];
+  for (const pattern of metaphorPatterns) {
+    if (trimmed.toLowerCase().includes(pattern)) {
       risks.push('literal-vs-metaphor');
-      specificDoubt = 'possible figurative language';
-      hypothesis = `I might be taking "${metaphorMatch[0]}" too literally.`;
-    }
-    
-    const contrastMatch = trimmed.match(/(but|however|although|yet|though)\s+/i);
-    if (contrastMatch && !confidentInterpretation.includes('positive') && !confidentInterpretation.includes('negative')) {
-      risks.push('tension-overlook');
-      specificDoubt = 'contrast without clear emotional stance';
-      hypothesis = `I might be misreading what sits on either side of "${contrastMatch[0]}".`;
+      specificDoubt = `possible figurative language: "${pattern}"`;
+      hypothesis = `I might be taking "${pattern}" too literally.`;
+      confidentInterpretation = 'likely metaphorical';
+      distortionLikelihood = Math.max(distortionLikelihood, 0.5);
+      break;
     }
   }
   
-  if (!confidentInterpretation) {
-    if (/(happy|joy|excited|proud|love|grateful|delighted)/i.test(trimmed)) {
-      confidentInterpretation = 'positive emotional tone';
-    } else if (/(sad|hurt|disappointed|angry|frustrated|annoyed|upset)/i.test(trimmed)) {
-      confidentInterpretation = 'negative emotional tone';
-    } else if (/\?$/.test(trimmed)) {
-      confidentInterpretation = 'inquiry intent';
-    } else if (/!$/.test(trimmed)) {
-      confidentInterpretation = 'emphatic expression';
-    } else {
-      if (wordCount <= 3) {
-        confidentInterpretation = 'brief statement - some context needed';
-      } else {
-        confidentInterpretation = 'neutral observation or sharing';
-      }
-    }
+  // If no risks detected, set baseline
+  if (risks.length === 0) {
+    confidentInterpretation = 'clear narrative intent';
+    distortionLikelihood = 0.2;
   }
   
-  let distortionLikelihood = 0;
-  
-  if (risks.length > 0) {
-    distortionLikelihood = Math.min(0.3 + (risks.length * 0.12), 0.85);
-    
-    if (risks.includes('possible-gibberish')) {
-      distortionLikelihood = Math.max(distortionLikelihood, 0.8);
-    }
-    
-    if (risks.includes('insufficient-context')) {
-      if (wordCount === 1) {
-        distortionLikelihood += 0.25;
-      } else if (wordCount <= 3) {
-        distortionLikelihood += 0.15;
-      }
-    }
-    
-    if (risks.includes('irony-missed')) {
-      distortionLikelihood = Math.max(distortionLikelihood, 0.7);
-    }
-    
-    if (wordCount <= 3 && !isPunctuationOrQuestion(trimmed)) {
-      distortionLikelihood += 0.1;
-    }
-  } else {
-    if (wordCount <= 2 && !isPunctuationOrQuestion(trimmed)) {
-      distortionLikelihood = 0.3;
-      risks.push('insufficient-context');
-      specificDoubt = 'brief statement - may need more context';
-      hypothesis = 'This is brief — I may be making assumptions about what you mean.';
-      confidentInterpretation = 'brief statement - some context needed';
-    }
+  // Ensure distortionLikelihood is set
+  if (distortionLikelihood === 0) {
+    distortionLikelihood = risks.length > 0 ? 0.4 : 0.2;
   }
   
-  distortionLikelihood = Math.min(Math.max(distortionLikelihood, 0), 0.95);
+  // Calculate risk level
+  const riskLevel = distortionLikelihood > 0.6 ? 'high' : 
+                    distortionLikelihood > 0.35 ? 'medium' : 'low';
   
-  const riskLevel = distortionLikelihood > 0.7 ? 'high' : 
-                    distortionLikelihood > 0.4 ? 'medium' : 'low';
-  
-  const assessment: MeaningRiskAssessment = {
+  return {
     risks,
     riskLevel,
     distortionLikelihood: Math.round(distortionLikelihood * 100) / 100,
     specificDoubt: specificDoubt || 'minimal doubt',
-    confidentInterpretation
+    confidentInterpretation: confidentInterpretation || 'proceeding with interpretation',
+    hypothesis: hypothesis || undefined
   };
-  
-  if (hypothesis) assessment.hypothesis = hypothesis;
-  return assessment;
 }
 
 // ============================================================================
-// MINIMAL ASSUMPTIONS
-// ============================================================================
-
-// ============================================================================
-// MINIMAL ASSUMPTIONS
-// ============================================================================
-
-function makeMinimalAssumptions(
-  input: string, 
-  riskAssessment: MeaningRiskAssessment
-): XOInterpretation['minimalAssumptions'] {
-  
-  const wordCount = input.split(/\s+/).length;
-  
-  if (riskAssessment.risks.includes('possible-gibberish')) {
-    return {
-      emotionDirection: 'unknown',
-      tensionType: 'unknown',
-      intentCategory: 'unknown'
-    };
-  }
-  
-  if (riskAssessment.risks.length > 0 || wordCount <= 2) {
-    const lowerInput = input.toLowerCase();
-    
-    let emotionDirection: XOInterpretation['minimalAssumptions']['emotionDirection'] = 'unknown';
-    let tensionType: XOInterpretation['minimalAssumptions']['tensionType'] = 'unknown';
-    let intentCategory: XOInterpretation['minimalAssumptions']['intentCategory'] = 'unknown';
-    
-    if (/\?$/.test(input)) {
-      intentCategory = 'inquire';
-    } else if (/!$/.test(input)) {
-      intentCategory = 'emphasize';
-    } else if (lowerInput.includes('going') || lowerInput.includes('coming') || lowerInput.includes('doing')) {
-      intentCategory = 'share';
-      tensionType = 'observation';
-    } else if (/(kennedy|president|family|brother|sister)/i.test(input)) {
-      intentCategory = 'share';
-      tensionType = 'reflection';
-    } else if (lowerInput.includes('make')) {
-      tensionType = 'desire';
-    } else if (/(create|brand|story)/i.test(input)) {
-      intentCategory = 'share'; // Changed from 'express' to 'share'
-      tensionType = 'desire';
-    }
-    
-    return { emotionDirection, tensionType, intentCategory };
-  }
-  
-  let emotionDirection: XOInterpretation['minimalAssumptions']['emotionDirection'] = 'neutral';
-  if (/(happy|joy|excited|proud|love|grateful)/i.test(input)) emotionDirection = 'positive';
-  else if (/(sad|hurt|disappointed|angry|frustrated)/i.test(input)) emotionDirection = 'negative';
-  else if (/(heavy|hard|burden|weight)/i.test(input)) emotionDirection = 'negative';
-  else if (/(light|soft|gentle)/i.test(input)) emotionDirection = 'positive';
-  else if (/(complex|complicated|mixed)/i.test(input)) emotionDirection = 'layered';
-  
-  let tensionType: XOInterpretation['minimalAssumptions']['tensionType'] = 'observation';
-  if (/(but|however|although|yet)/i.test(input)) tensionType = 'contrast';
-  else if (/(wish|could|should|if only|create|build|make)/i.test(input)) tensionType = 'desire';
-  else if (/(remember|recall|back then)/i.test(input)) tensionType = 'reflection';
-  
-  let intentCategory: XOInterpretation['minimalAssumptions']['intentCategory'] = 'share';
-  if (/\?$/.test(input)) intentCategory = 'inquire';
-  else if (/!$/.test(input)) intentCategory = 'emphasize';
-  else if (/^I( think| feel| believe)/i.test(input)) intentCategory = 'reflect';
-  // Note: 'express' is not in the minimalAssumptions.intentCategory union type
-  // so we use 'share' for creative/business intent
-  
-  return { emotionDirection, tensionType, intentCategory };
-}
-
-// ============================================================================
-// CONFIDENCE CALCULATION
+// CONFIDENCE CALCULATION - COMPLETELY REWRITTEN
 // ============================================================================
 
 function calculateConfidence(
@@ -646,48 +565,128 @@ function calculateConfidence(
   riskAssessment: MeaningRiskAssessment
 ): number {
   const wordCount = input.split(/\s+/).length;
-  let baseConfidence = 1 - riskAssessment.distortionLikelihood;
+  const contextCheck = detectLackingContext(input);
+  const hasSubstance = hasSubstantiveContent(input);
   
+  let confidence = 0.95; // Start high, then penalize
+  
+  // PENALTY 1: Gibberish - SEVERE
   if (riskAssessment.risks.includes('possible-gibberish')) {
-    baseConfidence *= 0.3;
-  } else if (riskAssessment.risks.includes('insufficient-context')) {
-    if (wordCount === 1) {
-      baseConfidence *= 0.6;
-    } else if (wordCount === 2) {
-      baseConfidence *= 0.7;
-    } else if (wordCount === 3) {
-      baseConfidence *= 0.8;
-    }
+    confidence *= 0.1;
+    return Math.max(0.05, Math.min(confidence, 0.95));
   }
   
-  if (isPunctuationOrQuestion(input)) {
-    baseConfidence *= 1.1;
+  // PENALTY 2: Setup without substance - SEVERE
+  if (contextCheck.lacksContext && contextCheck.isPureSetup) {
+    confidence *= 0.2;
+    return Math.max(0.1, Math.min(confidence, 0.95));
   }
   
-  return Math.max(0.1, Math.min(baseConfidence, 0.95));
+  // PENALTY 3: Too brief
+  if (wordCount <= 2) {
+    confidence *= 0.15;
+    return Math.max(0.1, Math.min(confidence, 0.95));
+  }
+  
+  // PENALTY 4: Brief without substance
+  if (wordCount <= 5 && !hasSubstance) {
+    confidence *= 0.25;
+  } else if (wordCount <= 8 && !hasSubstance) {
+    confidence *= 0.4;
+  }
+  
+  // PENALTY 5: Framing without content
+  const hasFraming = /overheard|heard|said|told|asked|replied|conversation|yesterday|morning|afternoon|evening/i.test(input);
+  if (hasFraming && !hasSubstance) {
+    confidence *= 0.3;
+  }
+  
+  // PENALTY 6: Specific risks
+  if (riskAssessment.risks.includes('insufficient-context')) {
+    confidence *= 0.5;
+  }
+  
+  if (riskAssessment.risks.includes('irony-missed')) {
+    confidence *= 0.6;
+  }
+  
+  if (riskAssessment.risks.includes('emotion-distortion')) {
+    confidence *= 0.7;
+  }
+  
+  if (riskAssessment.risks.includes('literal-vs-metaphor')) {
+    confidence *= 0.7;
+  }
+  
+  // BONUS: Complete thoughts with substance
+  if (hasSubstance) {
+    if (wordCount >= 15) confidence *= 1.1;
+    if (/["'].*?["']/.test(input)) confidence *= 1.1; // Has quotes
+    if (/\b(create|make|write|generate|build)\b.*\b(story|narrative|brand|script)\b/i.test(input)) confidence *= 1.1; // Has creative request
+    if (/\b(brand|company|product|marketing|campaign)\b/i.test(input)) confidence *= 1.05; // Brand context
+  }
+  
+  // Apply distortion likelihood from risk assessment
+  confidence *= (1 - riskAssessment.distortionLikelihood);
+  
+  // Clamp to reasonable range
+  return Math.max(0.05, Math.min(confidence, 0.95));
 }
 
 // ============================================================================
-// CLARIFICATION DECISION
+// CLARIFICATION DECISION - SIMPLIFIED AND STRICT
 // ============================================================================
 
-function shouldClarify(riskAssessment: MeaningRiskAssessment): boolean {
-  const { riskLevel, risks, distortionLikelihood } = riskAssessment;
+function shouldClarify(
+  riskAssessment: MeaningRiskAssessment, 
+  input: string
+): boolean {
+  const wordCount = input.split(/\s+/).length;
+  const contextCheck = detectLackingContext(input);
+  const hasSubstance = hasSubstantiveContent(input);
   
-  if (risks.includes('possible-gibberish')) {
+  // ALWAYS clarify if it's setup without substance
+  if (contextCheck.lacksContext && contextCheck.isPureSetup) {
+    console.log(`[CLARIFY] MUST clarify: setup without substance`);
     return true;
   }
   
-  if (riskLevel === 'high') return true;
-  
-  if (riskLevel === 'medium') {
-    if (risks.includes('irony-missed')) return true;
-    if (risks.includes('intent-misinterpretation') && distortionLikelihood > 0.6) return true;
-    if (risks.includes('insufficient-context') && distortionLikelihood > 0.5) return true;
-    if (risks.includes('positive-negative-ambiguity')) return true;
+  // ALWAYS clarify if it's too brief to interpret
+  if (wordCount <= 2) {
+    console.log(`[CLARIFY] MUST clarify: too brief (${wordCount} words)`);
+    return true;
   }
   
-  if (risks.includes('insufficient-context') && distortionLikelihood > 0.4) {
+  // ALWAYS clarify if it's gibberish
+  if (riskAssessment.risks.includes('possible-gibberish')) {
+    return true;
+  }
+  
+  // ALWAYS clarify if high risk
+  if (riskAssessment.riskLevel === 'high') {
+    return true;
+  }
+  
+  // Clarify if medium risk with insufficient context
+  if (riskAssessment.riskLevel === 'medium') {
+    if (riskAssessment.risks.includes('insufficient-context')) {
+      return true;
+    }
+    if (riskAssessment.risks.includes('irony-missed')) {
+      return true;
+    }
+    if (riskAssessment.distortionLikelihood > 0.5) {
+      return true;
+    }
+  }
+  
+  // Clarify if low word count with ANY risk
+  if (wordCount <= 8 && riskAssessment.risks.length > 0) {
+    return true;
+  }
+  
+  // Clarify if no substantive content
+  if (!hasSubstance && wordCount <= 12) {
     return true;
   }
   
@@ -695,7 +694,66 @@ function shouldClarify(riskAssessment: MeaningRiskAssessment): boolean {
 }
 
 // ============================================================================
-// CLARIFICATION GENERATION
+// MINIMAL ASSUMPTIONS
+// ============================================================================
+
+function makeMinimalAssumptions(
+  input: string,
+  riskAssessment: MeaningRiskAssessment
+): XOInterpretation['minimalAssumptions'] {
+  
+  // If high risk or lacking context, make no assumptions
+  if (riskAssessment.riskLevel === 'high' || 
+      riskAssessment.risks.includes('possible-gibberish') ||
+      detectLackingContext(input).lacksContext) {
+    return {
+      emotionDirection: 'unknown',
+      tensionType: 'unknown',
+      intentCategory: 'unknown'
+    };
+  }
+  
+  const lowerInput = input.toLowerCase();
+  
+  // Make minimal, cautious assumptions
+  let emotionDirection: XOInterpretation['minimalAssumptions']['emotionDirection'] = 'neutral';
+  let tensionType: XOInterpretation['minimalAssumptions']['tensionType'] = 'observation';
+  let intentCategory: XOInterpretation['minimalAssumptions']['intentCategory'] = 'share';
+  
+  // Emotion detection - only if clear
+  if (/(happy|joy|excited|proud|love|grateful|delighted)/i.test(lowerInput)) {
+    emotionDirection = 'positive';
+  } else if (/(sad|hurt|disappointed|angry|frustrated|upset|cynical|cold)/i.test(lowerInput)) {
+    emotionDirection = 'negative';
+  } else if (/(complex|complicated|mixed|layered)/i.test(lowerInput)) {
+    emotionDirection = 'layered';
+  }
+  
+  // Tension detection
+  if (/(but|however|although|yet|though)/i.test(lowerInput)) {
+    tensionType = 'contrast';
+  } else if (/(wish|could|should|if only|create|build|make)/i.test(lowerInput)) {
+    tensionType = 'desire';
+  } else if (/(remember|recall|back then|used to)/i.test(lowerInput)) {
+    tensionType = 'reflection';
+  }
+  
+  // Intent detection
+  if (/\?$/.test(input)) {
+    intentCategory = 'inquire';
+  } else if (/!$/.test(input)) {
+    intentCategory = 'emphasize';
+  } else if (/^(i think|i feel|i believe|i wonder)/i.test(lowerInput)) {
+    intentCategory = 'reflect';
+  } else if (/(create|make|write|generate|build).*(story|narrative|brand|script)/i.test(lowerInput)) {
+    intentCategory = 'express';
+  }
+  
+  return { emotionDirection, tensionType, intentCategory };
+}
+
+// ============================================================================
+// CLARIFICATION GENERATION - CONTEXT-AWARE
 // ============================================================================
 
 function generateClarification(
@@ -703,91 +761,143 @@ function generateClarification(
   riskAssessment: MeaningRiskAssessment
 ): { hypothesis: string; correctionInvitation: string; unclearElement: string } | null {
   
+  // Handle lacking context cases first
+  const contextCheck = detectLackingContext(input);
+  if (contextCheck.lacksContext) {
+    if (contextCheck.isPureSetup) {
+      return {
+        hypothesis: "I hear that you're setting up a scene, but I don't yet understand the actual moment or feeling you want me to work with.",
+        correctionInvitation: "Could you share what was actually said, felt, or observed in that moment?",
+        unclearElement: contextCheck.reason || 'setup without substance'
+      };
+    }
+    
+    if (contextCheck.wordCount <= 2) {
+      return {
+        hypothesis: `"${input}" — I need more context to understand what you're referring to.`,
+        correctionInvitation: "Could you say more about what you mean?",
+        unclearElement: `too brief (${contextCheck.wordCount} words)`
+      };
+    }
+    
+    return {
+      hypothesis: `"${input}" — I might be missing the context here.`,
+      correctionInvitation: "Could you say more about what you're pointing to?",
+      unclearElement: contextCheck.reason || 'needs more context'
+    };
+  }
+  
   if (riskAssessment.risks.length === 0) return null;
   
   const primaryRisk = riskAssessment.risks[0];
   let hypothesis = riskAssessment.hypothesis;
   let unclearElement = riskAssessment.specificDoubt;
+  let correctionInvitation = "If that's off, adjust me.";
   
-  if (!hypothesis) {
-    switch (primaryRisk) {
-      case 'possible-gibberish': {
-        hypothesis = 'I\'m not sure I\'m reading this correctly — could you rephrase or say more about what you mean?';
-        unclearElement = 'unclear meaning - possible gibberish';
-        break;
-      }
-      case 'insufficient-context': {
-        const wordCount = input.split(/\s+/).length;
-        
-        if (wordCount === 1) {
-          const word = input.trim();
-          if (isCommonWord(word.toLowerCase())) {
-            hypothesis = `"${word}" could mean many different things — could you say more about what you're referring to?`;
-          } else if (/^[A-Z][a-z]+$/.test(word)) {
-            hypothesis = `"${word}" might refer to a person, place, or specific concept — could you provide more context?`;
-          } else {
-            hypothesis = `"${word}" — could you say more about what you mean by this?`;
-          }
-        } else if (wordCount === 2) {
-          hypothesis = `"${input}" — I might be missing what you're pointing to. Could you say more?`;
-        } else {
-          hypothesis = 'This is brief — I may be making assumptions about what you mean.';
-        }
-        unclearElement = 'needs more context';
-        break;
-      }
-      case 'intent-misinterpretation': {
-        hypothesis = `"${input}" could be interpreted in different ways — could you clarify your intent?`;
-        unclearElement = 'unclear intent';
-        break;
-      }
-      case 'emotion-distortion': {
-        const wordMatch = input.match(/(heavy|light|hard|soft|cold|warm)/i);
-        const word = wordMatch ? wordMatch[0] : 'this';
-        hypothesis = `I might be reading "${word}" as a particular quality — adjust me if that's off.`;
-        break;
-      }
-      case 'irony-missed': {
-        const snippet = input.substring(0, Math.min(40, input.length));
-        hypothesis = `I might be missing a particular tone in "${snippet}...".`;
-        unclearElement = 'possible irony';
-        break;
-      }
-      case 'positive-negative-ambiguity': {
-        hypothesis = 'I might be misreading the overall emotional direction.';
-        unclearElement = 'mixed emotional signals';
-        break;
-      }
-      case 'literal-vs-metaphor': {
-        const metaphorMatch = input.match(/(heart|mind|wave|storm)\s+(of|in|on)/i);
-        const phrase = metaphorMatch ? metaphorMatch[0] : 'this language';
-        hypothesis = `I might be taking "${phrase}" too literally.`;
-        break;
-      }
-      case 'tension-overlook': {
-        const contrastWord = input.match(/(but|however|although|yet)/i)?.[0] || 'the contrast';
-        hypothesis = `I might be misreading what sits on either side of "${contrastWord}".`;
-        break;
-      }
-      default: {
-        hypothesis = 'I might be reading this in a particular way — adjust me if needed.';
-      }
+  switch (primaryRisk) {
+    case 'possible-gibberish':
+      hypothesis = "I'm not sure I'm reading this correctly — could you rephrase or say more about what you mean?";
+      correctionInvitation = "If this wasn't what you meant, please rephrase.";
+      unclearElement = 'unclear meaning - possible gibberish';
+      break;
+      
+    case 'insufficient-context':
+      hypothesis = "This is brief — I may be making assumptions about what you mean.";
+      correctionInvitation = "Could you say more about what you mean?";
+      unclearElement = 'needs more context';
+      break;
+      
+    case 'setup-without-substance':
+      hypothesis = "I hear you're describing where this happened, but I don't yet understand the actual moment you want to work with.";
+      correctionInvitation = "Could you share what was actually said, felt, or observed?";
+      unclearElement = 'setup without the actual moment';
+      break;
+      
+    case 'irony-missed':
+      hypothesis = "I might be missing a particular tone here.";
+      correctionInvitation = "If that's not the tone, could you clarify?";
+      unclearElement = 'possible irony';
+      break;
+      
+    case 'emotion-distortion': {
+      const wordMatch = input.match(/(heavy|light|hard|soft|cold|warm)/i);
+      const word = wordMatch ? wordMatch[0] : 'this';
+      hypothesis = `I might be reading "${word}" as a particular quality — adjust me if that's off.`;
+      unclearElement = `ambiguous word: ${word}`;
+      break;
+    }
+    
+    case 'literal-vs-metaphor': {
+      const metaphorMatch = input.match(/(heart|mind|wave|storm|weight|light)\s+(of|in|on)/i);
+      const phrase = metaphorMatch ? metaphorMatch[0] : 'this language';
+      hypothesis = `I might be taking "${phrase}" too literally.`;
+      unclearElement = `possible metaphor: ${phrase}`;
+      break;
+    }
+    
+    case 'positive-negative-ambiguity':
+      hypothesis = 'I might be misreading the overall emotional direction.';
+      unclearElement = 'mixed emotional signals';
+      break;
+      
+    case 'tension-overlook': {
+      const contrastWord = input.match(/(but|however|although|yet)/i)?.[0] || 'the contrast';
+      hypothesis = `I might be misreading what sits on either side of "${contrastWord}".`;
+      unclearElement = `contrast without clear stance`;
+      break;
     }
   }
   
-  let correctionInvitation = "If that's off, adjust me.";
-  
-  if (primaryRisk === 'possible-gibberish') {
-    correctionInvitation = "If this wasn't what you meant, please rephrase.";
-  } else if (primaryRisk === 'insufficient-context') {
-    correctionInvitation = "Could you say more about what you mean?";
-  }
-  
   return {
-    hypothesis,
+    hypothesis: hypothesis || 'I might be reading this in a particular way — adjust me if needed.',
     correctionInvitation,
     unclearElement: unclearElement || riskAssessment.specificDoubt
   };
+}
+
+// ============================================================================
+// AI INTERPRETATION
+// ============================================================================
+
+async function getAIIntepretation(input: string): Promise<Partial<XOInterpretation>> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `Extract meaning only, no prescription. Return JSON with:
+{
+  "coreTension": "push/pull (be tentative)",
+  "emotionalWeight": "feeling (be tentative)",
+  "intentSummary": "why shared (be tentative)"
+}`
+        },
+        { role: "user", content: input }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 150
+    });
+
+    const content = completion.choices[0].message.content;
+    if (!content) throw new Error('No content from AI');
+    
+    const parsed = JSON.parse(content);
+    
+    ['coreTension', 'emotionalWeight', 'intentSummary'].forEach(field => {
+      if (parsed[field] && !parsed[field].includes('seem') && 
+          !parsed[field].includes('might') && 
+          !parsed[field].includes('could')) {
+        parsed[field] = `seems like ${parsed[field]}`;
+      }
+    });
+    
+    return parsed;
+  } catch (error) {
+    console.error('AI interpretation error:', error);
+    return {};
+  }
 }
 
 // ============================================================================
@@ -801,15 +911,15 @@ async function generateUnderstandingSummary(
 ): Promise<string> {
   try {
     if (interpretation.riskAssessment.risks.includes('insufficient-context') || 
+        interpretation.riskAssessment.risks.includes('setup-without-substance') ||
         input.split(/\s+/).length <= 3) {
       
       const { confidentInterpretation, specificDoubt } = interpretation.riskAssessment;
       
-      if (specificDoubt.includes('single word')) {
-        const word = input.trim();
-        return `I hear "${word}" but I'm not sure what you're pointing to.`;
-      } else if (specificDoubt.includes('short phrase')) {
-        return `I hear "${input}" but I might be missing the context.`;
+      if (specificDoubt.includes('setup without substance')) {
+        return "I hear you're describing a scene, but I need the actual moment or feeling to work with.";
+      } else if (specificDoubt.includes('too brief')) {
+        return `"${input}" — I need more context to understand.`;
       } else {
         return `I hear "${confidentInterpretation}" but I need more to understand fully.`;
       }
@@ -828,9 +938,7 @@ Core tension: ${interpretation.coreTension}
 Emotional weight: ${interpretation.emotionalWeight}
 Intent: ${interpretation.intentSummary}
 
-Generate a brief, natural-sounding summary of what you understand so far. Example: "It sounds like you're reacting with humor and cynicism to product reviews, and you're curious how a washing machine brand might tell stories that feel warm, reliable, and grounded—appealing to someone who feels the world can be harsh but still values comfort and partnership."
-
-Keep it under 2 sentences.`
+Generate a brief, natural-sounding summary of what you understand so far. Keep it under 2 sentences.`
         },
         { role: "user", content: "Summarize what you understand so far." }
       ],
@@ -844,42 +952,13 @@ Keep it under 2 sentences.`
   } catch (error) {
     console.error('Error generating understanding summary:', error);
     
-    const { confidentInterpretation } = interpretation.riskAssessment;
     const snippet = input.substring(0, Math.min(50, input.length));
-    
-    if (snippet.length < input.length) {
-      return `I hear "${confidentInterpretation}" in "${snippet}..." but I'm proceeding cautiously.`;
-    } else {
-      return `I hear "${confidentInterpretation}" in "${snippet}" but I'm proceeding cautiously.`;
-    }
+    return `I hear "${snippet}..." but I'm proceeding cautiously.`;
   }
-}
-
-// Helper: Derive core theme from tension and emotion
-function determineCoreTheme(tension: string, emotion: string): string {
-  const lowerTension = tension.toLowerCase();
-  
-  if (lowerTension.includes('desire') || lowerTension.includes('wish')) {
-    return 'aspiration versus reality';
-  } else if (lowerTension.includes('contrast') || lowerTension.includes('but')) {
-    return 'tension between states';
-  } else if (lowerTension.includes('past') || lowerTension.includes('memory')) {
-    return 'time and memory';
-  } else if (lowerTension.includes('change') || lowerTension.includes('transition')) {
-    return 'transformation';
-  } else if (emotion === 'positive') {
-    return 'acknowledgment or appreciation';
-  } else if (emotion === 'negative') {
-    return 'difficulty or challenge';
-  } else if (emotion === 'complex' || emotion === 'layered') {
-    return 'multifaceted experience';
-  }
-  
-  return 'human experience';
 }
 
 // ============================================================================
-// CONTRACT CREATION ENGINE
+// CONTRACT CREATION
 // ============================================================================
 
 async function createMeaningContract(
@@ -889,7 +968,6 @@ async function createMeaningContract(
 ): Promise<MeaningContract> {
   const { riskAssessment, confidence, minimalAssumptions, seedMoment } = interpretation;
   
-  // STARTER PACK: Detect market and entry path
   const detectedMarket = detectMarketFromInput(input);
   const detectedEntryPath = detectEntryPathFromInput(input);
   const detectedRegister = detectRegisterFromInput(input);
@@ -898,7 +976,8 @@ async function createMeaningContract(
   let certaintyMode: MeaningContract['certaintyMode'] = 'clarification-needed';
   let safeToNarrate = false;
   
-  if (riskAssessment.risks.includes('possible-gibberish')) {
+  if (riskAssessment.risks.includes('possible-gibberish') || 
+      detectLackingContext(input).lacksContext) {
     certaintyMode = 'clarification-needed';
     safeToNarrate = false;
   } else if (confidence >= 0.7 && riskAssessment.riskLevel === 'low') {
@@ -949,13 +1028,12 @@ async function createMeaningContract(
     emotionalState
   );
   
-  // Generate understanding summary if safeToNarrate is false
+  // Generate understanding summary if needed
   let understandingSummary: string | undefined;
   if (!safeToNarrate) {
     understandingSummary = await generateUnderstandingSummary(input, interpretation, aiInterpretation);
   }
   
-  // Build the STARTER PACK compatible contract
   const contract: MeaningContract = {
     interpretedMeaning: {
       emotionalState,
@@ -964,7 +1042,6 @@ async function createMeaningContract(
       intentCategory,
       coreTheme
     },
-    // STARTER PACK FIELDS:
     marketContext: {
       market: detectedMarket,
       language: 'english',
@@ -991,6 +1068,28 @@ async function createMeaningContract(
   return contract;
 }
 
+function determineCoreTheme(tension: string, emotion: string): string {
+  const lowerTension = tension.toLowerCase();
+  
+  if (lowerTension.includes('desire') || lowerTension.includes('wish')) {
+    return 'aspiration versus reality';
+  } else if (lowerTension.includes('contrast') || lowerTension.includes('but')) {
+    return 'tension between states';
+  } else if (lowerTension.includes('past') || lowerTension.includes('memory')) {
+    return 'time and memory';
+  } else if (lowerTension.includes('change') || lowerTension.includes('transition')) {
+    return 'transformation';
+  } else if (emotion === 'positive') {
+    return 'acknowledgment or appreciation';
+  } else if (emotion === 'negative') {
+    return 'difficulty or challenge';
+  } else if (emotion === 'complex' || emotion === 'layered') {
+    return 'multifaceted experience';
+  }
+  
+  return 'human experience';
+}
+
 // ============================================================================
 // PREVIEW GENERATION
 // ============================================================================
@@ -1008,10 +1107,12 @@ function generatePreview(
     
     if (primaryRisk === 'possible-gibberish') {
       return 'I\'m not sure I\'m reading this correctly — could you clarify?';
+    } else if (primaryRisk === 'setup-without-substance') {
+      return 'I hear you\'re setting up a scene, but I need the actual moment to work with.';
     } else if (primaryRisk === 'insufficient-context') {
       const wordCount = interpretation.seedMoment.split(/\s+/).length;
-      if (wordCount === 1) {
-        return `"${interpretation.seedMoment}" — could you say more about what you mean?`;
+      if (wordCount <= 2) {
+        return `"${interpretation.seedMoment}" — I need more context.`;
       } else {
         return `"${interpretation.seedMoment}" — I might be missing the context.`;
       }
@@ -1034,48 +1135,33 @@ function generatePreview(
 }
 
 // ============================================================================
-// AI INTERPRETATION
+// FALLBACK INTERPRETATION
 // ============================================================================
 
-async function getAIIntepretation(input: string): Promise<Partial<XOInterpretation>> {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `Extract meaning only, no prescription. Return JSON with:
-{
-  "coreTension": "push/pull (be tentative)",
-  "emotionalWeight": "feeling (be tentative)",
-  "intentSummary": "why shared (be tentative)"
-}`
-        },
-        { role: "user", content: input }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.3,
-      max_tokens: 150
-    });
-
-    const content = completion.choices[0].message.content;
-    if (!content) throw new Error('No content from AI');
-    
-    const parsed = JSON.parse(content);
-    
-    ['coreTension', 'emotionalWeight', 'intentSummary'].forEach(field => {
-      if (parsed[field] && !parsed[field].includes('seem') && 
-          !parsed[field].includes('might') && 
-          !parsed[field].includes('could')) {
-        parsed[field] = `seems like ${parsed[field]}`;
-      }
-    });
-    
-    return parsed;
-  } catch (error) {
-    console.error('AI interpretation error:', error);
-    return {};
-  }
+function createFallbackInterpretation(input: string): XOInterpretation {
+  const riskAssessment: MeaningRiskAssessment = {
+    risks: ['intent-misinterpretation'],
+    riskLevel: 'high',
+    distortionLikelihood: 0.9,
+    specificDoubt: 'system error',
+    confidentInterpretation: 'minimal confidence'
+  };
+  
+  return {
+    coreTension: 'system difficulty',
+    emotionalWeight: 'neutral',
+    seedMoment: input.substring(0, Math.min(100, input.length)),
+    intentSummary: 'to express',
+    clearPoints: ['system encountered difficulty'],
+    doubtfulPoints: ['system reliability'],
+    riskAssessment,
+    confidence: 0.1,
+    minimalAssumptions: {
+      emotionDirection: 'unknown',
+      tensionType: 'unknown',
+      intentCategory: 'unknown'
+    }
+  };
 }
 
 // ============================================================================
@@ -1105,7 +1191,7 @@ export default async function handler(
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const { userInput } = body;
+    const { userInput, isClarificationResponse, previousAnswer, isRewriteAttempt } = body;
     
     if (!userInput || typeof userInput !== 'string') {
       return res.status(400).json({
@@ -1129,21 +1215,26 @@ export default async function handler(
     }
 
     console.log(`[CLARIFY] Processing: "${trimmedInput}"`);
-    console.log(`[CLARIFY] STARTER PACK DETECTION: Market=${detectMarketFromInput(trimmedInput)}, Path=${detectEntryPathFromInput(trimmedInput)}`);
+    console.log(`[CLARIFY] Word count: ${trimmedInput.split(/\s+/).length}`);
     
-    // 1. Detect risks
+    // 1. Detect risks - completely rewritten
     const riskAssessment = detectMeaningRisks(trimmedInput);
     
-    // 2. Decide if clarification is needed
-    const needsClarification = shouldClarify(riskAssessment);
+    // 2. Check for lacking context - critical for the "overheard at a coffee shop" case
+    const contextCheck = detectLackingContext(trimmedInput);
+    console.log(`[CLARIFY] Lacks context: ${contextCheck.lacksContext}${contextCheck.reason ? ` (${contextCheck.reason})` : ''}`);
     
-    // 3. Make minimal assumptions
+    // 3. Decide if clarification is needed
+    const needsClarification = shouldClarify(riskAssessment, trimmedInput);
+    
+    // 4. Make minimal assumptions
     const minimalAssumptions = makeMinimalAssumptions(trimmedInput, riskAssessment);
     
-    // 4. Calculate confidence
+    // 5. Calculate confidence - completely rewritten
     const confidence = calculateConfidence(trimmedInput, riskAssessment);
+    console.log(`[CLARIFY] Confidence: ${confidence}`);
     
-    // 5. Build interpretation
+    // 6. Build interpretation
     let interpretation: XOInterpretation;
     let understandingSummary: string | undefined;
     
@@ -1174,7 +1265,7 @@ export default async function handler(
         minimalAssumptions
       };
       
-      // CREATE THE STARTER PACK COMPATIBLE CONTRACT
+      // CREATE THE CONTRACT
       if (!riskAssessment.risks.includes('possible-gibberish')) {
         interpretation.meaningContract = await createMeaningContract(trimmedInput, interpretation, aiInterpretation);
         
@@ -1184,15 +1275,15 @@ export default async function handler(
       }
     }
     
-    // 6. Generate clarification if needed
+    // 7. Generate clarification if needed
     const clarification = needsClarification 
       ? generateClarification(trimmedInput, riskAssessment)
       : undefined;
     
-    // 7. Generate preview
+    // 8. Generate preview
     const understandingPreview = generatePreview(interpretation, needsClarification);
     
-    // 8. Build response
+    // 9. Build response
     const response: XOCCNResponse = {
       success: true,
       interpretation,
@@ -1206,9 +1297,9 @@ export default async function handler(
     }
     
     console.log(`[CLARIFY] ${needsClarification ? 'NEEDS clarification' : 'PROCEEDING with contract'}`);
-    console.log(`[CLARIFY] Market: ${interpretation.meaningContract?.marketContext?.market}`);
-    console.log(`[CLARIFY] Entry path: ${interpretation.meaningContract?.entryPath}`);
-    console.log(`[CLARIFY] Safe to narrate: ${interpretation.meaningContract?.safeToNarrate ?? 'no contract'}`);
+    console.log(`[CLARIFY] Market: ${interpretation.meaningContract?.marketContext?.market || 'not set'}`);
+    console.log(`[CLARIFY] Entry path: ${interpretation.meaningContract?.entryPath || 'not set'}`);
+    console.log(`[CLARIFY] Safe to narrate: ${interpretation.meaningContract?.safeToNarrate ?? false}`);
     
     return res.status(200).json(response);
     
@@ -1228,34 +1319,4 @@ export default async function handler(
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
-}
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-function createFallbackInterpretation(input: string): XOInterpretation {
-  const riskAssessment: MeaningRiskAssessment = {
-    risks: ['intent-misinterpretation'],
-    riskLevel: 'high',
-    distortionLikelihood: 0.9,
-    specificDoubt: 'system error',
-    confidentInterpretation: 'minimal confidence'
-  };
-  
-  return {
-    coreTension: 'system difficulty',
-    emotionalWeight: 'neutral',
-    seedMoment: input.substring(0, Math.min(100, input.length)),
-    intentSummary: 'to express',
-    clearPoints: ['system encountered difficulty'],
-    doubtfulPoints: ['system reliability'],
-    riskAssessment,
-    confidence: 0.1,
-    minimalAssumptions: {
-      emotionDirection: 'unknown',
-      tensionType: 'unknown',
-      intentCategory: 'unknown'
-    }
-  };
 }
