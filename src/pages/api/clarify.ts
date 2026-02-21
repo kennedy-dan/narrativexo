@@ -171,27 +171,34 @@ function detectLackingContext(text: string): {
   }
   
   // PATTERN 3: Incomplete sentences (trailing off)
-  const incompletePatterns = [
-    /:\s*$/,
-    /\-\s*$/,
-    /because\s*$/,
-    /so\s*$/,
-    /then\s*$/,
-    /and\s*$/,
-    /but\s*$/,
-    /when\s*$/,
-    /\.\.\.$/
-  ];
-  
-  for (const pattern of incompletePatterns) {
-    if (pattern.test(lower)) {
-      lacksContext = true;
-      isPureSetup = true;
-      reason = `incomplete sentence ending with "${original.slice(-5)}"`;
-      return { lacksContext, reason, wordCount, isPureSetup };
+// PATTERN 3: Incomplete sentences (trailing off) - FIXED
+const incompletePatterns = [
+  /:\s*$/,                    // Ends with colon
+  /\-\s*$/,                   // Ends with hyphen
+  /\.\.\.$/,                  // Ends with ellipsis
+  /\b(because|so|then|and|but|when)\s*$/i  // Ends with conjunction words
+];
+
+for (const pattern of incompletePatterns) {
+  if (pattern.test(lower)) {
+    // Check if this is actually a complete thought despite ending with these words
+    // For example: "I was tired, so" is incomplete, but "Create stories a brand can use" is complete
+    
+    // If it ends with a conjunction, ensure there's content after it in context
+    if (pattern.toString().includes('because|so|then|and|but|when')) {
+      // Look for trailing punctuation or structure that indicates completeness
+      if (/[.!?]\s*$/.test(lower) || /\s+\S+\s*$/.test(lower.split(/\s+/).slice(-2)[0])) {
+        // This might actually be complete
+        continue;
+      }
     }
+    
+    lacksContext = true;
+    isPureSetup = true;
+    reason = `incomplete sentence ending with "${original.slice(-10)}"`;
+    return { lacksContext, reason, wordCount, isPureSetup };
   }
-  
+}  
   // PATTERN 4: Setup phrases with minimal words
   if (wordCount <= 5) {
     const pureSetupPhrases = [

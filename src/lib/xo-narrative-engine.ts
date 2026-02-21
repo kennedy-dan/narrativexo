@@ -476,7 +476,7 @@ private static buildSystemPrompt(contract: XOContract, passId: number): string {
   
   // Invention rules
   const inventionRules = allowInvention === 'SCENE_ONLY'
-    ? 'You may add SCENE details only (no new characters, weather, time)'
+    ? 'You may add SCENE details only (no new characters, weather, time, name)'
     : 'NO INVENTION - Use only elements from the input';
   
   // Get markers for this path
