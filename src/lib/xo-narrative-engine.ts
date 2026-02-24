@@ -43,12 +43,13 @@ export class XONarrativeEngine {
     market: string = 'GLOBAL',
     brand?: string,
     options: XONarrativeOptions = {},
-    meaningContract?: any
+    meaningContract?: any,
+    originalStory?: MicroStory
   ): Promise<MicroStory> {
     console.log('[XO Engine] Generating story with contract-first approach');
     
     // STEP 1: Create contract
-    const contract = this.createGenerationContract(input, market, brand, meaningContract);
+  const contract = this.createGenerationContract(input, market, brand, meaningContract, originalStory);
     
     // STEP 2: Generate in passes
     const passes = await this.generatePasses(input, contract, options);
@@ -90,41 +91,68 @@ export class XONarrativeEngine {
 /**
  * Create contract for generation
  */
+/**
+ * Create contract for generation
+ */
 private static createGenerationContract(
   input: string,
   market: string,
   brand?: string,
-  meaningContract?: any
+  meaningContract?: any,
+  originalStory?: MicroStory // Add this parameter
 ): XOContract {
   const builder = new XOContractBuilder();
   
-  // Use meaning contract if available
-  if (meaningContract) {
-    const contract = createContractFromMeaningContract(meaningContract);
-    builder.withUserInput(input);
+  // If we have an original story, preserve its context
+  if (originalStory) {
+    // Use the original story's contract as base
+    builder.withUserInput(originalStory.contract.context.seedMoment);
     
-    // Override with explicit brand if provided
-    if (brand) {
-      builder.withBrand(brand, 'EXPLICIT');
-    }
+    // Preserve the original allowed nouns
+    builder.contract.context = {
+      ...originalStory.contract.context,
+      timestamp: new Date().toISOString()
+    };
     
-    // Force FULLSTORY and maxBeats if specified
-    if (meaningContract.formatMode === 'FULLSTORY' || meaningContract.maxBeats === 5) {
+    // Set market from original story or meaning contract
+    const effectiveMarket = meaningContract?.marketContext?.market || 
+                           originalStory.contract.marketCode || 
+                           market;
+    builder.withMarket(effectiveMarket as any, 0.5);
+    
+    // Set entry path
+    const entryPath = meaningContract?.entryPath || 
+                     originalStory.contract.entryPath || 
+                     'scene';
+    builder.withEntryPath(entryPath.toLowerCase() as any);
+    
+    // Handle format mode
+    if (meaningContract?.formatMode === 'FULLSTORY' || meaningContract?.maxBeats === 5) {
       builder.withFormatMode('FULLSTORY');
       builder.withMaxBeats(5);
       builder.withEntryPath('full');
+    } else {
+      builder.withFormatMode(originalStory.contract.formatMode);
     }
     
-    return builder.build();
+  } else {
+    // No original story - build from scratch
+    builder.withUserInput(input);
+    
+    if (meaningContract) {
+      const contract = createContractFromMeaningContract(meaningContract);
+      if (brand) {
+        builder.withBrand(brand, 'EXPLICIT');
+      }
+      return builder.build();
+    }
+    
+    builder
+      .withMarket(market as any, 0.5)
+      .withEntryPath(this.detectEntryPath(input))
+      .withFormatMode('MICROSTORY')
+      .withStrictMode(false);
   }
-  
-  // Build from scratch
-  builder
-    .withUserInput(input)
-    .withMarket(market as any, 0.5)
-    .withEntryPath(this.detectEntryPath(input))
-    .withFormatMode('MICROSTORY')
-    .withStrictMode(false);
   
   if (brand) {
     builder.withBrand(brand, 'EXPLICIT');
@@ -815,63 +843,153 @@ private static parseResponseToBeats(response: string, contract: XOContract): Mic
   /**
    * Refine an existing story
    */
-  static async refine(
-    story: MicroStory,
-    refinement: 'expand' | 'gentler' | 'harsher' | 'brandify' | 'deblandify',
-    options: XONarrativeOptions = {}
-  ): Promise<MicroStory> {
-    console.log(`[XO Engine] Refining story: ${refinement}`);
-    
-    // Create new contract based on refinement type
-    const newContract = this.createRefinementContract(story.contract, refinement);
-    
-    // Convert beats to text for refinement
-    const storyText = XORenderer.extractStoryText(story.beats);
-    
-    // Generate refined version
-    const refinedStory = await this.generate(
-      `Refine this story to be ${refinement}:\n\n${storyText}`,
-      story.contract.marketCode,
-      story.contract.brandName,
-      options,
-      { entryPath: story.contract.entryPath }
-    );
-    
-    // Preserve original contract metadata
-    refinedStory.contract = {
-      ...newContract,
-      context: story.contract.context, // Keep original context
+static async refine(
+  story: MicroStory,
+  refinement: 'expand' | 'gentler' | 'harsher' | 'brandify' | 'deblandify',
+  options: XONarrativeOptions = {}
+): Promise<MicroStory> {
+  console.log(`[XO Engine] Refining story: ${refinement}`);
+  
+  // Create new contract based on refinement type, preserving original story context
+  const newContract = this.createRefinementContract(story.contract, refinement, story);
+  
+  // Extract core elements from the story to preserve them in the instruction
+  const storyText = XORenderer.extractStoryText(story.beats);
+  const seedMoment = story.contract.context.seedMoment;
+  const allowedNouns = story.contract.context.allowedNouns.join(', ');
+  
+  // Build the instruction based on refinement type, dynamically using story elements
+  let instruction = '';
+  switch (refinement) {
+    case 'gentler':
+      instruction = `Rewrite this story to be gentler and more tender in tone, using softer language and a more compassionate perspective. 
+      
+Key elements that MUST remain unchanged:
+- Core narrative: ${seedMoment}
+- Allowed nouns/themes: ${allowedNouns}
+- Same characters and setting
+- Same fundamental plot points
+
+The tone should be gentler, but everything else stays the same.`;
+      break;
+      
+    case 'harsher':
+      instruction = `Rewrite this story to be harsher and more intense in tone, using stronger language and a more confrontational perspective. 
+      
+Key elements that MUST remain unchanged:
+- Core narrative: ${seedMoment}
+- Allowed nouns/themes: ${allowedNouns}
+- Same characters and setting
+- Same fundamental plot points
+
+The tone should be harsher, but everything else stays the same.`;
+      break;
+      
+    case 'expand':
+      instruction = `Expand this story with more detail and development. 
+      
+Key elements that MUST remain unchanged:
+- Core narrative: ${seedMoment}
+- Allowed nouns/themes: ${allowedNouns}
+- Same characters and setting
+- Same fundamental plot points
+
+Add depth and detail while preserving the original story's essence.`;
+      break;
+      
+    case 'brandify':
+      instruction = `Incorporate the brand ${story.contract.brandName || 'the brand'} naturally into this story. 
+      
+Key elements that MUST remain unchanged:
+- Core narrative: ${seedMoment}
+- Allowed nouns/themes: ${allowedNouns}
+- Same characters and setting
+- Same fundamental plot points
+
+The brand should feel like a natural part of the existing story.`;
+      break;
+      
+    case 'deblandify':
+      instruction = `Make this story more distinctive and less generic. 
+      
+Key elements that MUST remain unchanged:
+- Core narrative: ${seedMoment}
+- Allowed nouns/themes: ${allowedNouns}
+- Same characters and setting
+- Same fundamental plot points
+
+Add unique details and make it more memorable while preserving the core.`;
+      break;
+      
+    default:
+      instruction = `Rewrite this story to be ${refinement} while maintaining the same core narrative: "${seedMoment}". Keep the same characters, setting, and allowed nouns/themes: ${allowedNouns}. Only the tone should change.`;
+  }
+  
+  console.log('[XO Engine] Refinement instruction:', {
+    refinement,
+    seedMoment: seedMoment.substring(0, 50),
+    allowedNounsCount: story.contract.context.allowedNouns.length
+  });
+  
+  // Generate refined version, passing the original story for context
+  const refinedStory = await this.generate(
+    instruction,
+    story.contract.marketCode,
+    story.contract.brandName,
+    options,
+    { entryPath: story.contract.entryPath },
+    story // Pass the original story for context preservation
+  );
+
+  // Preserve original contract metadata
+  refinedStory.contract = {
+    ...newContract,
+    context: story.contract.context, // Keep original context
+  };
+  
+  return refinedStory;
+}
+
+/**
+ * Create contract for refinement
+ */
+private static createRefinementContract(
+  originalContract: XOContract,
+  refinement: string,
+  originalStory?: MicroStory
+): XOContract {
+  // Start with the original contract's structure
+  const builder = new XOContractBuilder(originalContract);
+  
+  // If we have the original story, preserve its context explicitly
+  if (originalStory) {
+    // CRITICAL: Set the context from the original story, not the current contract
+    builder.contract.context = {
+      userInputTokens: [...originalStory.contract.context.userInputTokens],
+      allowedNouns: [...originalStory.contract.context.allowedNouns],
+      seedMoment: originalStory.contract.context.seedMoment,
+      timestamp: new Date().toISOString()
     };
-    
-    return refinedStory;
   }
 
-  /**
-   * Create contract for refinement
-   */
-  private static createRefinementContract(
-    originalContract: XOContract,
-    refinement: string
-  ): XOContract {
-    const builder = new XOContractBuilder(originalContract);
-    
-    switch (refinement) {
-      case 'expand':
-        builder.withMaxBeats(Math.min(originalContract.maxBeats + 1, 5));
-        break;
-      case 'brandify':
-        if (originalContract.brandName) {
-          builder.withBrand(originalContract.brandName, 'EXPLICIT');
-        }
-        break;
-      case 'deblandify':
-        builder.withoutBrand();
-        break;
-      // gentler/harsher don't change contract structure
-    }
-    
-    return builder.build();
+  // Apply refinement-specific modifications
+  switch (refinement) {
+    case 'expand':
+      builder.withMaxBeats(Math.min(originalContract.maxBeats + 1, 5));
+      break;
+    case 'brandify':
+      if (originalContract.brandName) {
+        builder.withBrand(originalContract.brandName, 'EXPLICIT');
+      }
+      break;
+    case 'deblandify':
+      builder.withoutBrand();
+      break;
+    // gentler/harsher don't change contract structure
   }
+
+  return builder.build();
+}
 
   /**
    * Convert micro-story to full story
@@ -885,20 +1003,19 @@ static async convertToFullStory(
 ): Promise<MicroStory> {
   console.log('[XO Engine] Converting to full story');
   
-  // Create full story contract with explicit maxBeats = 5
+  // Create full story contract, preserving original story context
   const builder = new XOContractBuilder(story.contract)
     .withFormatMode('FULLSTORY')
-    .withMaxBeats(5); // Force 5 beats
+    .withMaxBeats(5);
   
-  // Ensure we're not using the micro-story's maxBeats
   const fullContract = builder.build();
   
-  // Convert story text
+  // Extract story text for generation
   const storyText = XORenderer.extractStoryText(story.beats);
   
-  // Generate full story with explicit instruction
+  // Generate full story with explicit instruction, passing the original story for context
   const fullStory = await this.generate(
-    `Convert this to a 5-beat full story. You MUST generate exactly 5 beats:\n\n${storyText}`,
+    `Expand this micro-story into a complete 5-beat narrative, maintaining the same theme and characters:\n\n${storyText}`,
     fullContract.marketCode,
     fullContract.brandName,
     { 
@@ -909,9 +1026,10 @@ static async convertToFullStory(
     { 
       entryPath: 'full', 
       formatMode: 'FULLSTORY',
-      maxBeats: 5, // Pass explicitly
+      maxBeats: 5,
       ...meaningContract 
-    }
+    },
+    story // Pass the original story for context preservation
   );
   
   // Double-check the contract after generation

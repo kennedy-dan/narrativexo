@@ -101,7 +101,7 @@ export const DEFAULT_XO_CONTRACT: XOContract = {
 // ============================================================================
 
 export class XOContractBuilder {
-  private contract: XOContract;
+  public contract: XOContract;
   
   constructor(baseContract: Partial<XOContract> = {}) {
     this.contract = { ...DEFAULT_XO_CONTRACT, ...baseContract };
