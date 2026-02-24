@@ -325,7 +325,7 @@ Generate ONLY the content line(s):
           content: `Context: "${input.substring(0, 100)}${input.length > 100 ? '...' : ''}"`,
         },
       ],
-      temperature: 0.7,
+      temperature: 0.0,
       max_tokens: 100,
       frequency_penalty: 0.3, // Increased to reduce repetition
       presence_penalty: 0.3,
@@ -455,7 +455,7 @@ private static getBeatType(beatIndex: number, contract: XOContract): 'opening' |
             content: userPrompt,
           },
         ],
-        temperature: options.temperature || 0.7,
+        temperature: 0.0,
         max_tokens: options.maxTokens || 400,
         frequency_penalty: 0.1,
         presence_penalty: 0.1,
@@ -1019,7 +1019,7 @@ static async convertToFullStory(
     fullContract.marketCode,
     fullContract.brandName,
     { 
-      temperature: 0.7, 
+      temperature: 0.0, 
       maxTokens: 500,
       passes: 3 
     },
