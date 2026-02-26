@@ -54,6 +54,11 @@ export interface XOContract {
     seedMoment: string;
     timestamp: string;
   };
+    ontology?: {
+    coreEntities: string[];
+    expandedNouns: string[];
+    density: 'LOW' | 'MEDIUM' | 'HIGH';
+  };
 }
 
 // ============================================================================

@@ -1,12 +1,15 @@
 /**
- * XO NARRATIVE ENGINE v2.0
+ * XO NARRATIVE ENGINE v3.0
  * Contract-first, deterministic story generation
+ * WITH FULL CONTAINMENT: Ontology + Event Gate + Deterministic Validation
  */
 
 import OpenAI from 'openai';
 import { XOContract, XOContractBuilder, createContractFromMeaningContract } from './xo-contract';
 import { XORenderer, MicroStory, MicroStoryBeat } from './xo-renderer';
 import { XOValidator } from './xo-validator';
+import { XOOntologyBuilder, XOOntologyValidator } from './xo-ontology-builder';
+import { XOEventGate, XOEventValidator, EventGate } from './xo-event-gate';
 
 // ============================================================================
 // TYPES
@@ -17,6 +20,8 @@ export interface XONarrativeOptions {
   maxTokens?: number;
   passes?: number;
   validateEachPass?: boolean;
+  minOntologyConfidence?: number;
+  strictMode?: boolean;
 }
 
 export interface GenerationPass {
@@ -24,6 +29,16 @@ export interface GenerationPass {
   beats: MicroStoryBeat[];
   valid: boolean;
   errors?: string[];
+  nounViolations?: any[];
+  eventViolations?: any[];
+}
+
+export interface GenerationContext {
+  ontology: Awaited<ReturnType<typeof XOOntologyBuilder.buildOntology>>;
+  eventGate: EventGate;
+  densityConfidence: number;
+    metadata?: any; // Add this for separate metadata
+
 }
 
 // ============================================================================
@@ -37,6 +52,7 @@ export class XONarrativeEngine {
 
   /**
    * Generate a micro-story with contract-first approach
+   * NOW WITH FULL CONTAINMENT SYSTEM
    */
   static async generate(
     input: string,
@@ -46,120 +62,263 @@ export class XONarrativeEngine {
     meaningContract?: any,
     originalStory?: MicroStory
   ): Promise<MicroStory> {
-    console.log('[XO Engine] Generating story with contract-first approach');
+    console.log('[XO Engine] ========================================');
+    console.log('[XO Engine] Generating story with full containment');
+    console.log('[XO Engine] Input:', input.substring(0, 100));
     
-    // STEP 1: Create contract
-  const contract = this.createGenerationContract(input, market, brand, meaningContract, originalStory);
+    // ============================================================================
+    // STEP 1: BUILD ONTOLOGY (What can exist)
+    // ============================================================================
     
-    // STEP 2: Generate in passes
-    const passes = await this.generatePasses(input, contract, options);
+    const ontology = await XOOntologyBuilder.buildOntology(input, {
+      minConfidence: options.minOntologyConfidence || 0.8
+    });
     
-    // STEP 3: Validate and select best pass
+    console.log('[XO Engine] Ontology built:', {
+      coreEntities: ontology.coreEntities,
+      expandedCount: ontology.expandedNouns.length,
+      density: ontology.density,
+      totalAllowed: ontology.allAllowedNouns.length,
+      expansionLimit: ontology.metadata.expansionLimit
+    });
+
+    // ============================================================================
+    // STEP 2: BUILD EVENT GATE (What can happen)
+    // ============================================================================
+    
+    const eventGate = await XOEventGate.buildEventGate(
+      input,
+      ontology.density,
+      { minConfidence: options.minOntologyConfidence || 0.8 }
+    );
+
+    console.log('[XO Engine] Event gate built:', {
+      allowedVerbs: eventGate.allowedVerbs.length,
+      maxEvents: eventGate.maxEvents,
+      categories: [...new Set(eventGate.allowedVerbs.map(v => v.category))],
+      densityConfidence: eventGate.metadata.confidence
+    });
+
+    // ============================================================================
+    // STEP 3: CREATE CONTRACT
+    // ============================================================================
+    
+// ============================================================================
+// STEP 3: CREATE CONTRACT (with separate metadata)
+// ============================================================================
+
+let contract: XOContract;
+
+if (originalStory) {
+  // Use original story's contract as base
+  const builder = new XOContractBuilder(originalStory.contract);
+  contract = builder.build();
+} else {
+  // Build from scratch
+  const builder = new XOContractBuilder()
+    .withUserInput(input)
+    .withMarket(market as any, 0.5)
+    .withEntryPath(this.detectEntryPath(input))
+    .withFormatMode('MICROSTORY')
+    .withStrictMode(false);
+  
+  if (brand) {
+    builder.withBrand(brand, 'EXPLICIT');
+  }
+  
+  if (meaningContract) {
+    // Handle meaning contract if present
+    if (meaningContract.marketContext?.market) {
+      builder.withMarket(meaningContract.marketContext.market, meaningContract.marketContext.confidence || 0.5);
+    }
+    if (meaningContract.entryPath) {
+      builder.withEntryPath(meaningContract.entryPath.toLowerCase() as any);
+    }
+  }
+  
+  contract = builder.build();
+}
+
+// Override allowed nouns (these are in context, which should be mutable)
+contract.context.allowedNouns = ontology.allAllowedNouns;
+
+// Create separate metadata object (not attached to contract)
+const generationMetadata = {
+  ontology: {
+    coreEntities: ontology.coreEntities,
+    expandedNouns: ontology.expandedNouns.map(n => n.noun),
+    density: ontology.density
+  },
+  eventGate: {
+    allowedVerbs: eventGate.allowedVerbs,
+    maxEvents: eventGate.maxEvents,
+    maxEmotionalIntensity: eventGate.maxEmotionalIntensity,
+    allowBackstory: eventGate.allowBackstory,
+    allowFutureTense: eventGate.allowFutureTense,
+    allowCognitiveEvents: eventGate.allowCognitiveEvents,
+    allowRelationalEvents: eventGate.allowRelationalEvents,
+    allowExistentialEvents: eventGate.allowExistentialEvents,
+    metadata: eventGate.metadata
+  }
+};
+
+// ============================================================================
+// STEP 4: GENERATE IN PASSES WITH CONSTRAINTS
+// ============================================================================
+
+const context: GenerationContext = {
+  ontology,
+  eventGate,
+  densityConfidence: eventGate.metadata.confidence,
+  metadata: generationMetadata // Pass metadata separately
+};
+
+const passes = await this.generatePasses(
+  input, 
+  contract, 
+  options, 
+  context
+);
+    // ============================================================================
+    // STEP 5: SELECT BEST PASS
+    // ============================================================================
+    
     const bestPass = this.selectBestPass(passes, contract);
     
     if (!bestPass) {
-      throw new Error('All generation passes failed validation');
+      throw new Error('[XO Engine] All generation passes failed validation');
     }
+
+    // ============================================================================
+    // STEP 6: BUILD FINAL STORY
+    // ============================================================================
     
-    // STEP 4: Build final story
     const story: MicroStory = {
       beats: bestPass.beats,
       contract,
       timestamp: new Date().toISOString(),
     };
+
+    // ============================================================================
+    // STEP 7: FINAL VALIDATION (Deterministic, LLM-powered)
+    // ============================================================================
     
-    // Validate final story
-    const validator = new XOValidator({ strictMode: contract.strictMode });
-    const validation = await validator.validateStory(story);
-    
-    if (!validation.passed && contract.strictMode) {
-      console.error('[XO Engine] Final story failed validation:', validation.errors);
-      throw new Error(`Story validation failed: ${validation.errors?.[0]}`);
+    console.log('[XO Engine] Running final validation...');
+
+    // Validate nouns using LLM extraction + set comparison
+    const nounValidation = await XOOntologyValidator.validateAgainstOntology(
+      story.beats,
+      ontology.allAllowedNouns
+    );
+
+    if (!nounValidation.valid) {
+      console.warn('[XO Engine] ❌ Noun violations detected:', {
+        count: nounValidation.violations.length,
+        examples: nounValidation.violations.slice(0, 3).map(v => v.word)
+      });
+      
+      if (options.strictMode || contract.strictMode) {
+        throw new Error(`Noun violation: ${nounValidation.violations[0]?.word} not allowed`);
+      }
     }
+
+    // Validate events using LLM extraction + set comparison
+    const eventValidation = await XOEventValidator.validateEvents(
+      story.beats,
+      eventGate,
+      eventGate.metadata.confidence
+    );
+
+    if (!eventValidation.valid) {
+      console.warn('[XO Engine] ❌ Event violations detected:', {
+        count: eventValidation.violations.length,
+        examples: eventValidation.violations.slice(0, 3).map(v => v.details)
+      });
+      
+      if (options.strictMode || contract.strictMode) {
+        throw new Error(`Event violation: ${eventValidation.violations[0]?.details}`);
+      }
+    }
+
+    // ============================================================================
+    // STEP 8: FINAL LOGGING
+    // ============================================================================
     
-    console.log('[XO Engine] Story generated successfully:', {
+    console.log('[XO Engine] ✅ Generation complete:', {
       beats: story.beats.length,
-      validation: validation.passed ? 'PASSED' : 'WARNINGS',
+      nounValidation: nounValidation.stats,
+      eventValidation: eventValidation.stats,
+      passed: nounValidation.valid && eventValidation.valid
     });
-    
+    console.log('[XO Engine] ========================================');
+
     return story;
   }
 
   /**
    * Create contract for generation
    */
-/**
- * Create contract for generation
- */
-/**
- * Create contract for generation
- */
-private static createGenerationContract(
-  input: string,
-  market: string,
-  brand?: string,
-  meaningContract?: any,
-  originalStory?: MicroStory // Add this parameter
-): XOContract {
-  const builder = new XOContractBuilder();
-  
-  // If we have an original story, preserve its context
-  if (originalStory) {
-    // Use the original story's contract as base
-    builder.withUserInput(originalStory.contract.context.seedMoment);
+  private static createGenerationContract(
+    input: string,
+    market: string,
+    brand?: string,
+    meaningContract?: any,
+    originalStory?: MicroStory
+  ): XOContract {
+    const builder = new XOContractBuilder();
     
-    // Preserve the original allowed nouns
-    builder.contract.context = {
-      ...originalStory.contract.context,
-      timestamp: new Date().toISOString()
-    };
-    
-    // Set market from original story or meaning contract
-    const effectiveMarket = meaningContract?.marketContext?.market || 
-                           originalStory.contract.marketCode || 
-                           market;
-    builder.withMarket(effectiveMarket as any, 0.5);
-    
-    // Set entry path
-    const entryPath = meaningContract?.entryPath || 
-                     originalStory.contract.entryPath || 
-                     'scene';
-    builder.withEntryPath(entryPath.toLowerCase() as any);
-    
-    // Handle format mode
-    if (meaningContract?.formatMode === 'FULLSTORY' || meaningContract?.maxBeats === 5) {
-      builder.withFormatMode('FULLSTORY');
-      builder.withMaxBeats(5);
-      builder.withEntryPath('full');
-    } else {
-      builder.withFormatMode(originalStory.contract.formatMode);
-    }
-    
-  } else {
-    // No original story - build from scratch
-    builder.withUserInput(input);
-    
-    if (meaningContract) {
-      const contract = createContractFromMeaningContract(meaningContract);
-      if (brand) {
-        builder.withBrand(brand, 'EXPLICIT');
+    if (originalStory) {
+      // Use original story's contract as base
+      builder.withUserInput(originalStory.contract.context.seedMoment);
+      
+      builder.contract.context = {
+        ...originalStory.contract.context,
+        timestamp: new Date().toISOString()
+      };
+      
+      const effectiveMarket = meaningContract?.marketContext?.market || 
+                             originalStory.contract.marketCode || 
+                             market;
+      builder.withMarket(effectiveMarket as any, 0.5);
+      
+      const entryPath = meaningContract?.entryPath || 
+                       originalStory.contract.entryPath || 
+                       'scene';
+      builder.withEntryPath(entryPath.toLowerCase() as any);
+      
+      if (meaningContract?.formatMode === 'FULLSTORY' || meaningContract?.maxBeats === 5) {
+        builder.withFormatMode('FULLSTORY');
+        builder.withMaxBeats(5);
+        builder.withEntryPath('full');
+      } else {
+        builder.withFormatMode(originalStory.contract.formatMode);
       }
-      return builder.build();
+      
+    } else {
+      // Build from scratch
+      builder.withUserInput(input);
+      
+      if (meaningContract) {
+        const contract = createContractFromMeaningContract(meaningContract);
+        if (brand) {
+          builder.withBrand(brand, 'EXPLICIT');
+        }
+        return builder.build();
+      }
+      
+      builder
+        .withMarket(market as any, 0.5)
+        .withEntryPath(this.detectEntryPath(input))
+        .withFormatMode('MICROSTORY')
+        .withStrictMode(false);
     }
     
-    builder
-      .withMarket(market as any, 0.5)
-      .withEntryPath(this.detectEntryPath(input))
-      .withFormatMode('MICROSTORY')
-      .withStrictMode(false);
+    if (brand) {
+      builder.withBrand(brand, 'EXPLICIT');
+    }
+    
+    return builder.build();
   }
-  
-  if (brand) {
-    builder.withBrand(brand, 'EXPLICIT');
-  }
-  
-  return builder.build();
-}
 
   /**
    * Generate story in multiple passes
@@ -167,7 +326,8 @@ private static createGenerationContract(
   private static async generatePasses(
     input: string,
     contract: XOContract,
-    options: XONarrativeOptions
+    options: XONarrativeOptions,
+    context: GenerationContext
   ): Promise<GenerationPass[]> {
     const passes: GenerationPass[] = [];
     const maxPasses = options.passes || 3;
@@ -176,36 +336,53 @@ private static createGenerationContract(
       console.log(`[XO Engine] Starting pass ${passId}/${maxPasses}`);
       
       try {
-        let beats = await this.generateSinglePass(input, contract, passId, options);
+        let beats = await this.generateSinglePass(
+          input, 
+          contract, 
+          passId, 
+          options,
+          context
+        );
         
-        // Validate the pass
-        const validator = new XOValidator({ strictMode: contract.strictMode });
-        const validation = await validator.validateBeats(beats, contract);
+        // Validate this pass
+        const validation = await this.validatePass(beats, contract, context);
         
-             // Check for invention warnings that need regeneration
-      const needsRegeneration = validation.metadata?.validation_1?.beatsNeedingRegeneration;
-            if (needsRegeneration && needsRegeneration.length > 0 && passId < maxPasses) {
-        console.log(`[XO Engine] Pass ${passId} needs regeneration for ${needsRegeneration.length} beats`);
-        
-        // Generate targeted regeneration for problematic beats
-        beats = await this.regenerateProblemBeats(beats, needsRegeneration, contract, passId + 1);
-        
-        // Re-validate after regeneration
-        const revalidation = await validator.validateBeats(beats, contract);
-        validation.passed = revalidation.passed;
-        validation.warnings = revalidation.warnings;
-      }
         passes.push({
           passId,
           beats,
-          valid: validation.passed,
+          valid: validation.valid,
           errors: validation.errors,
+          nounViolations: validation.nounViolations,
+          eventViolations: validation.eventViolations
         });
         
-        // If this pass is valid and we're not in strict mode, we can stop early
-        if (validation.passed && !contract.strictMode) {
+        // If this pass is valid and we're not in strict mode, stop early
+        if (validation.valid && !contract.strictMode) {
           console.log(`[XO Engine] Pass ${passId} valid, stopping early`);
           break;
+        }
+        
+        // If there are violations but we have more passes, try regeneration
+        if (!validation.valid && passId < maxPasses && validation.nounViolations?.length) {
+          console.log(`[XO Engine] Pass ${passId} has ${validation.nounViolations.length} noun violations, regenerating...`);
+          beats = await this.regenerateProblemBeats(
+            beats,
+            validation.nounViolations,
+            contract,
+            context,
+            passId + 1
+          );
+          
+          // Re-validate after regeneration
+          const revalidation = await this.validatePass(beats, contract, context);
+          passes.push({
+            passId: passId + 0.5, // Indicate it's a regenerated pass
+            beats,
+            valid: revalidation.valid,
+            errors: revalidation.errors,
+            nounViolations: revalidation.nounViolations,
+            eventViolations: revalidation.eventViolations
+          });
         }
         
       } catch (error) {
@@ -223,224 +400,21 @@ private static createGenerationContract(
   }
 
   /**
- * Regenerate only problematic beats
- */
-public static async regenerateProblemBeats(
-  originalBeats: MicroStoryBeat[],
-  problemBeats: any[],
-  contract: XOContract,
-  passId: number
-): Promise<MicroStoryBeat[]> {
-  const beats = [...originalBeats];
-  
-  for (const problem of problemBeats) {
-    const { beatIndex, inventions, lines } = problem;
-    
-    console.log(`[XO Engine] Regenerating beat ${beatIndex + 1}, inventions: ${inventions.join(', ')}`);
-    
-    try {
-            // Use the existing lines as context, but instruct to remove inventions
-      const existingContext = lines?.join(' ') || contract.context.seedMoment;
-      const instruction = inventions.length > 0
-        ? `Rewrite this beat without adding: ${inventions.join(', ')}. Use only: ${contract.context.allowedNouns.join(', ') || 'elements from input'}.`
-        : `Improve this beat while following all constraints.`;
-
-        const newBeat = await this.generateSingleBeat(
-        `Previous beat: ${existingContext}. ${contract.context.seedMoment}`,
-        beatIndex,
-        contract,
-        passId,
-        instruction
-      );
-
-      
-      beats[beatIndex] = newBeat;
-    } catch (error) {
-      console.warn(`[XO Engine] Failed to regenerate beat ${beatIndex + 1}:`, error);
-      // Keep original beat if regeneration fails
-    }
-  }
-  
-  return beats;
-}
-
-private static async generateSingleBeat(
-  input: string,
-  beatIndex: number,
-  contract: XOContract,
-  passId: number,
-  specificInstruction: string
-): Promise<MicroStoryBeat> {
-  console.log(`[XO Engine] Generating beat ${beatIndex + 1}, instruction: ${specificInstruction}`);
-  
-  // Determine what type of beat this should be based on position
-  const beatType = this.getBeatType(beatIndex, contract);
-  
-  // Get marker for this beat
-  const markers = this.getMarkersForEntryPath(contract.entryPath);
-  const marker = beatIndex < markers.length ? markers[beatIndex] : 'STORY:';
-  
-  // ============================================================
-  // CRITICAL FIX: EXPLICITLY FORBID META TEXT IN REGENERATION
-  // ============================================================
-  const systemPrompt = `
-You are generating a SINGLE story beat. You must output ONLY the content lines.
-
-🚫 FORBIDDEN:
-- DO NOT write "This beat", "Beat X", "In this beat"
-- DO NOT write "This scene", "This moment", "The story shows"
-- DO NOT write any meta commentary or explanatory text
-- DO NOT label or number your output in any way
-- DO NOT use quotes or bullet points
-
-✅ ALLOWED:
-- Just the content line(s) - the story itself
-- 1-2 lines maximum
-- 15 words per line maximum
-
-EXAMPLE OF CORRECT OUTPUT (${beatType === 'brand' ? 'brand beat' : 'story beat'}):
-The solution appeared quietly.
-
-EXAMPLE OF WRONG OUTPUT (NEVER DO THIS):
-In this final beat, we see the solution appear quietly.
-
-Current constraints:
-- Market: ${contract.marketCode} ${contract.marketState === 'NEUTRAL' ? '(neutral)' : '(resolved)'}
-- Brand: ${contract.brandMode === 'NONE' ? 'None' : contract.brandName}
-- Beat position: ${beatIndex + 1} of ${contract.maxBeats}
-
-Generate ONLY the content line(s):
-  `.trim();
-  
-  try {
-    const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [
-        {
-          role: 'system',
-          content: systemPrompt,
-        },
-        {
-          role: 'user',
-          content: `Context: "${input.substring(0, 100)}${input.length > 100 ? '...' : ''}"`,
-        },
-      ],
-      temperature: 0.0,
-      max_tokens: 100,
-      frequency_penalty: 0.3, // Increased to reduce repetition
-      presence_penalty: 0.3,
-    });
-    
-    let rawBeat = completion.choices[0].message.content?.trim() || '[Regenerated beat]';
-    
-    // ============================================================
-    // CRITICAL FIX: AGGRESSIVE STRIPPING - REMOVE ANY META TEXT
-    // ============================================================
-    // Remove ANY phrase that looks like meta commentary
-    rawBeat = rawBeat
-      // Remove any "Beat X:" or "Beat X -" patterns
-      .replace(/^Beat\s+\d+[:.\-–—]\s*/gi, '')
-      .replace(/^Beat\s+\d+\s*/gi, '')
-      // Remove any "In this beat" variations
-      .replace(/^In\s+this\s+beat[:.\-–—]\s*/gi, '')
-      .replace(/^This\s+beat[:.\-–—]\s*/gi, '')
-      .replace(/^This\s+beat\s+shows[:.\-–—]\s*/gi, '')
-      .replace(/^This\s+beat\s+depicts[:.\-–—]\s*/gi, '')
-      .replace(/^This\s+beat\s+illustrates[:.\-–—]\s*/gi, '')
-      // Remove any "In this scene" variations
-      .replace(/^In\s+this\s+scene[:.\-–—]\s*/gi, '')
-      .replace(/^This\s+scene[:.\-–—]\s*/gi, '')
-      // Remove any "In this moment" variations
-      .replace(/^In\s+this\s+moment[:.\-–—]\s*/gi, '')
-      .replace(/^This\s+moment[:.\-–—]\s*/gi, '')
-      // Remove any "We see/notice/feel" patterns
-      .replace(/^We\s+see[:.\-–—]\s*/gi, '')
-      .replace(/^We\s+notice[:.\-–—]\s*/gi, '')
-      .replace(/^We\s+feel[:.\-–—]\s*/gi, '')
-      .replace(/^We\s+watch[:.\-–—]\s*/gi, '')
-      // Remove any "The story/scene shows" patterns
-      .replace(/^The\s+story[:.\-–—]\s*/gi, '')
-      .replace(/^The\s+scene[:.\-–—]\s*/gi, '')
-      .replace(/^The\s+moment[:.\-–—]\s*/gi, '')
-      // Remove any remaining numbers/bullets
-      .replace(/^[\d\-\*\.]+\s*/, '')
-      .trim();
-    
-    // If after stripping we have nothing, use a fallback
-    if (!rawBeat) {
-      rawBeat = beatType === 'brand' 
-        ? 'The solution appeared quietly.'
-        : 'The moment continued.';
-    }
-    
-    // Parse lines
-    const lines = rawBeat
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0)
-      .slice(0, contract.maxLinesPerBeat);
-    
-    // Trim to word limit
-    const trimmedLines = lines.map(line => {
-      const words = line.split(/\s+/);
-      if (words.length > contract.maxWordsPerLine) {
-        return words.slice(0, contract.maxWordsPerLine).join(' ');
-      }
-      return line;
-    });
-    
-    console.log(`[XO Engine] Beat ${beatIndex + 1} regenerated:`, {
-      lines: trimmedLines.length,
-      firstLine: trimmedLines[0]?.substring(0, 30),
-    });
-    
-    return {
-      lines: trimmedLines.length > 0 ? trimmedLines : ['[Beat regeneration]'],
-      marker,
-    };
-    
-  } catch (error) {
-    console.error(`[XO Engine] Failed to regenerate beat ${beatIndex + 1}:`, error);
-    
-    // Return a fallback beat
-    return {
-      lines: beatType === 'brand' 
-        ? ['The solution appeared.'] 
-        : ['The moment continued.'],
-      marker,
-    };
-  }
-}
-private static getBeatType(beatIndex: number, contract: XOContract): 'opening' | 'development' | 'meaning' | 'brand' | 'close' | 'turn' {
-  const totalBeats = contract.maxBeats;
-  
-  if (contract.entryPath === 'full') {
-    // Full story structure
-    const types = ['opening', 'development', 'turn', 'brand', 'close'] as const;
-    return types[Math.min(beatIndex, types.length - 1)];
-  } else {
-    // Micro-story structure
-    if (beatIndex === 0) return 'opening';
-    if (beatIndex === totalBeats - 1) {
-      return contract.brandMode !== 'NONE' ? 'brand' : 'meaning';
-    }
-    return 'development';
-  }
-}
-  /**
-   * Generate a single pass
+   * Generate a single pass with full constraints
    */
   private static async generateSinglePass(
     input: string,
     contract: XOContract,
     passId: number,
-    options: XONarrativeOptions
+    options: XONarrativeOptions,
+    context: GenerationContext
   ): Promise<MicroStoryBeat[]> {
-    // Build system prompt based on contract
-    const systemPrompt = this.buildSystemPrompt(contract, passId);
+    
+    // Build system prompt with ontology and event constraints
+    const systemPrompt = this.buildSystemPrompt(contract, passId, context);
     
     // Build user prompt
-    const userPrompt = this.buildUserPrompt(input, contract);
+    const userPrompt = this.buildUserPrompt(input, contract, context);
     
     try {
       const completion = await this.openai.chat.completions.create({
@@ -455,10 +429,10 @@ private static getBeatType(beatIndex: number, contract: XOContract): 'opening' |
             content: userPrompt,
           },
         ],
-        temperature: 0.0,
+        temperature: options.temperature || 0.0,
         max_tokens: options.maxTokens || 400,
-        frequency_penalty: 0.1,
-        presence_penalty: 0.1,
+        frequency_penalty: 0.3, // Slightly higher to reduce repetition
+        presence_penalty: 0.2,
       });
       
       const rawResponse = completion.choices[0].message.content?.trim() || '';
@@ -467,7 +441,7 @@ private static getBeatType(beatIndex: number, contract: XOContract): 'opening' |
       const beats = this.parseResponseToBeats(rawResponse, contract);
       
       // Apply post-processing
-      return this.postProcessBeats(beats, contract);
+      return this.postProcessBeats(beats, contract, context);
       
     } catch (error) {
       console.error('[XO Engine] Generation failed:', error);
@@ -476,308 +450,357 @@ private static getBeatType(beatIndex: number, contract: XOContract): 'opening' |
   }
 
   /**
-   * Build system prompt from contract
+   * Build system prompt with full constraints
    */
- /**
- * Build system prompt from contract
- */
-/**
- * Build system prompt from contract
- */
-private static buildSystemPrompt(contract: XOContract, passId: number): string {
-  const { entryPath, marketCode, marketState, brandMode, brandName, allowInvention, maxBeats, maxLinesPerBeat } = contract;
-  
-  // Market guidance
-  const marketGuidance = marketState === 'RESOLVED' 
-    ? `MARKET: ${marketCode} - Use authentic but natural context`
-    : `MARKET: NEUTRAL - No regional specifics, slang, or cultural props`;
-  
-  // Brand guidance
-  let brandGuidance = '';
-  if (brandMode === 'EXPLICIT' && brandName) {
-    brandGuidance = `BRAND: ${brandName} - Include naturally in final beat only`;
-  } else if (brandMode === 'IMPLICIT' && brandName) {
-    brandGuidance = `BRAND: ${brandName} - Suggest implicitly, no direct mention`;
-  } else {
-    brandGuidance = `NO BRAND - Focus on human experience`;
-  }
-  
-  // Invention rules
-  const inventionRules = allowInvention === 'SCENE_ONLY'
-    ? 'You may add SCENE details only (no new characters, weather, time, name)'
-    : 'NO INVENTION - Use only elements from the input';
-  
-  // Get markers for this path
-  const markers = this.getMarkersForEntryPath(entryPath);
-  const markerList = markers.map(m => `"${m}"`).join(', ');
-  
-  // ============================================================
-  // CRITICAL FIX: STRONGER, MORE EXPLICIT PROHIBITIONS
-  // ============================================================
-  const formatRules = `
+  private static buildSystemPrompt(
+    contract: XOContract,
+    passId: number,
+    context: GenerationContext
+  ): string {
+    const { entryPath, marketCode, marketState, brandMode, brandName, maxBeats } = contract;
+    const { ontology, eventGate } = context;
+    
+    // Market guidance
+    const marketGuidance = marketState === 'RESOLVED' 
+      ? `MARKET: ${marketCode} - Use authentic but natural context`
+      : `MARKET: NEUTRAL - No regional specifics, slang, or cultural props`;
+    
+    // Brand guidance
+    let brandGuidance = '';
+    if (brandMode === 'EXPLICIT' && brandName) {
+      brandGuidance = `BRAND: ${brandName} - Include naturally in final beat only`;
+    } else if (brandMode === 'IMPLICIT' && brandName) {
+      brandGuidance = `BRAND: ${brandName} - Suggest implicitly, no direct mention`;
+    } else {
+      brandGuidance = `NO BRAND - Focus on human experience`;
+    }
+    
+    // Get markers
+    const markers = this.getMarkersForEntryPath(entryPath);
+    
+    // Ontology section
+    const ontologySection = `
+🔒 STRICT ONTOLOGY ENFORCEMENT:
+You MUST use ONLY these nouns:
+${ontology.allAllowedNouns.map(n => `- ${n}`).join('\n')}
+
+CRITICAL RULES:
+- EVERY noun in your response MUST be from this list
+- If you need a noun not in this list, you MUST NOT use it
+- Find another way to express the idea without new nouns
+- This is NOT optional - it's enforced by validation
+    `;
+
+    // Event gate constraints
+    const eventConstraints = XOEventGate.getEventConstraintsPrompt(eventGate);
+
+    // Format rules
+    const formatRules = `
 🚫 ABSOLUTELY FORBIDDEN - YOU WILL BE PENALIZED FOR THESE:
-❌ NEVER write "In this beat", "This beat shows", "Beat 1", "Beat 2", etc.
-❌ NEVER write "Following beat", "Next beat", "Previous beat"
-❌ NEVER write "In this scene", "This scene depicts", "The scene shows"
-❌ NEVER write "In this moment", "This moment captures", "This moment shows"
-❌ NEVER write any explanatory text, meta commentary, or narration ABOUT the story
+❌ NEVER write "In this beat", "This beat shows", "Beat 1", etc.
+❌ NEVER write any explanatory text or meta commentary
 ❌ NEVER number or label your beats in any way
-❌ NEVER use phrases like "We see", "We notice", "We feel", "The reader sees"
+❌ NEVER use phrases like "We see", "We notice", "We feel"
 
 ✅ YOU MUST OUTPUT EXACTLY THIS FORMAT:
 [MARKER]
 [CONTENT LINE 1]
 [CONTENT LINE 2 (if needed)]
 
-✅ THE CONTENT MUST BE THE STORY ITSELF, NOT A DESCRIPTION OF IT
-✅ Write DIRECTLY - show the moment, don't explain it
-
-EXAMPLE OF CORRECT FORMAT (for ${entryPath} path):
+EXAMPLE OF CORRECT FORMAT:
 ${markers[0]}
 The quiet room held morning light.
 
 ${markers[1]}
 Small details revealed themselves slowly.
+    `;
 
-${markers[2]}
-Understanding arrived without words.
-
-EXAMPLE OF WRONG FORMAT (NEVER DO THIS):
-${markers[0]}
-In this beat, we see that the quiet room held morning light.
-
-YOUR TASK: Generate the story content directly. NO META TEXT.
-  `.trim();
-  
-  // Path-specific instructions
-  const pathInstructions = this.getPathInstructions(entryPath);
-  
-  return `
+    return `
 You are generating micro-stories for the XO system.
 
 CRITICAL CONSTRAINTS:
 ${marketGuidance}
 ${brandGuidance}
-${inventionRules}
+
+${ontologySection}
+
+${eventConstraints}
 
 ${formatRules}
 
-${pathInstructions}
-
 PASS ${passId}: ${passId === 1 ? 'Focus on core experience' : passId === 2 ? 'Focus on emotional arc' : 'Focus on resolution'}
-  `.trim();
-}
+    `;
+  }
 
   /**
    * Build user prompt
    */
-  private static buildUserPrompt(input: string, contract: XOContract): string {
-    const { context } = contract;
+  private static buildUserPrompt(
+    input: string,
+    contract: XOContract,
+    context: GenerationContext
+  ): string {
+    const { ontology } = context;
     
     return `
 INPUT: "${input.substring(0, 200)}${input.length > 200 ? '...' : ''}"
 
-CONTEXT ELEMENTS (use only these):
-${context.allowedNouns.map(noun => `- ${noun}`).join('\n')}
+CONTEXT ELEMENTS (use only these nouns):
+${ontology.allAllowedNouns.map(noun => `- ${noun}`).join('\n')}
 
 Generate a ${contract.maxBeats}-beat micro-story following all rules.
-    `.trim();
+    `;
   }
 
   /**
    * Parse LLM response into beats
    */
-/**
- * Parse LLM response into beats
- */
-private static parseResponseToBeats(response: string, contract: XOContract): MicroStoryBeat[] {
-  // Get markers for this path
-  const markers = this.getMarkersForEntryPath(contract.entryPath);
-  
-  // Split by markers to extract beats
-  const beats: MicroStoryBeat[] = [];
-  let remainingText = response;
-  
-  for (let i = 0; i < markers.length; i++) {
-    const marker = markers[i];
-    const markerIndex = remainingText.indexOf(marker);
+  private static parseResponseToBeats(response: string, contract: XOContract): MicroStoryBeat[] {
+    const markers = this.getMarkersForEntryPath(contract.entryPath);
+    const beats: MicroStoryBeat[] = [];
+    let remainingText = response;
     
-    if (markerIndex === -1) {
-      // Marker not found, create empty beat
-      beats.push({ lines: ['[Content]'], marker });
-      continue;
-    }
-    
-    // Find content after marker
-    let contentStart = markerIndex + marker.length;
-    let contentEnd = remainingText.length;
-    
-    // Look for next marker
-    for (let j = i + 1; j < markers.length; j++) {
-      const nextMarker = markers[j];
-      const nextIndex = remainingText.indexOf(nextMarker, contentStart);
-      if (nextIndex !== -1 && nextIndex < contentEnd) {
-        contentEnd = nextIndex;
-        break;
+    for (let i = 0; i < markers.length; i++) {
+      const marker = markers[i];
+      const markerIndex = remainingText.indexOf(marker);
+      
+      if (markerIndex === -1) {
+        beats.push({ lines: ['[Content]'], marker });
+        continue;
       }
-    }
-    
-    // Extract and clean content
-    let content = remainingText.substring(contentStart, contentEnd).trim();
-    
-    // ============================================================
-    // CRITICAL FIX: ULTRA-AGGRESSIVE CLEANING
-    // Remove ANY meta-commentary regardless of pattern
-    // ============================================================
-    
-    // First pass - remove entire lines that start with meta patterns
-    const lines = content.split('\n');
-    const cleanLines: string[] = [];
-    
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
       
-      const lowerLine = trimmed.toLowerCase();
+      let contentStart = markerIndex + marker.length;
+      let contentEnd = remainingText.length;
       
-      // Skip ANY line that looks like meta commentary
-      const metaPatterns = [
-        /^beat\s+\d+/,
-        /^in\s+this\s+beat/,
-        /^this\s+beat/,
-        /^following\s+beat/,
-        /^next\s+beat/,
-        /^previous\s+beat/,
-        /^in\s+this\s+scene/,
-        /^this\s+scene/,
-        /^in\s+this\s+moment/,
-        /^this\s+moment/,
-        /^we\s+see/,
-        /^we\s+notice/,
-        /^we\s+feel/,
-        /^we\s+watch/,
-        /^the\s+story/,
-        /^the\s+scene/,
-        /^the\s+moment/,
-        /^here\s+we/,
-        /^in\s+the\s+following/,
-        /^as\s+we/,
-      ];
-      
-      let isMeta = false;
-      for (const pattern of metaPatterns) {
-        if (pattern.test(lowerLine)) {
-          isMeta = true;
+      for (let j = i + 1; j < markers.length; j++) {
+        const nextMarker = markers[j];
+        const nextIndex = remainingText.indexOf(nextMarker, contentStart);
+        if (nextIndex !== -1 && nextIndex < contentEnd) {
+          contentEnd = nextIndex;
           break;
         }
       }
       
-      if (!isMeta) {
-        cleanLines.push(trimmed);
-      }
+      let content = remainingText.substring(contentStart, contentEnd).trim();
+      
+      // Clean the content
+      const lines = content.split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .filter(line => {
+          const lowerLine = line.toLowerCase();
+          // Filter out meta commentary
+          return !(
+            lowerLine.startsWith('in this beat') ||
+            lowerLine.startsWith('this beat') ||
+            lowerLine.startsWith('beat') ||
+            lowerLine.startsWith('we see') ||
+            lowerLine.startsWith('we notice') ||
+            lowerLine.startsWith('the story')
+          );
+        })
+        .slice(0, contract.maxLinesPerBeat);
+      
+      beats.push({
+        lines: lines.length > 0 ? lines : ['[Content]'],
+        marker
+      });
     }
     
-    // If we removed everything, use placeholder
-    if (cleanLines.length === 0) {
-      cleanLines.push('[Content]');
-    }
-    
-    // Second pass - clean each remaining line of any inline meta text
-    const finalLines = cleanLines.map(line => {
-      return line
-        .replace(/^(?:beat|scene|moment)\s+\d+\s*[:\-–—]\s*/gi, '')
-        .replace(/^(?:in|this|the)\s+(?:beat|scene|moment)\s+[:\-–—]?\s*/gi, '')
-        .replace(/^(?:we|the\s+reader)\s+(?:see|notice|feel|watch|observe)\s+[:\-–—]?\s*/gi, '')
-        .trim();
-    }).filter(line => line.length > 0);
-    
-    // Limit lines per beat
-    let limitedLines = finalLines.slice(0, contract.maxLinesPerBeat);
-    
-    // If no lines, add placeholder
-    if (limitedLines.length === 0) {
-      limitedLines = ['[Content]'];
-    }
-    
-    // Trim each line to word limit
-    limitedLines = limitedLines.map(line => {
-      const words = line.split(/\s+/);
-      if (words.length > contract.maxWordsPerLine) {
-        return words.slice(0, contract.maxWordsPerLine).join(' ');
-      }
-      return line;
-    });
-    
-    beats.push({ 
-      lines: limitedLines, 
-      marker 
-    });
+    return beats.slice(0, contract.maxBeats);
   }
-  
-  // Ensure we have the right number of beats
-  while (beats.length < contract.maxBeats) {
-    const marker = markers[beats.length] || 'STORY:';
-    beats.push({ lines: ['[Content]'], marker });
-  }
-  
-  return beats.slice(0, contract.maxBeats);
-}
 
   /**
    * Post-process beats
    */
-  private static postProcessBeats(beats: MicroStoryBeat[], contract: XOContract): MicroStoryBeat[] {
-    // Add markers if required
-    if (contract.requirePathMarkers) {
-      const markers = this.getMarkersForEntryPath(contract.entryPath);
-      beats.forEach((beat, index) => {
-        if (index < markers.length) {
-          beat.marker = markers[index];
+  private static postProcessBeats(
+    beats: MicroStoryBeat[],
+    contract: XOContract,
+    context: GenerationContext
+  ): MicroStoryBeat[] {
+    const { ontology } = context;
+    
+    return beats.map(beat => ({
+      ...beat,
+      lines: beat.lines.map(line => {
+        // Basic line cleanup
+        let cleanLine = line.trim();
+        
+        // Ensure line doesn't start with markers
+        if (cleanLine.startsWith('SCENE_INPUT:') || 
+            cleanLine.startsWith('EMOTION_INPUT:') ||
+            cleanLine.startsWith('STORY:')) {
+          cleanLine = cleanLine.replace(/^(SCENE_INPUT|EMOTION_INPUT|STORY):\s*/i, '');
         }
-      });
+        
+        return cleanLine;
+      })
+    }));
+  }
+
+  /**
+   * Validate a generation pass
+   */
+  private static async validatePass(
+    beats: MicroStoryBeat[],
+    contract: XOContract,
+    context: GenerationContext
+  ): Promise<{
+    valid: boolean;
+    errors?: string[];
+    nounViolations?: any[];
+    eventViolations?: any[];
+  }> {
+    const { ontology, eventGate, densityConfidence } = context;
+    const errors: string[] = [];
+    
+    // Validate nouns
+    const nounValidation = await XOOntologyValidator.validateAgainstOntology(
+      beats,
+      ontology.allAllowedNouns
+    );
+    
+    if (!nounValidation.valid) {
+      errors.push(`Noun violations: ${nounValidation.violations.length}`);
     }
     
-    // Ensure brand is only in last beat if present
-    if (contract.brandMode === 'EXPLICIT' && contract.brandName) {
-      // Remove brand references from non-last beats
-      for (let i = 0; i < beats.length - 1; i++) {
-        beats[i].lines = beats[i].lines.filter(line => 
-          !line.toLowerCase().includes(contract.brandName!.toLowerCase())
+    // Validate events
+    const eventValidation = await XOEventValidator.validateEvents(
+      beats,
+      eventGate,
+      densityConfidence
+    );
+    
+    if (!eventValidation.valid) {
+      errors.push(`Event violations: ${eventValidation.violations.length}`);
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors: errors.length > 0 ? errors : undefined,
+      nounViolations: nounValidation.violations,
+      eventViolations: eventValidation.violations
+    };
+  }
+
+  /**
+   * Regenerate problematic beats
+   */
+  public static async regenerateProblemBeats(
+    originalBeats: MicroStoryBeat[],
+    violations: any[],
+    contract: XOContract,
+  context?: GenerationContext, // Make optional
+  passId?: number // Make optional
+
+  ): Promise<MicroStoryBeat[]> {
+    const beats = [...originalBeats];
+    const violatedBeatIndices = new Set(violations.map(v => v.beatIndex));
+    
+    for (const beatIndex of violatedBeatIndices) {
+      if (beatIndex >= beats.length) continue;
+      
+      console.log(`[XO Engine] Regenerating beat ${beatIndex + 1}`);
+      
+      try {
+        const existingContext = beats[beatIndex].lines.join(' ');
+        
+        const newBeat = await this.generateSingleBeat(
+          existingContext,
+          beatIndex,
+          contract,
+          context,
+          passId,
+          'Fix violations: use only allowed nouns and verbs'
         );
+        
+        beats[beatIndex] = newBeat;
+      } catch (error) {
+        console.warn(`[XO Engine] Failed to regenerate beat ${beatIndex + 1}:`, error);
       }
     }
-    
-    // Trim lines to word limit
-    beats.forEach(beat => {
-      beat.lines = beat.lines.map(line => {
-        const words = line.split(/\s+/);
-        if (words.length > contract.maxWordsPerLine) {
-          return words.slice(0, contract.maxWordsPerLine).join(' ');
-        }
-        return line;
-      });
-    });
     
     return beats;
   }
 
   /**
+   * Generate a single beat
+   */
+  private static async generateSingleBeat(
+    context: string,
+    beatIndex: number,
+    contract: XOContract,
+    generationContext: GenerationContext,
+    passId: number,
+    instruction: string
+  ): Promise<MicroStoryBeat> {
+    const markers = this.getMarkersForEntryPath(contract.entryPath);
+    const marker = beatIndex < markers.length ? markers[beatIndex] : 'STORY:';
+    
+    const systemPrompt = `
+You are generating a SINGLE story beat.
+
+${instruction}
+
+${this.buildSystemPrompt(contract, passId, generationContext)}
+
+Generate ONLY the content line(s) for this beat, no explanations.
+    `;
+
+    try {
+      const completion = await this.openai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Context: ${context}` }
+        ],
+        temperature: 0.0,
+        max_tokens: 100
+      });
+
+      const rawContent = completion.choices[0].message.content?.trim() || '';
+      
+      const lines = rawContent
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0 && !l.startsWith('Beat') && !l.startsWith('In this'))
+        .slice(0, contract.maxLinesPerBeat);
+
+      return {
+        lines: lines.length > 0 ? lines : ['[Regenerated content]'],
+        marker
+      };
+    } catch (error) {
+      console.error(`[XO Engine] Beat generation failed:`, error);
+      return {
+        lines: ['[Regeneration failed]'],
+        marker
+      };
+    }
+  }
+
+  /**
    * Select best pass from multiple attempts
    */
-  private static selectBestPass(passes: GenerationPass[], contract: XOContract): GenerationPass | null {
-    // First, try to find a valid pass
+  private static selectBestPass(
+    passes: GenerationPass[],
+    contract: XOContract
+  ): GenerationPass | null {
+    // First, find valid passes
     const validPasses = passes.filter(p => p.valid);
     if (validPasses.length > 0) {
-      // Return the first valid pass
       return validPasses[0];
     }
     
-    // If no valid passes, but we have some beats, return the one with most beats
-    const passesWithBeats = passes.filter(p => p.beats.length > 0);
-    if (passesWithBeats.length > 0) {
-      // Sort by beat count descending
-      passesWithBeats.sort((a, b) => b.beats.length - a.beats.length);
-      return passesWithBeats[0];
+    // If no valid passes, return the one with fewest violations
+    const passesWithViolations = passes.filter(p => p.beats.length > 0);
+    if (passesWithViolations.length > 0) {
+      passesWithViolations.sort((a, b) => {
+        const aViolations = (a.nounViolations?.length || 0) + (a.eventViolations?.length || 0);
+        const bViolations = (b.nounViolations?.length || 0) + (b.eventViolations?.length || 0);
+        return aViolations - bViolations;
+      });
+      return passesWithViolations[0];
     }
     
     return null;
@@ -811,21 +834,6 @@ private static parseResponseToBeats(response: string, contract: XOContract): Mic
   }
 
   /**
-   * Get path-specific instructions
-   */
-  private static getPathInstructions(entryPath: string): string {
-    const instructions = {
-      emotion: 'Focus on emotional journey. Start with feeling, move to insight, end with transformed perspective.',
-      scene: 'Focus on sensory details. Start with observation, move to noticed details, end with revealed meaning.',
-      audience: 'Focus on audience connection. Start with signal, move to why it matters, end with shared experience.',
-      seed: 'Focus on narrative arc. Start with seed, move through development, end with completion.',
-      full: 'Focus on complete story. Use 5-beat structure: Hook, Conflict, Turn, Brand/Meaning, Close.',
-    };
-    
-    return instructions[entryPath as keyof typeof instructions] || instructions.scene;
-  }
-
-  /**
    * Get markers for entry path
    */
   private static getMarkersForEntryPath(entryPath: string): string[] {
@@ -843,205 +851,126 @@ private static parseResponseToBeats(response: string, contract: XOContract): Mic
   /**
    * Refine an existing story
    */
-static async refine(
-  story: MicroStory,
-  refinement: 'expand' | 'gentler' | 'harsher' | 'brandify' | 'deblandify',
-  options: XONarrativeOptions = {}
-): Promise<MicroStory> {
-  console.log(`[XO Engine] Refining story: ${refinement}`);
-  
-  // Create new contract based on refinement type, preserving original story context
-  const newContract = this.createRefinementContract(story.contract, refinement, story);
-  
-  // Extract core elements from the story to preserve them in the instruction
-  const storyText = XORenderer.extractStoryText(story.beats);
-  const seedMoment = story.contract.context.seedMoment;
-  const allowedNouns = story.contract.context.allowedNouns.join(', ');
-  
-  // Build the instruction based on refinement type, dynamically using story elements
-  let instruction = '';
-  switch (refinement) {
-    case 'gentler':
-      instruction = `Rewrite this story to be gentler and more tender in tone, using softer language and a more compassionate perspective. 
-      
-Key elements that MUST remain unchanged:
-- Core narrative: ${seedMoment}
-- Allowed nouns/themes: ${allowedNouns}
-- Same characters and setting
-- Same fundamental plot points
+  static async refine(
+    story: MicroStory,
+    refinement: 'expand' | 'gentler' | 'harsher' | 'brandify' | 'deblandify',
+    options: XONarrativeOptions = {}
+  ): Promise<MicroStory> {
+    console.log(`[XO Engine] Refining story: ${refinement}`);
+    
+    const newContract = this.createRefinementContract(story.contract, refinement, story);
+    
+    const storyText = XORenderer.extractStoryText(story.beats);
+    const seedMoment = story.contract.context.seedMoment;
+    const allowedNouns = story.contract.context.allowedNouns.join(', ');
+    
+    let instruction = '';
+    switch (refinement) {
+      case 'gentler':
+        instruction = `Rewrite this story to be gentler and more tender in tone, using softer language. Core narrative must remain: "${seedMoment}". Allowed nouns: ${allowedNouns}`;
+        break;
+      case 'harsher':
+        instruction = `Rewrite this story to be harsher and more intense in tone. Core narrative must remain: "${seedMoment}". Allowed nouns: ${allowedNouns}`;
+        break;
+      case 'expand':
+        instruction = `Expand this story with more detail while preserving core: "${seedMoment}". Allowed nouns: ${allowedNouns}`;
+        break;
+      case 'brandify':
+        instruction = `Incorporate ${story.contract.brandName || 'the brand'} naturally into this story. Core: "${seedMoment}". Allowed nouns: ${allowedNouns}`;
+        break;
+      case 'deblandify':
+        instruction = `Make this story more distinctive while preserving core: "${seedMoment}". Allowed nouns: ${allowedNouns}`;
+        break;
+    }
+    
+    const refinedStory = await this.generate(
+      instruction,
+      story.contract.marketCode,
+      story.contract.brandName,
+      options,
+      { entryPath: story.contract.entryPath },
+      story
+    );
 
-The tone should be gentler, but everything else stays the same.`;
-      break;
-      
-    case 'harsher':
-      instruction = `Rewrite this story to be harsher and more intense in tone, using stronger language and a more confrontational perspective. 
-      
-Key elements that MUST remain unchanged:
-- Core narrative: ${seedMoment}
-- Allowed nouns/themes: ${allowedNouns}
-- Same characters and setting
-- Same fundamental plot points
-
-The tone should be harsher, but everything else stays the same.`;
-      break;
-      
-    case 'expand':
-      instruction = `Expand this story with more detail and development. 
-      
-Key elements that MUST remain unchanged:
-- Core narrative: ${seedMoment}
-- Allowed nouns/themes: ${allowedNouns}
-- Same characters and setting
-- Same fundamental plot points
-
-Add depth and detail while preserving the original story's essence.`;
-      break;
-      
-    case 'brandify':
-      instruction = `Incorporate the brand ${story.contract.brandName || 'the brand'} naturally into this story. 
-      
-Key elements that MUST remain unchanged:
-- Core narrative: ${seedMoment}
-- Allowed nouns/themes: ${allowedNouns}
-- Same characters and setting
-- Same fundamental plot points
-
-The brand should feel like a natural part of the existing story.`;
-      break;
-      
-    case 'deblandify':
-      instruction = `Make this story more distinctive and less generic. 
-      
-Key elements that MUST remain unchanged:
-- Core narrative: ${seedMoment}
-- Allowed nouns/themes: ${allowedNouns}
-- Same characters and setting
-- Same fundamental plot points
-
-Add unique details and make it more memorable while preserving the core.`;
-      break;
-      
-    default:
-      instruction = `Rewrite this story to be ${refinement} while maintaining the same core narrative: "${seedMoment}". Keep the same characters, setting, and allowed nouns/themes: ${allowedNouns}. Only the tone should change.`;
-  }
-  
-  console.log('[XO Engine] Refinement instruction:', {
-    refinement,
-    seedMoment: seedMoment.substring(0, 50),
-    allowedNounsCount: story.contract.context.allowedNouns.length
-  });
-  
-  // Generate refined version, passing the original story for context
-  const refinedStory = await this.generate(
-    instruction,
-    story.contract.marketCode,
-    story.contract.brandName,
-    options,
-    { entryPath: story.contract.entryPath },
-    story // Pass the original story for context preservation
-  );
-
-  // Preserve original contract metadata
-  refinedStory.contract = {
-    ...newContract,
-    context: story.contract.context, // Keep original context
-  };
-  
-  return refinedStory;
-}
-
-/**
- * Create contract for refinement
- */
-private static createRefinementContract(
-  originalContract: XOContract,
-  refinement: string,
-  originalStory?: MicroStory
-): XOContract {
-  // Start with the original contract's structure
-  const builder = new XOContractBuilder(originalContract);
-  
-  // If we have the original story, preserve its context explicitly
-  if (originalStory) {
-    // CRITICAL: Set the context from the original story, not the current contract
-    builder.contract.context = {
-      userInputTokens: [...originalStory.contract.context.userInputTokens],
-      allowedNouns: [...originalStory.contract.context.allowedNouns],
-      seedMoment: originalStory.contract.context.seedMoment,
-      timestamp: new Date().toISOString()
+    refinedStory.contract = {
+      ...newContract,
+      context: story.contract.context,
     };
+    
+    return refinedStory;
   }
 
-  // Apply refinement-specific modifications
-  switch (refinement) {
-    case 'expand':
-      builder.withMaxBeats(Math.min(originalContract.maxBeats + 1, 5));
-      break;
-    case 'brandify':
-      if (originalContract.brandName) {
-        builder.withBrand(originalContract.brandName, 'EXPLICIT');
-      }
-      break;
-    case 'deblandify':
-      builder.withoutBrand();
-      break;
-    // gentler/harsher don't change contract structure
-  }
+  /**
+   * Create contract for refinement
+   */
+  private static createRefinementContract(
+    originalContract: XOContract,
+    refinement: string,
+    originalStory?: MicroStory
+  ): XOContract {
+    const builder = new XOContractBuilder(originalContract);
+    
+    if (originalStory) {
+      builder.contract.context = {
+        userInputTokens: [...originalStory.contract.context.userInputTokens],
+        allowedNouns: [...originalStory.contract.context.allowedNouns],
+        seedMoment: originalStory.contract.context.seedMoment,
+        timestamp: new Date().toISOString()
+      };
+    }
 
-  return builder.build();
-}
+    switch (refinement) {
+      case 'expand':
+        builder.withMaxBeats(Math.min(originalContract.maxBeats + 1, 5));
+        break;
+      case 'brandify':
+        if (originalContract.brandName) {
+          builder.withBrand(originalContract.brandName, 'EXPLICIT');
+        }
+        break;
+      case 'deblandify':
+        builder.withoutBrand();
+        break;
+    }
+
+    return builder.build();
+  }
 
   /**
    * Convert micro-story to full story
    */
-/**
- * Convert micro-story to full story
- */
-static async convertToFullStory(
-  story: MicroStory,
-  meaningContract?: any
-): Promise<MicroStory> {
-  console.log('[XO Engine] Converting to full story');
-  
-  // Create full story contract, preserving original story context
-  const builder = new XOContractBuilder(story.contract)
-    .withFormatMode('FULLSTORY')
-    .withMaxBeats(5);
-  
-  const fullContract = builder.build();
-  
-  // Extract story text for generation
-  const storyText = XORenderer.extractStoryText(story.beats);
-  
-  // Generate full story with explicit instruction, passing the original story for context
-  const fullStory = await this.generate(
-    `Expand this micro-story into a complete 5-beat narrative, maintaining the same theme and characters:\n\n${storyText}`,
-    fullContract.marketCode,
-    fullContract.brandName,
-    { 
-      temperature: 0.0, 
-      maxTokens: 500,
-      passes: 3 
-    },
-    { 
-      entryPath: 'full', 
-      formatMode: 'FULLSTORY',
+  static async convertToFullStory(
+    story: MicroStory,
+    meaningContract?: any
+  ): Promise<MicroStory> {
+    console.log('[XO Engine] Converting to full story');
+    
+    const builder = new XOContractBuilder(story.contract)
+      .withFormatMode('FULLSTORY')
+      .withMaxBeats(5);
+    
+    const fullContract = builder.build();
+    
+    const storyText = XORenderer.extractStoryText(story.beats);
+    
+    const fullStory = await this.generate(
+      `Expand this micro-story into a complete 5-beat narrative:\n\n${storyText}`,
+      fullContract.marketCode,
+      fullContract.brandName,
+      { temperature: 0.0, maxTokens: 500, passes: 3 },
+      { entryPath: 'full', formatMode: 'FULLSTORY', maxBeats: 5, ...meaningContract },
+      story
+    );
+    
+    fullStory.contract = {
+      ...fullStory.contract,
       maxBeats: 5,
-      ...meaningContract 
-    },
-    story // Pass the original story for context preservation
-  );
-  
-  // Double-check the contract after generation
-  fullStory.contract = {
-    ...fullStory.contract,
-    maxBeats: 5,
-    formatMode: 'FULLSTORY',
-    entryPath: 'full'
-  };
-  
-  return fullStory;
-}
+      formatMode: 'FULLSTORY',
+      entryPath: 'full'
+    };
+    
+    return fullStory;
+  }
 }
 
 // ============================================================================
@@ -1069,10 +998,8 @@ export async function generateXOStory(
     meaningContract
   );
   
-  // Render to formatted text
   const formattedText = XORenderer.renderMicroStory(story);
   
-  // Create beat sheet
   const beatSheet = story.beats.map((beat, index) => ({
     beat: `Beat ${index + 1}`,
     description: beat.lines.join(' '),

@@ -249,7 +249,7 @@ export default async function handler(
           story.beats,
           validation.metadata.validation_1.beatsNeedingRegeneration,
           contract,
-          2
+          
         );
         
         story.beats = regeneratedBeats;
