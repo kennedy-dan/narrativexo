@@ -225,7 +225,7 @@ Return ONLY the JSON array, no other text:
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4o',
         messages: [
           { 
             role: 'system', 
@@ -235,7 +235,7 @@ Return ONLY the JSON array, no other text:
         ],
         temperature: 0.0,
         max_tokens: 150,
-        // response_format: { type: "json_object" }
+        response_format: { type: "json_object" }
       });
 
       const response = completion.choices[0].message.content?.trim() || '{"entities": []}';
@@ -402,11 +402,11 @@ JSON:
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4o',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.0,
         max_tokens: 50,
-        // response_format: { type: "json_object" }
+        response_format: { type: "json_object" }
       });
 
       const response = completion.choices[0].message.content?.trim() || '{"density": "LOW"}';
@@ -523,7 +523,7 @@ Generate for: ${entityList}
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4o',
         messages: [
           { 
             role: 'system', 
@@ -533,7 +533,7 @@ Generate for: ${entityList}
         ],
         temperature: 0.2, // Slight variation but controlled
         max_tokens: 300,
-        // response_format: { type: "json_object" }
+        response_format: { type: "json_object" }
       });
 
       const response = completion.choices[0].message.content?.trim() || '{"nouns": []}';
@@ -701,7 +701,7 @@ Return JSON array:
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4o',
         messages: [
           { 
             role: 'system', 
@@ -711,7 +711,7 @@ Return JSON array:
         ],
         temperature: 0.0,
         max_tokens: 500,
-        // response_format: { type: "json_object" }
+        response_format: { type: "json_object" }
       });
 
       const response = completion.choices[0].message.content?.trim() || '{"nouns": []}';

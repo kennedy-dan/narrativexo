@@ -240,27 +240,7 @@ export default async function handler(
     let validation = await validator.validateStory(story);
     let shouldShip = validator.shouldShip(validation);
 
-    // Regenerate beats with invented nouns if found
-    if (validation.metadata?.validation_1?.beatsNeedingRegeneration?.length > 0) {
-      console.log('[XO Generate] Regenerating beats with invented nouns');
-      
-      try {
-        const regeneratedBeats = await XONarrativeEngine.regenerateProblemBeats(
-          story.beats,
-          validation.metadata.validation_1.beatsNeedingRegeneration,
-          contract,
-          
-        );
-        
-        story.beats = regeneratedBeats;
-        
-        const revalidation = await validator.validateStory(story);
-        validation = revalidation;
-        shouldShip = validator.shouldShip(validation);
-      } catch (regenerationError) {
-        console.warn('[XO Generate] Regeneration failed:', regenerationError);
-      }
-    }
+ 
 
     // ============================================================================
     // STEP 4: RENDER FORMATTED OUTPUT

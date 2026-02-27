@@ -284,7 +284,7 @@ JSON:
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4o',
         messages: [
           { 
             role: 'system', 
@@ -294,7 +294,7 @@ JSON:
         ],
         temperature: 0.0,
         max_tokens: 200,
-        // response_format: { type: "json_object" }
+        response_format: { type: "json_object" }
       });
 
       const response = completion.choices[0].message.content?.trim() || '{"verbs": []}';
@@ -543,7 +543,7 @@ Return JSON array:
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4o',
         messages: [
           { 
             role: 'system', 
@@ -553,7 +553,7 @@ Return JSON array:
         ],
         temperature: 0.0,
         max_tokens: 500,
-        // response_format: { type: "json_object" }
+        response_format: { type: "json_object" }
       });
 
       const response = completion.choices[0].message.content?.trim() || '{"verbs": []}';
@@ -768,7 +768,7 @@ Return JSON:
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4o',
         messages: [
           { 
             role: 'system', 
@@ -778,7 +778,7 @@ Return JSON:
         ],
         temperature: 0.0,
         max_tokens: 200,
-        // response_format: { type: "json_object" }
+        response_format: { type: "json_object" }
       });
 
       const response = completion.choices[0].message.content?.trim() || '{"hasBackstory": false}';
@@ -830,7 +830,7 @@ Return JSON:
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4o',
         messages: [
           { 
             role: 'system', 
@@ -840,7 +840,7 @@ Return JSON:
         ],
         temperature: 0.0,
         max_tokens: 200,
-        // response_format: { type: "json_object" }
+        response_format: { type: "json_object" }
       });
 
       const response = completion.choices[0].message.content?.trim() || '{"hasFuture": false}';

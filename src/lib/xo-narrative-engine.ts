@@ -1,7 +1,7 @@
 /**
- * XO NARRATIVE ENGINE v3.0
+ * XO NARRATIVE ENGINE v3.1
  * Contract-first, deterministic story generation
- * WITH FULL CONTAINMENT: Ontology + Event Gate + Deterministic Validation
+ * WITH FULL CONTAINMENT + INTERNAL REGENERATION
  */
 
 import OpenAI from 'openai';
@@ -22,6 +22,7 @@ export interface XONarrativeOptions {
   validateEachPass?: boolean;
   minOntologyConfidence?: number;
   strictMode?: boolean;
+  maxRegenerationAttempts?: number; // New option
 }
 
 export interface GenerationPass {
@@ -37,8 +38,14 @@ export interface GenerationContext {
   ontology: Awaited<ReturnType<typeof XOOntologyBuilder.buildOntology>>;
   eventGate: EventGate;
   densityConfidence: number;
-    metadata?: any; // Add this for separate metadata
+}
 
+export interface GenerationResult {
+  story: MicroStory;
+  validation: {
+    nounValidation: Awaited<ReturnType<typeof XOOntologyValidator.validateAgainstOntology>>;
+    eventValidation: Awaited<ReturnType<typeof XOEventValidator.validateEvents>>;
+  };
 }
 
 // ============================================================================
@@ -52,7 +59,7 @@ export class XONarrativeEngine {
 
   /**
    * Generate a micro-story with contract-first approach
-   * NOW WITH FULL CONTAINMENT SYSTEM
+   * NOW WITH INTERNAL REGENERATION
    */
   static async generate(
     input: string,
@@ -65,6 +72,8 @@ export class XONarrativeEngine {
     console.log('[XO Engine] ========================================');
     console.log('[XO Engine] Generating story with full containment');
     console.log('[XO Engine] Input:', input.substring(0, 100));
+    
+    const maxRegenerationAttempts = options.maxRegenerationAttempts || 2;
     
     // ============================================================================
     // STEP 1: BUILD ONTOLOGY (What can exist)
@@ -103,232 +112,299 @@ export class XONarrativeEngine {
     // STEP 3: CREATE CONTRACT
     // ============================================================================
     
-// ============================================================================
-// STEP 3: CREATE CONTRACT (with separate metadata)
-// ============================================================================
+    let contract: XOContract;
 
-let contract: XOContract;
-
-if (originalStory) {
-  // Use original story's contract as base
-  const builder = new XOContractBuilder(originalStory.contract);
-  contract = builder.build();
-} else {
-  // Build from scratch
-  const builder = new XOContractBuilder()
-    .withUserInput(input)
-    .withMarket(market as any, 0.5)
-    .withEntryPath(this.detectEntryPath(input))
-    .withFormatMode('MICROSTORY')
-    .withStrictMode(false);
-  
-  if (brand) {
-    builder.withBrand(brand, 'EXPLICIT');
-  }
-  
-  if (meaningContract) {
-    // Handle meaning contract if present
-    if (meaningContract.marketContext?.market) {
-      builder.withMarket(meaningContract.marketContext.market, meaningContract.marketContext.confidence || 0.5);
-    }
-    if (meaningContract.entryPath) {
-      builder.withEntryPath(meaningContract.entryPath.toLowerCase() as any);
-    }
-  }
-  
-  contract = builder.build();
-}
-
-// Override allowed nouns (these are in context, which should be mutable)
-contract.context.allowedNouns = ontology.allAllowedNouns;
-
-// Create separate metadata object (not attached to contract)
-const generationMetadata = {
-  ontology: {
-    coreEntities: ontology.coreEntities,
-    expandedNouns: ontology.expandedNouns.map(n => n.noun),
-    density: ontology.density
-  },
-  eventGate: {
-    allowedVerbs: eventGate.allowedVerbs,
-    maxEvents: eventGate.maxEvents,
-    maxEmotionalIntensity: eventGate.maxEmotionalIntensity,
-    allowBackstory: eventGate.allowBackstory,
-    allowFutureTense: eventGate.allowFutureTense,
-    allowCognitiveEvents: eventGate.allowCognitiveEvents,
-    allowRelationalEvents: eventGate.allowRelationalEvents,
-    allowExistentialEvents: eventGate.allowExistentialEvents,
-    metadata: eventGate.metadata
-  }
-};
-
-// ============================================================================
-// STEP 4: GENERATE IN PASSES WITH CONSTRAINTS
-// ============================================================================
-
-const context: GenerationContext = {
-  ontology,
-  eventGate,
-  densityConfidence: eventGate.metadata.confidence,
-  metadata: generationMetadata // Pass metadata separately
-};
-
-const passes = await this.generatePasses(
-  input, 
-  contract, 
-  options, 
-  context
-);
-    // ============================================================================
-    // STEP 5: SELECT BEST PASS
-    // ============================================================================
-    
-    const bestPass = this.selectBestPass(passes, contract);
-    
-    if (!bestPass) {
-      throw new Error('[XO Engine] All generation passes failed validation');
-    }
-
-    // ============================================================================
-    // STEP 6: BUILD FINAL STORY
-    // ============================================================================
-    
-    const story: MicroStory = {
-      beats: bestPass.beats,
-      contract,
-      timestamp: new Date().toISOString(),
-    };
-
-    // ============================================================================
-    // STEP 7: FINAL VALIDATION (Deterministic, LLM-powered)
-    // ============================================================================
-    
-    console.log('[XO Engine] Running final validation...');
-
-    // Validate nouns using LLM extraction + set comparison
-    const nounValidation = await XOOntologyValidator.validateAgainstOntology(
-      story.beats,
-      ontology.allAllowedNouns
-    );
-
-    if (!nounValidation.valid) {
-      console.warn('[XO Engine] ❌ Noun violations detected:', {
-        count: nounValidation.violations.length,
-        examples: nounValidation.violations.slice(0, 3).map(v => v.word)
-      });
-      
-      if (options.strictMode || contract.strictMode) {
-        throw new Error(`Noun violation: ${nounValidation.violations[0]?.word} not allowed`);
-      }
-    }
-
-    // Validate events using LLM extraction + set comparison
-    const eventValidation = await XOEventValidator.validateEvents(
-      story.beats,
-      eventGate,
-      eventGate.metadata.confidence
-    );
-
-    if (!eventValidation.valid) {
-      console.warn('[XO Engine] ❌ Event violations detected:', {
-        count: eventValidation.violations.length,
-        examples: eventValidation.violations.slice(0, 3).map(v => v.details)
-      });
-      
-      if (options.strictMode || contract.strictMode) {
-        throw new Error(`Event violation: ${eventValidation.violations[0]?.details}`);
-      }
-    }
-
-    // ============================================================================
-    // STEP 8: FINAL LOGGING
-    // ============================================================================
-    
-    console.log('[XO Engine] ✅ Generation complete:', {
-      beats: story.beats.length,
-      nounValidation: nounValidation.stats,
-      eventValidation: eventValidation.stats,
-      passed: nounValidation.valid && eventValidation.valid
-    });
-    console.log('[XO Engine] ========================================');
-
-    return story;
-  }
-
-  /**
-   * Create contract for generation
-   */
-  private static createGenerationContract(
-    input: string,
-    market: string,
-    brand?: string,
-    meaningContract?: any,
-    originalStory?: MicroStory
-  ): XOContract {
-    const builder = new XOContractBuilder();
-    
     if (originalStory) {
-      // Use original story's contract as base
-      builder.withUserInput(originalStory.contract.context.seedMoment);
-      
-      builder.contract.context = {
-        ...originalStory.contract.context,
-        timestamp: new Date().toISOString()
-      };
-      
-      const effectiveMarket = meaningContract?.marketContext?.market || 
-                             originalStory.contract.marketCode || 
-                             market;
-      builder.withMarket(effectiveMarket as any, 0.5);
-      
-      const entryPath = meaningContract?.entryPath || 
-                       originalStory.contract.entryPath || 
-                       'scene';
-      builder.withEntryPath(entryPath.toLowerCase() as any);
-      
-      if (meaningContract?.formatMode === 'FULLSTORY' || meaningContract?.maxBeats === 5) {
-        builder.withFormatMode('FULLSTORY');
-        builder.withMaxBeats(5);
-        builder.withEntryPath('full');
-      } else {
-        builder.withFormatMode(originalStory.contract.formatMode);
-      }
-      
+      const builder = new XOContractBuilder(originalStory.contract);
+      contract = builder.build();
     } else {
-      // Build from scratch
-      builder.withUserInput(input);
-      
-      if (meaningContract) {
-        const contract = createContractFromMeaningContract(meaningContract);
-        if (brand) {
-          builder.withBrand(brand, 'EXPLICIT');
-        }
-        return builder.build();
-      }
-      
-      builder
+      const builder = new XOContractBuilder()
+        .withUserInput(input)
         .withMarket(market as any, 0.5)
         .withEntryPath(this.detectEntryPath(input))
         .withFormatMode('MICROSTORY')
         .withStrictMode(false);
+      
+      if (brand) {
+        builder.withBrand(brand, 'EXPLICIT');
+      }
+      
+      if (meaningContract) {
+        if (meaningContract.marketContext?.market) {
+          builder.withMarket(meaningContract.marketContext.market, meaningContract.marketContext.confidence || 0.5);
+        }
+        if (meaningContract.entryPath) {
+          builder.withEntryPath(meaningContract.entryPath.toLowerCase() as any);
+        }
+      }
+      
+      contract = builder.build();
+    }
+
+    // Override allowed nouns
+    contract.context.allowedNouns = ontology.allAllowedNouns;
+
+    // ============================================================================
+    // STEP 4: CREATE CONTEXT
+    // ============================================================================
+    
+    const context: GenerationContext = {
+      ontology,
+      eventGate,
+      densityConfidence: eventGate.metadata.confidence
+    };
+
+    // ============================================================================
+    // STEP 5: GENERATE WITH INTERNAL REGENERATION LOOP
+    // ============================================================================
+    
+    let bestStory: MicroStory | null = null;
+    let bestValidation: {
+      nounValidation: any;
+      eventValidation: any;
+    } | null = null;
+    
+    // Try multiple generation passes
+    for (let attempt = 1; attempt <= maxRegenerationAttempts; attempt++) {
+      console.log(`[XO Engine] Generation attempt ${attempt}/${maxRegenerationAttempts}`);
+      
+      // Generate story
+      const passes = await this.generatePasses(input, contract, options, context);
+      const bestPass = this.selectBestPass(passes, contract);
+      
+      if (!bestPass) {
+        console.log(`[XO Engine] Attempt ${attempt}: No valid pass found`);
+        continue;
+      }
+      
+      const story: MicroStory = {
+        beats: bestPass.beats,
+        contract,
+        timestamp: new Date().toISOString(),
+      };
+      
+      // Validate
+      const validation = await this.validateStory(story, context);
+      
+      // If valid, return immediately
+      if (validation.nounValidation.valid && validation.eventValidation.valid) {
+        console.log(`[XO Engine] ✅ Valid story generated on attempt ${attempt}`);
+        return story;
+      }
+      
+      // Track best attempt so far
+      if (!bestStory || this.isBetterValidation(validation, bestValidation)) {
+        bestStory = story;
+        bestValidation = validation;
+        console.log(`[XO Engine] Attempt ${attempt}: New best story (${this.getViolationCount(validation)} violations)`);
+      }
+      
+      // If we have more attempts, regenerate problem beats
+      if (attempt < maxRegenerationAttempts) {
+        console.log(`[XO Engine] Attempt ${attempt}: Regenerating problem beats...`);
+        const regeneratedBeats = await this.regenerateProblemBeatsInternal(
+          story.beats,
+          validation,
+          contract,
+          context,
+          attempt
+        );
+        
+        // Update contract for next attempt with regenerated beats as context
+        if (regeneratedBeats.length > 0) {
+          // Use regenerated beats as seed for next attempt
+          input = this.beatsToInput(regeneratedBeats);
+        }
+      }
     }
     
-    if (brand) {
-      builder.withBrand(brand, 'EXPLICIT');
+    // If we get here, return the best story we found
+    if (bestStory) {
+      console.log('[XO Engine] ⚠️ Returning best available story with warnings');
+      return bestStory;
     }
     
-    return builder.build();
+    throw new Error('[XO Engine] All generation attempts failed');
   }
 
   /**
-   * Generate story in multiple passes
+   * Validate story with both noun and event validation
    */
+  private static async validateStory(
+    story: MicroStory,
+    context: GenerationContext
+  ): Promise<{
+    nounValidation: Awaited<ReturnType<typeof XOOntologyValidator.validateAgainstOntology>>;
+    eventValidation: Awaited<ReturnType<typeof XOEventValidator.validateEvents>>;
+  }> {
+    const nounValidation = await XOOntologyValidator.validateAgainstOntology(
+      story.beats,
+      context.ontology.allAllowedNouns
+    );
+
+    const eventValidation = await XOEventValidator.validateEvents(
+      story.beats,
+      context.eventGate,
+      context.densityConfidence
+    );
+
+    return { nounValidation, eventValidation };
+  }
+
+  /**
+   * Compare validation results to find the better one
+   */
+  private static isBetterValidation(
+    current: { nounValidation: any; eventValidation: any },
+    best: { nounValidation: any; eventValidation: any } | null
+  ): boolean {
+    if (!best) return true;
+    
+    const currentViolations = this.getViolationCount(current);
+    const bestViolations = this.getViolationCount(best);
+    
+    return currentViolations < bestViolations;
+  }
+
+  /**
+   * Get total violation count
+   */
+  private static getViolationCount(validation: {
+    nounValidation: any;
+    eventValidation: any;
+  }): number {
+    return (validation.nounValidation.violations?.length || 0) +
+           (validation.eventValidation.violations?.length || 0);
+  }
+
+  /**
+   * Convert beats back to input string for regeneration
+   */
+  private static beatsToInput(beats: MicroStoryBeat[]): string {
+    return beats
+      .map(beat => beat.lines.join(' '))
+      .join(' ')
+      .substring(0, 200);
+  }
+
+  /**
+   * INTERNAL: Regenerate problem beats
+   */
+  private static async regenerateProblemBeatsInternal(
+    beats: MicroStoryBeat[],
+    validation: {
+      nounValidation: any;
+      eventValidation: any;
+    },
+    contract: XOContract,
+    context: GenerationContext,
+    attempt: number
+  ): Promise<MicroStoryBeat[]> {
+    const result = [...beats];
+    const problemBeatIndices = new Set<number>();
+    
+    // Add beats with noun violations
+    if (validation.nounValidation.violations) {
+      validation.nounValidation.violations.forEach((v: any) => {
+        if (v.beatIndex !== undefined) {
+          problemBeatIndices.add(v.beatIndex);
+        }
+      });
+    }
+    
+    // Add beats with event violations
+    if (validation.eventValidation.violations) {
+      validation.eventValidation.violations.forEach((v: any) => {
+        if (v.position?.beatIndex !== undefined) {
+          problemBeatIndices.add(v.position.beatIndex);
+        }
+      });
+    }
+    
+    console.log(`[XO Engine] Regenerating ${problemBeatIndices.size} problem beats`);
+    
+    for (const beatIndex of problemBeatIndices) {
+      if (beatIndex >= result.length) continue;
+      
+      try {
+        const beatContext = result[beatIndex].lines.join(' ');
+        const instruction = this.buildRegenerationInstruction(
+          validation,
+          beatIndex
+        );
+        
+        const newBeat = await this.generateSingleBeat(
+          beatContext,
+          beatIndex,
+          contract,
+          context,
+          attempt,
+          instruction
+        );
+        
+        result[beatIndex] = newBeat;
+        console.log(`[XO Engine] ✅ Regenerated beat ${beatIndex + 1}`);
+      } catch (error) {
+        console.warn(`[XO Engine] Failed to regenerate beat ${beatIndex + 1}:`, error);
+      }
+    }
+    
+    return result;
+  }
+
+  /**
+   * Build specific regeneration instruction based on violations
+   */
+  private static buildRegenerationInstruction(
+    validation: {
+      nounValidation: any;
+      eventValidation: any;
+    },
+    beatIndex: number
+  ): string {
+    const instructions: string[] = ['Fix all violations in this beat:'];
+    
+    // Add noun violations
+    if (validation.nounValidation.violations) {
+      const nounViolations = validation.nounValidation.violations
+        .filter((v: any) => v.beatIndex === beatIndex)
+        .map((v: any) => `- Remove "${v.word}" (not in allowed nouns)`);
+      
+      if (nounViolations.length > 0) {
+        instructions.push('NOUN VIOLATIONS:', ...nounViolations);
+      }
+    }
+    
+    // Add event violations
+    if (validation.eventValidation.violations) {
+      const eventViolations = validation.eventValidation.violations
+        .filter((v: any) => v.position?.beatIndex === beatIndex)
+        .map((v: any) => `- ${v.details}`);
+      
+      if (eventViolations.length > 0) {
+        instructions.push('EVENT VIOLATIONS:', ...eventViolations);
+      }
+    }
+    
+    instructions.push(
+      'Use only allowed nouns and verbs.',
+      'Keep the core meaning but fix all violations.'
+    );
+    
+    return instructions.join('\n');
+  }
+
+  // ============================================================================
+  // EXISTING METHODS (keep all your existing methods below)
+  // ============================================================================
+
   private static async generatePasses(
     input: string,
     contract: XOContract,
     options: XONarrativeOptions,
     context: GenerationContext
   ): Promise<GenerationPass[]> {
+    // Your existing generatePasses implementation
     const passes: GenerationPass[] = [];
     const maxPasses = options.passes || 3;
     
@@ -356,33 +432,9 @@ const passes = await this.generatePasses(
           eventViolations: validation.eventViolations
         });
         
-        // If this pass is valid and we're not in strict mode, stop early
         if (validation.valid && !contract.strictMode) {
           console.log(`[XO Engine] Pass ${passId} valid, stopping early`);
           break;
-        }
-        
-        // If there are violations but we have more passes, try regeneration
-        if (!validation.valid && passId < maxPasses && validation.nounViolations?.length) {
-          console.log(`[XO Engine] Pass ${passId} has ${validation.nounViolations.length} noun violations, regenerating...`);
-          beats = await this.regenerateProblemBeats(
-            beats,
-            validation.nounViolations,
-            contract,
-            context,
-            passId + 1
-          );
-          
-          // Re-validate after regeneration
-          const revalidation = await this.validatePass(beats, contract, context);
-          passes.push({
-            passId: passId + 0.5, // Indicate it's a regenerated pass
-            beats,
-            valid: revalidation.valid,
-            errors: revalidation.errors,
-            nounViolations: revalidation.nounViolations,
-            eventViolations: revalidation.eventViolations
-          });
         }
         
       } catch (error) {
@@ -399,9 +451,6 @@ const passes = await this.generatePasses(
     return passes;
   }
 
-  /**
-   * Generate a single pass with full constraints
-   */
   private static async generateSinglePass(
     input: string,
     contract: XOContract,
@@ -409,38 +458,24 @@ const passes = await this.generatePasses(
     options: XONarrativeOptions,
     context: GenerationContext
   ): Promise<MicroStoryBeat[]> {
-    
-    // Build system prompt with ontology and event constraints
     const systemPrompt = this.buildSystemPrompt(contract, passId, context);
-    
-    // Build user prompt
     const userPrompt = this.buildUserPrompt(input, contract, context);
     
     try {
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4',
         messages: [
-          {
-            role: 'system',
-            content: systemPrompt,
-          },
-          {
-            role: 'user',
-            content: userPrompt,
-          },
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
         ],
         temperature: options.temperature || 0.0,
         max_tokens: options.maxTokens || 400,
-        frequency_penalty: 0.3, // Slightly higher to reduce repetition
+        frequency_penalty: 0.3,
         presence_penalty: 0.2,
       });
       
       const rawResponse = completion.choices[0].message.content?.trim() || '';
-      
-      // Parse response into beats
       const beats = this.parseResponseToBeats(rawResponse, contract);
-      
-      // Apply post-processing
       return this.postProcessBeats(beats, contract, context);
       
     } catch (error) {
@@ -449,9 +484,6 @@ const passes = await this.generatePasses(
     }
   }
 
-  /**
-   * Build system prompt with full constraints
-   */
   private static buildSystemPrompt(
     contract: XOContract,
     passId: number,
@@ -460,12 +492,10 @@ const passes = await this.generatePasses(
     const { entryPath, marketCode, marketState, brandMode, brandName, maxBeats } = contract;
     const { ontology, eventGate } = context;
     
-    // Market guidance
     const marketGuidance = marketState === 'RESOLVED' 
       ? `MARKET: ${marketCode} - Use authentic but natural context`
       : `MARKET: NEUTRAL - No regional specifics, slang, or cultural props`;
     
-    // Brand guidance
     let brandGuidance = '';
     if (brandMode === 'EXPLICIT' && brandName) {
       brandGuidance = `BRAND: ${brandName} - Include naturally in final beat only`;
@@ -475,10 +505,8 @@ const passes = await this.generatePasses(
       brandGuidance = `NO BRAND - Focus on human experience`;
     }
     
-    // Get markers
     const markers = this.getMarkersForEntryPath(entryPath);
     
-    // Ontology section
     const ontologySection = `
 🔒 STRICT ONTOLOGY ENFORCEMENT:
 You MUST use ONLY these nouns:
@@ -491,10 +519,8 @@ CRITICAL RULES:
 - This is NOT optional - it's enforced by validation
     `;
 
-    // Event gate constraints
     const eventConstraints = XOEventGate.getEventConstraintsPrompt(eventGate);
 
-    // Format rules
     const formatRules = `
 🚫 ABSOLUTELY FORBIDDEN - YOU WILL BE PENALIZED FOR THESE:
 ❌ NEVER write "In this beat", "This beat shows", "Beat 1", etc.
@@ -532,9 +558,6 @@ PASS ${passId}: ${passId === 1 ? 'Focus on core experience' : passId === 2 ? 'Fo
     `;
   }
 
-  /**
-   * Build user prompt
-   */
   private static buildUserPrompt(
     input: string,
     contract: XOContract,
@@ -552,9 +575,6 @@ Generate a ${contract.maxBeats}-beat micro-story following all rules.
     `;
   }
 
-  /**
-   * Parse LLM response into beats
-   */
   private static parseResponseToBeats(response: string, contract: XOContract): MicroStoryBeat[] {
     const markers = this.getMarkersForEntryPath(contract.entryPath);
     const beats: MicroStoryBeat[] = [];
@@ -583,13 +603,11 @@ Generate a ${contract.maxBeats}-beat micro-story following all rules.
       
       let content = remainingText.substring(contentStart, contentEnd).trim();
       
-      // Clean the content
       const lines = content.split('\n')
         .map(line => line.trim())
         .filter(line => line.length > 0)
         .filter(line => {
           const lowerLine = line.toLowerCase();
-          // Filter out meta commentary
           return !(
             lowerLine.startsWith('in this beat') ||
             lowerLine.startsWith('this beat') ||
@@ -610,23 +628,16 @@ Generate a ${contract.maxBeats}-beat micro-story following all rules.
     return beats.slice(0, contract.maxBeats);
   }
 
-  /**
-   * Post-process beats
-   */
   private static postProcessBeats(
     beats: MicroStoryBeat[],
     contract: XOContract,
     context: GenerationContext
   ): MicroStoryBeat[] {
-    const { ontology } = context;
-    
     return beats.map(beat => ({
       ...beat,
       lines: beat.lines.map(line => {
-        // Basic line cleanup
         let cleanLine = line.trim();
         
-        // Ensure line doesn't start with markers
         if (cleanLine.startsWith('SCENE_INPUT:') || 
             cleanLine.startsWith('EMOTION_INPUT:') ||
             cleanLine.startsWith('STORY:')) {
@@ -638,9 +649,6 @@ Generate a ${contract.maxBeats}-beat micro-story following all rules.
     }));
   }
 
-  /**
-   * Validate a generation pass
-   */
   private static async validatePass(
     beats: MicroStoryBeat[],
     contract: XOContract,
@@ -654,7 +662,6 @@ Generate a ${contract.maxBeats}-beat micro-story following all rules.
     const { ontology, eventGate, densityConfidence } = context;
     const errors: string[] = [];
     
-    // Validate nouns
     const nounValidation = await XOOntologyValidator.validateAgainstOntology(
       beats,
       ontology.allAllowedNouns
@@ -664,7 +671,6 @@ Generate a ${contract.maxBeats}-beat micro-story following all rules.
       errors.push(`Noun violations: ${nounValidation.violations.length}`);
     }
     
-    // Validate events
     const eventValidation = await XOEventValidator.validateEvents(
       beats,
       eventGate,
@@ -683,49 +689,6 @@ Generate a ${contract.maxBeats}-beat micro-story following all rules.
     };
   }
 
-  /**
-   * Regenerate problematic beats
-   */
-  public static async regenerateProblemBeats(
-    originalBeats: MicroStoryBeat[],
-    violations: any[],
-    contract: XOContract,
-  context?: GenerationContext, // Make optional
-  passId?: number // Make optional
-
-  ): Promise<MicroStoryBeat[]> {
-    const beats = [...originalBeats];
-    const violatedBeatIndices = new Set(violations.map(v => v.beatIndex));
-    
-    for (const beatIndex of violatedBeatIndices) {
-      if (beatIndex >= beats.length) continue;
-      
-      console.log(`[XO Engine] Regenerating beat ${beatIndex + 1}`);
-      
-      try {
-        const existingContext = beats[beatIndex].lines.join(' ');
-        
-        const newBeat = await this.generateSingleBeat(
-          existingContext,
-          beatIndex,
-          contract,
-          context,
-          passId,
-          'Fix violations: use only allowed nouns and verbs'
-        );
-        
-        beats[beatIndex] = newBeat;
-      } catch (error) {
-        console.warn(`[XO Engine] Failed to regenerate beat ${beatIndex + 1}:`, error);
-      }
-    }
-    
-    return beats;
-  }
-
-  /**
-   * Generate a single beat
-   */
   private static async generateSingleBeat(
     context: string,
     beatIndex: number,
@@ -779,20 +742,15 @@ Generate ONLY the content line(s) for this beat, no explanations.
     }
   }
 
-  /**
-   * Select best pass from multiple attempts
-   */
   private static selectBestPass(
     passes: GenerationPass[],
     contract: XOContract
   ): GenerationPass | null {
-    // First, find valid passes
     const validPasses = passes.filter(p => p.valid);
     if (validPasses.length > 0) {
       return validPasses[0];
     }
     
-    // If no valid passes, return the one with fewest violations
     const passesWithViolations = passes.filter(p => p.beats.length > 0);
     if (passesWithViolations.length > 0) {
       passesWithViolations.sort((a, b) => {
@@ -806,9 +764,6 @@ Generate ONLY the content line(s) for this beat, no explanations.
     return null;
   }
 
-  /**
-   * Detect entry path from input
-   */
   private static detectEntryPath(input: string): 'emotion' | 'scene' | 'audience' | 'seed' {
     if (!input) return 'scene';
     
@@ -833,9 +788,6 @@ Generate ONLY the content line(s) for this beat, no explanations.
     return 'scene';
   }
 
-  /**
-   * Get markers for entry path
-   */
   private static getMarkersForEntryPath(entryPath: string): string[] {
     const markers = {
       emotion: ['EMOTION_INPUT:', 'INSIGHT:', 'STORY:'],
@@ -848,9 +800,28 @@ Generate ONLY the content line(s) for this beat, no explanations.
     return markers[entryPath as keyof typeof markers] || markers.scene;
   }
 
-  /**
-   * Refine an existing story
-   */
+  // Public method for backward compatibility
+  public static async regenerateProblemBeats(
+    originalBeats: MicroStoryBeat[],
+    violations: any[],
+    contract: XOContract,
+    context?: GenerationContext,
+    passId?: number
+  ): Promise<MicroStoryBeat[]> {
+    if (!context) {
+      console.warn('[XO Engine] No context provided for regeneration, skipping');
+      return originalBeats;
+    }
+    
+    return this.regenerateProblemBeatsInternal(
+      originalBeats,
+      { nounValidation: { violations }, eventValidation: { violations: [] } },
+      contract,
+      context,
+      passId || 1
+    );
+  }
+
   static async refine(
     story: MicroStory,
     refinement: 'expand' | 'gentler' | 'harsher' | 'brandify' | 'deblandify',
@@ -900,9 +871,6 @@ Generate ONLY the content line(s) for this beat, no explanations.
     return refinedStory;
   }
 
-  /**
-   * Create contract for refinement
-   */
   private static createRefinementContract(
     originalContract: XOContract,
     refinement: string,
@@ -936,9 +904,6 @@ Generate ONLY the content line(s) for this beat, no explanations.
     return builder.build();
   }
 
-  /**
-   * Convert micro-story to full story
-   */
   static async convertToFullStory(
     story: MicroStory,
     meaningContract?: any
@@ -977,9 +942,6 @@ Generate ONLY the content line(s) for this beat, no explanations.
 // LEGACY COMPATIBILITY
 // ============================================================================
 
-/**
- * Legacy function for compatibility
- */
 export async function generateXOStory(
   input: string,
   market: string = 'GLOBAL',
