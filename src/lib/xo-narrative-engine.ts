@@ -484,96 +484,192 @@ export class XONarrativeEngine {
     }
   }
 
-  private static buildSystemPrompt(
-    contract: XOContract,
-    passId: number,
-    context: GenerationContext
-  ): string {
-    const { entryPath, marketCode, marketState, brandMode, brandName, maxBeats } = contract;
-    const { ontology, eventGate } = context;
-    
-    const marketGuidance = marketState === 'RESOLVED' 
-      ? `MARKET: ${marketCode} - Use authentic but natural context`
-      : `MARKET: NEUTRAL - No regional specifics, slang, or cultural props`;
-    
-    let brandGuidance = '';
-    if (brandMode === 'EXPLICIT' && brandName) {
-      brandGuidance = `BRAND: ${brandName} - Include naturally in final beat only`;
-    } else if (brandMode === 'IMPLICIT' && brandName) {
-      brandGuidance = `BRAND: ${brandName} - Suggest implicitly, no direct mention`;
-    } else {
-      brandGuidance = `NO BRAND - Focus on human experience`;
-    }
-    
-    const markers = this.getMarkersForEntryPath(entryPath);
-    
-    const ontologySection = `
-🔒 STRICT ONTOLOGY ENFORCEMENT:
+private static buildSystemPrompt(
+  contract: XOContract,
+  passId: number,
+  context: GenerationContext
+): string {
+  const { entryPath, marketCode, marketState, brandMode, brandName, maxBeats, maxLinesPerBeat } = contract;
+  const { ontology, eventGate } = context;
+  
+  const markers = this.getMarkersForEntryPath(entryPath);
+  
+  // Market guidance
+  const marketGuidance = marketState === 'RESOLVED' 
+    ? `MARKET: ${marketCode} - Use authentic but natural context. You can include subtle cultural elements that feel organic to the setting.`
+    : `MARKET: NEUTRAL - No regional specifics, slang, or cultural props. Keep it universally relatable.`;
+  
+  // Brand guidance
+  let brandGuidance = '';
+  if (brandMode === 'EXPLICIT' && brandName) {
+    brandGuidance = `BRAND: ${brandName} - Include naturally in the FINAL BEAT ONLY. The brand should feel like a meaningful resolution, not an advertisement.`;
+  } else if (brandMode === 'IMPLICIT' && brandName) {
+    brandGuidance = `BRAND: ${brandName} - Suggest implicitly through values, no direct mention. Let the story's resolution align with brand values.`;
+  } else {
+    brandGuidance = `NO BRAND - Focus purely on human experience. No commercial elements.`;
+  }
+  
+  // Ontology enforcement
+  const ontologySection = `
+🔒 STRICT NOUN ENFORCEMENT:
 You MUST use ONLY these nouns:
-${ontology.allAllowedNouns.map(n => `- ${n}`).join('\n')}
+${ontology.allAllowedNouns.map(n => `  • ${n}`).join('\n')}
 
 CRITICAL RULES:
-- EVERY noun in your response MUST be from this list
-- If you need a noun not in this list, you MUST NOT use it
-- Find another way to express the idea without new nouns
-- This is NOT optional - it's enforced by validation
-    `;
+• EVERY noun in your response MUST be from this list
+• If you need a noun not in this list, you MUST find another way to express the idea
+• This is NOT optional - it's enforced by validation
+• Abstract concepts (feelings, thoughts) are expressed through verbs and context, not through new nouns
+  `;
 
-    const eventConstraints = XOEventGate.getEventConstraintsPrompt(eventGate);
+  // Event constraints
+  const eventConstraints = XOEventGate.getEventConstraintsPrompt(eventGate);
+  
+  // Build the marker format example
+  const markerLines = [];
+  for (let i = 0; i < maxBeats; i++) {
+    markerLines.push(markers[i] || 'STORY:');
+    for (let j = 0; j < maxLinesPerBeat; j++) {
+      markerLines.push(`[Your ${i+1}.${j+1} - 5-15 words]`);
+    }
+    if (i < maxBeats - 1) markerLines.push('');
+  }
+  
+  const markerExample = markerLines.join('\n');
+  
+  // Entry path specific guidance
+  const entryPathGuidance = {
+    emotion: `EMOTION PATH: Start with a feeling, explore its texture, resolve with insight.`,
+    scene: `SCENE PATH: Set the physical space, notice details, reveal meaning through observation.`,
+    audience: `AUDIENCE PATH: Signal to the viewer, explain why it matters, complete the connection.`,
+    seed: `SEED PATH: Plant an idea, show its growth, reveal what it became.`,
+    full: `FULL STORY: Hook, conflict, turn, brand role, close.`
+  }[entryPath] || `Follow the natural progression of your markers.`;
 
-    const formatRules = `
-🚫 ABSOLUTELY FORBIDDEN - YOU WILL BE PENALIZED FOR THESE:
+  // Beat structure guidance
+  const beatGuidance = [];
+  for (let i = 0; i < maxBeats; i++) {
+    beatGuidance.push(`Beat ${i+1} (${markers[i] || 'STORY:'}): ${i === 0 ? 'Establish' : i === maxBeats-1 ? 'Resolve with' : 'Develop'} the narrative.`);
+  }
+
+  const formatRules = `
+📋 ABSOLUTELY FORBIDDEN - YOU WILL BE PENALIZED FOR THESE:
 ❌ NEVER write "In this beat", "This beat shows", "Beat 1", etc.
 ❌ NEVER write any explanatory text or meta commentary
-❌ NEVER number or label your beats in any way
+❌ NEVER number or label your beats in any way (the markers are your labels)
 ❌ NEVER use phrases like "We see", "We notice", "We feel"
+❌ NEVER add introductory or concluding text outside the beats
+❌ NEVER use nouns outside the allowed list above
 
-✅ YOU MUST OUTPUT EXACTLY THIS FORMAT:
-[MARKER]
-[CONTENT LINE 1]
-[CONTENT LINE 2 (if needed)]
+✅ YOU MUST OUTPUT EXACTLY THIS FORMAT (${maxBeats} beats, ${maxLinesPerBeat} lines max per beat):
 
-EXAMPLE OF CORRECT FORMAT:
+${markerExample}
+
+${entryPathGuidance}
+
+${beatGuidance.map(g => `• ${g}`).join('\n')}
+
+CRITICAL FORMATTING RULES:
+1. Start EACH beat with its EXACT marker (${markers.slice(0, maxBeats).join(', ')})
+2. Each marker MUST be on its own line, followed by content
+3. Each beat should have 1-${maxLinesPerBeat} lines of content
+4. Each line should be 5-15 words (complete sentences)
+5. NO blank lines between marker and its content
+6. ONE blank line between beats
+7. NO extra text before the first marker or after the last marker
+
+EXAMPLE FOR ${entryPath.toUpperCase()} PATH (${maxBeats} beats):
+
 ${markers[0]}
-The quiet room held morning light.
+${maxBeats === 3 ? 
+  (entryPath === 'emotion' ? 'A quiet sadness settled in the room.' : 
+   entryPath === 'scene' ? 'Morning light filled the kitchen slowly.' : 
+   'She noticed something shift in his expression.') : 
+  'The first moment arrived without warning.'}
+${maxLinesPerBeat >= 2 ? `It had been building for days, unnoticed.` : ''}
 
 ${markers[1]}
-Small details revealed themselves slowly.
-    `;
+${maxBeats === 3 ?
+  (entryPath === 'emotion' ? 'The feeling had a name now - disappointment.' :
+   entryPath === 'scene' ? 'Dust motes danced in the golden beams.' :
+   'The weight of unspoken words hung between them.') :
+  'Everything changed with a single word.'}
+${maxLinesPerBeat >= 2 ? 'Small details became suddenly significant.' : ''}
 
-    return `
-You are generating micro-stories for the XO system.
+${markers[2]}
+${maxBeats === 3 ?
+  (entryPath === 'emotion' ? 'She recognized it from years ago.' :
+   entryPath === 'scene' ? 'The ordinary held unexpected beauty.' :
+   'Some connections need no explanation.') :
+  'What remained was simpler than expected.'}
+${brandMode !== 'NONE' && maxBeats === 3 ? `The ${brandName || 'brand'} became part of that understanding.` : ''}
+${maxLinesPerBeat >= 2 && maxBeats === 3 ? 'And that was enough.' : ''}
 
-CRITICAL CONSTRAINTS:
+${maxBeats > 3 ? `${markers[3]}\nThe turn revealed a deeper truth.\n${markers[4]}\nIn the end, peace arrived.\n` : ''}
+
+YOUR TURN - Generate a ${maxBeats}-beat micro-story for this input.
+  `;
+
+  return `
+You are a master storyteller generating micro-stories for the XO narrative system. Your stories are precise, emotional, and perfectly structured.
+
+🎯 PRIMARY DIRECTIVE: Generate EXACTLY ${maxBeats} beats with the specified markers. Nothing more, nothing less.
+
+🌍 CONTEXT:
 ${marketGuidance}
 ${brandGuidance}
 
+📚 AVAILABLE VOCABULARY:
 ${ontologySection}
 
+⚡ EVENT CONSTRAINTS:
 ${eventConstraints}
+
+📏 STRUCTURE REQUIREMENTS:
+• Total beats: ${maxBeats}
+• Lines per beat: 1-${maxLinesPerBeat}
+• Words per line: 5-15 (complete sentences)
+• Total story length: ~${maxBeats * maxLinesPerBeat * 10} words
 
 ${formatRules}
 
-PASS ${passId}: ${passId === 1 ? 'Focus on core experience' : passId === 2 ? 'Focus on emotional arc' : 'Focus on resolution'}
-    `;
-  }
+🎭 TONAL GUIDANCE FOR PASS ${passId}:
+${passId === 1 ? 'First pass: Focus on establishing the core experience clearly and simply.' : 
+  passId === 2 ? 'Second pass: Deepen the emotional resonance and narrative flow.' : 
+  'Third pass: Polish the language and ensure perfect structural compliance.'}
 
-  private static buildUserPrompt(
-    input: string,
-    contract: XOContract,
-    context: GenerationContext
-  ): string {
-    const { ontology } = context;
-    
-    return `
+Remember: EVERY noun MUST be from the allowed list. If you can't find a noun you need, describe around it using allowed nouns only.
+  `;
+}
+
+private static buildUserPrompt(
+  input: string,
+  contract: XOContract,
+  context: GenerationContext
+): string {
+  const { ontology } = context;
+  const markers = this.getMarkersForEntryPath(contract.entryPath);
+  
+  return `
 INPUT: "${input.substring(0, 200)}${input.length > 200 ? '...' : ''}"
 
 CONTEXT ELEMENTS (use only these nouns):
 ${ontology.allAllowedNouns.map(noun => `- ${noun}`).join('\n')}
 
-Generate a ${contract.maxBeats}-beat micro-story following all rules.
-    `;
-  }
+Generate a ${contract.maxBeats}-beat micro-story following this EXACT format:
+
+${markers[0]}
+[content for beat 1]
+
+${markers[1]}
+[content for beat 2]
+
+${markers[2]}
+[content for beat 3]
+
+Make each beat 1-2 lines. Use only the allowed nouns above.
+  `;
+}
 
   private static parseResponseToBeats(response: string, contract: XOContract): MicroStoryBeat[] {
     const markers = this.getMarkersForEntryPath(contract.entryPath);
