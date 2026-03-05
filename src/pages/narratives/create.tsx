@@ -760,7 +760,11 @@ export default function Create() {
 
   const triggerStoryGeneration = async (contract: MeaningContract) => {
     setIsGenerating(true);
-
+  // Ensure originalUserInput is set
+  console.log("Triggering story generation with contract:", contract);
+  if (!originalUserInput && contract.seedMoment) {
+    setOriginalUserInput(contract.seedMoment);
+  }
     const loadingId = addMessage(
       "system",
       <div className="flex items-center gap-2">
@@ -1047,6 +1051,10 @@ export default function Create() {
       "response"
     );
 
+      const originalInput = originalUserInput || 
+                       contract.seedMoment || 
+                       "";
+
     try {
       // Special handling for "expand" - convert to 5-beat structure
       let requestBody;
@@ -1057,7 +1065,7 @@ export default function Create() {
             ...contract,
             entryPath: "scene"
           },
-          originalInput: originalUserInput,
+          originalInput: originalInput,
           requestType: "story-conversion",
           conversionType: "micro-to-full",
           currentStory: JSON.stringify(microStory),
@@ -1075,7 +1083,7 @@ export default function Create() {
             ...contract,
             entryPath: storyToExpand.metadata?.entryPath?.toLowerCase() || contract.entryPath
           },
-          originalInput: originalUserInput,
+          originalInput: originalInput,
           requestType: "refinement",
           refinement: expansionType,
           currentStory: JSON.stringify(microStory),

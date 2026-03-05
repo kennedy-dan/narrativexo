@@ -127,10 +127,17 @@ export class XOOntologyBuilder {
 
     console.log('[XO Ontology] ========================================');
     console.log('[XO Ontology] Building controlled ontology');
-    console.log('[XO Ontology] Input:', userInput.substring(0, 100));
+    console.log('[XO Ontology] Input:', userInput);
 
     // Step 1: Extract core entities using GPT-4
     const coreEntities = await this.extractCoreEntitiesGPT4(userInput);
+
+    if (coreEntities.length === 0) {
+  console.log('[XO Ontology] GPT-4 returned empty, using fallback');
+  const fallback = this.fallbackExtractEntities(userInput);
+  coreEntities.push(...fallback);
+}
+
     
     // Step 2: Calculate density with LLM assistance
     const density = await this.calculateDensityWithLLM(userInput, coreEntities);
@@ -197,66 +204,190 @@ export class XOOntologyBuilder {
    * Extract core entities using GPT-4 for higher accuracy
    * CRITICAL: GPT-4 has much better JSON compliance than 3.5
    */
-  private static async extractCoreEntitiesGPT4(input: string): Promise<string[]> {
-    const prompt = `
-Extract ONLY the concrete, physical entities from this text.
+private static async extractCoreEntitiesGPT4(input: string): Promise<string[]> {
+  // If input is empty, return empty array
+  if (!input || input.trim().length === 0) {
+    return [];
+  }
 
-RULES:
-- Return ONLY a JSON array of strings
-- No abstract concepts (love, time, meaning, life, fate)
-- No emotions (happiness, sadness, anger, fear)
-- No mental states (thoughts, memories, dreams)
-- Only physical things that exist in space
-- Include people only if explicitly mentioned (woman, man, child)
-- If unsure, exclude
-
-Examples:
-Input: "woman in the kitchen" → ["woman", "kitchen"]
-Input: "A man drives his car through the rain" → ["man", "car", "rain"]
-Input: "Two friends share a meal at a restaurant" → ["friends", "meal", "restaurant"]
-Input: "She feels lonely in the empty house" → ["house"] (lonely is emotion, exclude)
-Input: "He remembers his childhood" → [] (all mental/abstract)
-Input: "The sun sets over the ocean" → ["sun", "ocean"]
+  const prompt = `
+Extract ALL important nouns from this text for a story.
 
 Text: "${input}"
 
-Return ONLY the JSON array, no other text:
-    `.trim();
+Instructions:
+1. Identify EVERY noun (person, place, thing, object)
+2. Include:
+   - People: employee, woman, man, child, doctor, friend, etc.
+   - Places: conference room, restaurant, house, street, etc.
+   - Objects: presentation, table, chair, phone, laptop, etc.
+   - Concrete things that exist physically
+3. EXCLUDE:
+   - Verbs (practices, arrives, moves, speaks)
+   - Adjectives (empty, polished, silent)
+   - Abstract concepts (potential, silence, voice)
+   - Emotions (nervous, happy, sad)
 
+Examples:
+Input: "an employee practices a presentation in an empty conference room"
+Output: ["employee", "presentation", "conference room"]
+
+Input: "a woman waits nervously for her date at a restaurant, checking her phone"
+Output: ["woman", "date", "restaurant", "phone"]
+
+Input: "a dog waits by the window for its owner"
+Output: ["dog", "window", "owner"]
+
+Input: "someone tries to print a document but the printer keeps jamming"
+Output: ["document", "printer"]
+
+Return ONLY a JSON array of strings. If no nouns found, return [].
+`;
+
+  try {
+    const completion = await this.openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { 
+          role: 'system', 
+          content: 'You extract concrete nouns from text. Return only valid JSON arrays.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.0,
+      max_tokens: 150
+    });
+
+    const response = completion.choices[0].message.content?.trim() || '[]';
+    console.log('[XO Ontology] GPT-4 raw response:', response);
+    
+    // Try to parse the response - FIXED: removed /s flag
     try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          { 
-            role: 'system', 
-            content: 'You extract concrete physical entities from text. Return only valid JSON arrays.'
-          },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.0,
-        max_tokens: 150,
-        response_format: { type: "json_object" }
-      });
-
-      const response = completion.choices[0].message.content?.trim() || '{"entities": []}';
+      // First, try to find anything that looks like a JSON array
+      // Match from first [ to last ] including newlines
+      const startBracket = response.indexOf('[');
+      const endBracket = response.lastIndexOf(']');
       
-      // Parse with error recovery
-      try {
-        const parsed = JSON.parse(response);
-        // Handle both array and {entities: [...]} formats
-        const entities = Array.isArray(parsed) ? parsed : parsed.entities || [];
-        return entities
-          .filter((e: any) => typeof e === 'string' && e.length > 1)
-          .map((e: string) => e.toLowerCase().trim());
-      } catch (parseError) {
-        console.warn('[XO Ontology] JSON parse failed, using regex fallback:', parseError);
-        return this.fallbackExtractEntities(input);
+      if (startBracket !== -1 && endBracket !== -1 && endBracket > startBracket) {
+        const jsonStr = response.substring(startBracket, endBracket + 1);
+        
+        // Clean the string - remove any markdown or extra text
+        const cleaned = jsonStr
+          .replace(/```json/g, '')
+          .replace(/```/g, '')
+          .trim();
+        
+        const parsed = JSON.parse(cleaned);
+        if (Array.isArray(parsed)) {
+          const nouns = parsed
+            .filter(item => typeof item === 'string' && item.trim().length > 0)
+            .map(item => item.toLowerCase().trim());
+          
+          console.log(`[XO Ontology] GPT-4 extracted ${nouns.length} nouns:`, nouns);
+          
+          if (nouns.length > 0) {
+            return nouns;
+          }
+        }
       }
-    } catch (error) {
-      console.error('[XO Ontology] GPT-4 extraction failed:', error);
-      return this.fallbackExtractEntities(input);
+      
+      // Try direct parse as fallback
+      const parsed = JSON.parse(response);
+      if (Array.isArray(parsed)) {
+        const nouns = parsed
+          .filter(item => typeof item === 'string' && item.trim().length > 0)
+          .map(item => item.toLowerCase().trim());
+        
+        console.log(`[XO Ontology] GPT-4 extracted ${nouns.length} nouns:`, nouns);
+        return nouns;
+      }
+    } catch (parseError) {
+      console.warn('[XO Ontology] Failed to parse GPT-4 response:', parseError.message);
+    }
+    
+    // Fallback to simple extraction
+    console.log('[XO Ontology] Using fallback extraction');
+    return this.fallbackExtractEntities(input);
+    
+  } catch (error) {
+    console.error('[XO Ontology] GPT-4 extraction failed:', error);
+    return this.fallbackExtractEntities(input);
+  }
+}
+
+private static fallbackExtractEntities(input: string): string[] {
+  // Split into words and clean
+  const words = input.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')  // Remove punctuation
+    .split(/\s+/)
+    .filter(word => word.length > 2)  // Remove short words
+    .filter(word => !this.isCommonWord(word));  // Remove common words
+  
+  const inputLower = ' ' + input.toLowerCase() + ' ';
+  const potentialNouns: string[] = [];
+  const seen = new Set<string>();
+  
+  for (const word of words) {
+    if (seen.has(word)) continue;
+    
+    // Check if word follows an article (a, an, the)
+    if (inputLower.includes(` a ${word} `) || 
+        inputLower.includes(` an ${word} `) || 
+        inputLower.includes(` the ${word} `)) {
+      potentialNouns.push(word);
+      seen.add(word);
+    }
+    // Check if word is capitalized in original (proper noun)
+    else if (input.includes(word.charAt(0).toUpperCase() + word.slice(1))) {
+      potentialNouns.push(word);
+      seen.add(word);
+    }
+    // Include if it looks like a noun (not a verb ending)
+    else if (!word.match(/(ing|ed|es|ate)$/)) {
+      potentialNouns.push(word);
+      seen.add(word);
     }
   }
+  
+  // Special handling for compound nouns (like "conference room")
+  const compoundNouns: string[] = [];
+  const inputWords = input.toLowerCase().split(/\s+/);
+  
+  for (let i = 0; i < inputWords.length - 1; i++) {
+    const twoWords = inputWords[i] + ' ' + inputWords[i + 1];
+    // Check if this two-word phrase might be a compound noun
+    if (potentialNouns.includes(inputWords[i]) || potentialNouns.includes(inputWords[i + 1])) {
+      compoundNouns.push(twoWords);
+    }
+  }
+  
+  // Combine and remove duplicates
+  const allNouns = [...new Set([...potentialNouns, ...compoundNouns])];
+  console.log(`[XO Ontology] Fallback extracted ${allNouns.length} nouns:`, allNouns);
+  
+  return allNouns;
+}
+
+private static isCommonWord(word: string): boolean {
+  const commonWords = new Set([
+    'the', 'and', 'for', 'with', 'not', 'but', 'from',
+    'this', 'that', 'these', 'those', 'have', 'has', 'had',
+    'was', 'were', 'been', 'being', 'will', 'would', 'could',
+    'should', 'might', 'must', 'about', 'into', 'through',
+    'during', 'before', 'after', 'above', 'below', 'under',
+    'over', 'again', 'once', 'here', 'there', 'where',
+    'why', 'how', 'all', 'any', 'both', 'each', 'few',
+    'more', 'most', 'other', 'some', 'such', 'than', 'then',
+    'very', 'just', 'like', 'can', 'get', 'got', 'see',
+    'know', 'think', 'want', 'need', 'make', 'take', 'come',
+    'go', 'look', 'use', 'find', 'give', 'tell', 'ask',
+    'work', 'call', 'try', 'feel', 'become', 'leave', 'put',
+    'set', 'help', 'show', 'hear', 'play', 'run', 'move',
+    'stand', 'sit', 'turn', 'wait', 'arrive', 'enter',
+    'practice', 'present', 'empty', 'everyone'
+  ]);
+  return commonWords.has(word);
+}
 
   /**
    * Calculate density with LLM assistance for higher accuracy
@@ -417,149 +548,155 @@ JSON:
     }
   }
 
-  /**
-   * Fallback entity extraction (simple heuristic)
-   */
-  private static fallbackExtractEntities(input: string): string[] {
-    const words = input.toLowerCase()
-      .split(/\W+/)
-      .filter(w => w.length > 2 && !IGNORE_WORDS.has(w));
-    
-    // Common concrete nouns
-    const commonNouns = new Set([
-      'woman', 'man', 'person', 'child', 'friend', 'family',
-      'kitchen', 'room', 'house', 'car', 'road', 'store',
-      'food', 'water', 'coffee', 'tea', 'meal', 'dish',
-      'sun', 'rain', 'wind', 'night', 'day', 'morning',
-      'door', 'window', 'table', 'chair', 'bed', 'light',
-      'street', 'city', 'town', 'village', 'building',
-      'cup', 'plate', 'bowl', 'glass', 'bottle',
-      'book', 'phone', 'computer', 'tv', 'radio'
-    ]);
-    
-    return words.filter(word => commonNouns.has(word));
-  }
+
+
+private static isLikelyVerb(word: string): boolean {
+  const verbPatterns = [
+    'ing$', 'ed$', 'es$', 'ate$', 'ify$', 'ize$'
+  ];
+  return verbPatterns.some(pattern => new RegExp(pattern).test(word));
+}
 
   /**
    * Expand core entities to adjacent ontology
    * CRITICAL: No quota forcing - "up to" not "exactly"
    */
-  private static async expandToAdjacentOntology(
-    coreEntities: string[],
-    density: DensityMetrics,
-    maxExpansion: number
-  ): Promise<Array<{ noun: string; confidence: number }>> {
-    const entityList = coreEntities.join(', ');
-    
-    // Density-based expansion guidance
-    let expansionGuidance = '';
-    if (density.density === 'LOW') {
-      expansionGuidance = `
-STRICT PHYSICAL ONLY:
-- ONLY objects physically present in the same space
-- NO abstract concepts
-- NO emotional states
-- NO implied characters
-- NO backstory elements
-- NO atmospheric elements (light, sound, smell)
-- Return FEWER if not enough physical objects exist
-- Quality over quantity
-      `;
-    } else if (density.density === 'MEDIUM') {
-      expansionGuidance = `
-MODERATE EXPANSION:
-- Include objects physically present
-- MAY include sensory details (light, sound, smell)
-- NO new characters
-- NO emotional escalation
-- Quality over quantity - return fewer if unsure
-      `;
-    } else {
-      expansionGuidance = `
-FULL EXPANSION:
-- Include objects physically present
-- Include sensory details
-- Include atmospheric elements
-- NO new characters unless implied by input
-- Return up to limit, but only confident inclusions
-      `;
-    }
+ private static async expandToAdjacentOntology(
+  coreEntities: string[],
+  density: DensityMetrics,
+  maxExpansion: number
+): Promise<Array<{ noun: string; confidence: number }>> {
+  const entityList = coreEntities.join(', ');
+  
+  // Density-based expansion guidance
+  let expansionGuidance = '';
+  
+  if (density.density === 'LOW') {
+    expansionGuidance = `
+STORY CONTEXT: Simple scene with minimal elements
+EXPAND WITH: Basic objects and locations that would naturally appear
+EXAMPLES: 
+- For ["boy"] → ["street", "house", "door", "window"]
+- For ["woman", "kitchen"] → ["table", "chair", "cup", "plate"]
+- For ["car"] → ["road", "wheel", "seat", "window"]
+    `;
+  } else if (density.density === 'MEDIUM') {
+    expansionGuidance = `
+STORY CONTEXT: Moderate narrative with some emotional depth
+EXPAND WITH: Objects, locations, and atmospheric elements
+EXAMPLES:
+- For ["boy", "shoe", "store"] → ["window", "pocket", "money", "counter", "street"]
+- For ["man", "rain"] → ["coat", "umbrella", "puddle", "sky", "wind"]
+- For ["woman", "letter"] → ["desk", "envelope", "pen", "paper", "drawer"]
+    `;
+  } else {
+    expansionGuidance = `
+STORY CONTEXT: Rich narrative with complex elements
+EXPAND WITH: Full range of related objects, settings, and details
+EXAMPLES:
+- For ["child", "toy", "store"] → ["shelf", "aisle", "cashier", "bag", "receipt", "parking lot"]
+- For ["couple", "restaurant"] → ["table", "menu", "waiter", "candle", "wine glass", "napkin"]
+    `;
+  }
 
-    const prompt = `
-Given these core entities: ${entityList}
+  const prompt = `
+CORE STORY ELEMENTS: ${entityList}
+NARRATIVE DENSITY: ${density.density}
 
 ${expansionGuidance}
 
-Generate a JSON array of objects with:
-- noun: the physical object or element (lowercase, singular)
-- confidence: 0.0-1.0 how certain this belongs
+TASK: Generate a JSON array of objects with:
+- noun: a physical object, location, or element that could naturally appear in a story about the core elements
+- confidence: 0.0-1.0 how likely this noun would appear (0.7+ for obvious connections, 0.5-0.7 for possible but less certain)
 
-RULES:
-- Return UP TO ${maxExpansion} items (can return fewer, even zero)
-- NO quota forcing - return empty if nothing fits
-- ONLY nouns directly implied by the setting
-- Only physical objects that could be present
-- NO abstract concepts
-- NO explanations, just the JSON
+REQUIREMENTS:
+- Return EXACTLY ${maxExpansion} nouns (expand or trim the list as needed)
+- Only include physical objects that could exist in the scene
+- NO abstract concepts (love, time, hope, fear)
+- NO emotions
+- NO verbs or actions
 
-Example for ["woman", "kitchen"] (LOW density):
-[
-  {"noun": "stove", "confidence": 0.95},
-  {"noun": "counter", "confidence": 0.95},
-  {"noun": "sink", "confidence": 0.95}
+Examples of GOOD expansions:
+
+Input: ["boy", "shoe", "store"]
+Output: [
+  {"noun": "window", "confidence": 0.95},
+  {"noun": "pocket", "confidence": 0.9},
+  {"noun": "money", "confidence": 0.9},
+  {"noun": "counter", "confidence": 0.85},
+  {"noun": "street", "confidence": 0.8},
+  {"noun": "door", "confidence": 0.8}
 ]
 
-Example for ["woman", "kitchen"] (MEDIUM density):
-[
-  {"noun": "stove", "confidence": 0.95},
-  {"noun": "counter", "confidence": 0.95},
-  {"noun": "sink", "confidence": 0.95},
-  {"noun": "window", "confidence": 0.8},
-  {"noun": "light", "confidence": 0.7}
+Input: ["woman", "garden"]
+Output: [
+  {"noun": "flower", "confidence": 0.95},
+  {"noun": "bench", "confidence": 0.9},
+  {"noun": "path", "confidence": 0.9},
+  {"noun": "tree", "confidence": 0.85},
+  {"noun": "gate", "confidence": 0.8}
 ]
 
-Generate for: ${entityList}
-    `.trim();
+Input: ["man", "coffee"]
+Output: [
+  {"noun": "cup", "confidence": 0.95},
+  {"noun": "table", "confidence": 0.9},
+  {"noun": "chair", "confidence": 0.85},
+  {"noun": "cafe", "confidence": 0.85},
+  {"noun": "window", "confidence": 0.8}
+]
 
+Generate ${maxExpansion} nouns for: ${entityList}
+
+Return ONLY the JSON array:
+  `.trim();
+
+  try {
+    const completion = await this.openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { 
+          role: 'system', 
+          content: 'You expand story elements to related physical nouns. Return only valid JSON arrays.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.3, // Slight variation for creativity
+      max_tokens: 500,
+      response_format: { type: "json_object" }
+    });
+
+    const response = completion.choices[0].message.content?.trim() || '[]';
+    
+    // Parse response
+    let items = [];
     try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          { 
-            role: 'system', 
-            content: 'You expand core entities to related physical objects. Return only valid JSON arrays.'
-          },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.2, // Slight variation but controlled
-        max_tokens: 300,
-        response_format: { type: "json_object" }
-      });
-
-      const response = completion.choices[0].message.content?.trim() || '{"nouns": []}';
-      
-      try {
-        const parsed = JSON.parse(response);
-        // Handle both array and {nouns: [...]} formats
-        const items = Array.isArray(parsed) ? parsed : parsed.nouns || [];
-        
-        // Validate each item has noun and confidence
-        return items
-          .filter((item: any) => item.noun && typeof item.confidence === 'number')
-          .map((item: any) => ({
-            noun: item.noun.toLowerCase().trim(),
-            confidence: item.confidence
-          }))
-          .slice(0, maxExpansion); // Enforce limit
-      } catch {
-        console.warn('[XO Ontology] Failed to parse expansion JSON');
+      const parsed = JSON.parse(response);
+      items = Array.isArray(parsed) ? parsed : parsed.nouns || [];
+    } catch {
+      // Try to extract array from text if JSON parse fails
+      const match = response.match(/\[[\s\S]*\]/);
+      if (match) {
+        items = JSON.parse(match[0]);
+      } else {
         return [];
       }
-    } catch (error) {
-      console.error('[XO Ontology] Expansion failed:', error);
-      return [];
     }
+    
+    // Validate and format
+    return items
+      .filter((item: any) => item && item.noun && typeof item.confidence === 'number')
+      .map((item: any) => ({
+        noun: item.noun.toLowerCase().trim(),
+        confidence: Math.min(1, Math.max(0, item.confidence))
+      }))
+      .slice(0, maxExpansion);
+      
+  } catch (error) {
+    console.error('[XO Ontology] Expansion failed:', error);
+    return [];
   }
+}
 
   /**
    * Merge and deduplicate noun lists

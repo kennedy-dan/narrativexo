@@ -108,38 +108,56 @@ export class XONarrativeEngine {
       densityConfidence: eventGate.metadata.confidence
     });
 
-    // ============================================================================
-    // STEP 3: CREATE CONTRACT
-    // ============================================================================
-    
-    let contract: XOContract;
+// ============================================================================
+// STEP 3: CREATE CONTRACT
+// ============================================================================
 
-    if (originalStory) {
-      const builder = new XOContractBuilder(originalStory.contract);
-      contract = builder.build();
-    } else {
-      const builder = new XOContractBuilder()
-        .withUserInput(input)
-        .withMarket(market as any, 0.5)
-        .withEntryPath(this.detectEntryPath(input))
-        .withFormatMode('MICROSTORY')
-        .withStrictMode(false);
+let contract: XOContract;
+
+if (originalStory) {
+  // Start with original story's contract
+  const builder = new XOContractBuilder(originalStory.contract);
+  
+  // Override with full story requirements if this is a conversion
+  if (meaningContract?.formatMode === 'FULLSTORY' || meaningContract?.maxBeats === 5) {
+    builder
+      .withFormatMode('FULLSTORY')
+      .withMaxBeats(5)
+      .withEntryPath('full');
       
-      if (brand) {
-        builder.withBrand(brand, 'EXPLICIT');
-      }
-      
-      if (meaningContract) {
-        if (meaningContract.marketContext?.market) {
-          builder.withMarket(meaningContract.marketContext.market, meaningContract.marketContext.confidence || 0.5);
-        }
-        if (meaningContract.entryPath) {
-          builder.withEntryPath(meaningContract.entryPath.toLowerCase() as any);
-        }
-      }
-      
-      contract = builder.build();
+    // Preserve brand if present
+    if (originalStory.contract.brandName) {
+      builder.withBrand(originalStory.contract.brandName, originalStory.contract.brandMode);
     }
+  }
+  
+  contract = builder.build();
+} else {
+  const builder = new XOContractBuilder()
+    .withUserInput(input)
+    .withMarket(market as any, 0.5)
+    .withEntryPath(this.detectEntryPath(input))
+    .withFormatMode('MICROSTORY')
+    .withStrictMode(false);
+  
+  if (brand) {
+    builder.withBrand(brand, 'EXPLICIT');
+  }
+  
+  if (meaningContract) {
+    if (meaningContract.marketContext?.market) {
+      builder.withMarket(meaningContract.marketContext.market, meaningContract.marketContext.confidence || 0.5);
+    }
+    if (meaningContract.entryPath) {
+      builder.withEntryPath(meaningContract.entryPath.toLowerCase() as any);
+    }
+    if (meaningContract.formatMode === 'FULLSTORY') {
+      builder.withFormatMode('FULLSTORY').withMaxBeats(5);
+    }
+  }
+  
+  contract = builder.build();
+}
 
     // Override allowed nouns
     contract.context.allowedNouns = ontology.allAllowedNouns;
@@ -573,7 +591,7 @@ CRITICAL FORMATTING RULES:
 1. Start EACH beat with its EXACT marker (${markers.slice(0, maxBeats).join(', ')})
 2. Each marker MUST be on its own line, followed by content
 3. Each beat should have 1-${maxLinesPerBeat} lines of content
-4. Each line should be 5-15 words (complete sentences)
+4. Each line should be 5-10 words (complete sentences)
 5. NO blank lines between marker and its content
 6. ONE blank line between beats
 7. NO extra text before the first marker or after the last marker
@@ -1000,38 +1018,43 @@ Generate ONLY the content line(s) for this beat, no explanations.
     return builder.build();
   }
 
-  static async convertToFullStory(
-    story: MicroStory,
-    meaningContract?: any
-  ): Promise<MicroStory> {
-    console.log('[XO Engine] Converting to full story');
-    
-    const builder = new XOContractBuilder(story.contract)
-      .withFormatMode('FULLSTORY')
-      .withMaxBeats(5);
-    
-    const fullContract = builder.build();
-    
-    const storyText = XORenderer.extractStoryText(story.beats);
-    
-    const fullStory = await this.generate(
-      `Expand this micro-story into a complete 5-beat narrative:\n\n${storyText}`,
-      fullContract.marketCode,
-      fullContract.brandName,
-      { temperature: 0.0, maxTokens: 500, passes: 3 },
-      { entryPath: 'full', formatMode: 'FULLSTORY', maxBeats: 5, ...meaningContract },
-      story
-    );
-    
-    fullStory.contract = {
-      ...fullStory.contract,
-      maxBeats: 5,
-      formatMode: 'FULLSTORY',
-      entryPath: 'full'
-    };
-    
-    return fullStory;
+static async convertToFullStory(
+  story: MicroStory,
+  meaningContract?: any
+): Promise<MicroStory> {
+  console.log('[XO Engine] Converting to full story');
+  
+  // Create builder with original contract
+  const builder = new XOContractBuilder(story.contract)
+    .withFormatMode('FULLSTORY')
+    .withMaxBeats(5)
+    .withEntryPath('full');
+  
+  // Preserve brand if present
+  if (story.contract.brandName) {
+    builder.withBrand(story.contract.brandName, story.contract.brandMode);
   }
+  
+  const fullContract = builder.build();
+  
+  const storyText = XORenderer.extractStoryText(story.beats);
+  
+  const fullStory = await this.generate(
+    `Expand this micro-story into a complete 5-beat narrative:\n\n${storyText}`,
+    fullContract.marketCode,
+    fullContract.brandName,
+    { temperature: 0.0, maxTokens: 500, passes: 3 },
+    { 
+      entryPath: 'full', 
+      formatMode: 'FULLSTORY', 
+      maxBeats: 5,
+      ...meaningContract 
+    },
+    story // Pass the original story
+  );
+  
+  return fullStory;
+}
 }
 
 // ============================================================================

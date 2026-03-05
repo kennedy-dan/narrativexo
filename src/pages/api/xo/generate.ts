@@ -9,40 +9,29 @@ function extractBrandFromInput(input: string): string | undefined {
 
   const lowerInput = input.toLowerCase();
 
-  if (
-    lowerInput.includes('washing machine') ||
-    lowerInput.includes('laundry')
-  ) {
-    return 'washing machine brand';
-  }
-  if (lowerInput.includes('detergent') || lowerInput.includes('cleaning')) {
-    return 'cleaning brand';
-  }
-  if (lowerInput.includes('car') || lowerInput.includes('automotive')) {
-    return 'automotive brand';
-  }
-  if (lowerInput.includes('phone') || lowerInput.includes('mobile')) {
-    return 'mobile brand';
-  }
-  if (lowerInput.includes('bank') || lowerInput.includes('financial')) {
-    return 'financial brand';
-  }
-
-  const brandPatterns = [
-    /(?:stories|story) for (?:an? )?([\w\s]+?) (?:brand|company)/i,
-    /(?:create|write) (?:stories|story) for ([\w\s]+)/i,
-    /(?:brand|company) called ([\w\s]+)/i,
+  // ONLY check for specific brand names, NOT categories
+  const specificBrands = [
+    'nike', 'adidas', 'puma', 'reebok', 'gucci', 'prada',
+    'apple', 'samsung', 'google', 'microsoft', 'amazon',
+    'iphone', 'samsung', 'xiaomi', 'huawei', 'oneplus',
+    'toyota', 'honda', 'bmw', 'mercedes', 'audi', 'volkswagen',
+    'coca-cola', 'pepsi', 'starbucks', 'mcdonalds', 'kfc',
+    'louis vuitton', 'chanel', 'hermes', 'rolex', 'casio'
   ];
-
-  for (const pattern of brandPatterns) {
-    const match = input.match(pattern);
-    if (match && match[1]) {
-      return match[1].trim();
+  
+  for (const brand of specificBrands) {
+    if (lowerInput.includes(brand)) {
+      console.log('[XO Generate] Detected brand:', brand);
+      return brand;
     }
   }
 
-  return undefined;
+  // REMOVE the category-based detection that returns "mobile brand"
+  // Instead, return undefined if no specific brand found
+  
+  return undefined; // No brand detected
 }
+
 
 export default async function handler(
   req: NextApiRequest,
