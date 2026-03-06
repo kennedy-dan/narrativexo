@@ -821,7 +821,7 @@ export default function Create() {
           coreTheme: contract.interpretedMeaning.coreTheme,
           wordCount: data.story?.split(/\s+/).length || 0,
           isBrandStory: !!brandName,
-          brandName: brandName || undefined,
+          brandName: data.metadata.contract.brandName || undefined,
           template: "micro-story",
           lineCount: 0,
           market: data.metadata?.market || "GLOBAL",
@@ -830,6 +830,7 @@ export default function Create() {
           shouldShip: data.metadata?.shouldShip
         },
       };
+      console.log("Generated Story:", generatedStory);
 
       setStory(generatedStory);
 
@@ -851,6 +852,7 @@ export default function Create() {
                   {beat.description}
                 </div>
               ))}
+              {generatedStory?.metadata?.brandName}
             </div>
           </div>
 
@@ -1155,6 +1157,7 @@ export default function Create() {
                 </div>
               ))}
             </div>
+            {expandedStory?.metadata?.brandName}
           </div>
 
           <div className="space-y-3">

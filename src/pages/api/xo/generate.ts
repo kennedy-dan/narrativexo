@@ -210,6 +210,7 @@ export default async function handler(
           {},
           meaningContract
         );
+        
         break;
       }
     }
@@ -236,7 +237,7 @@ export default async function handler(
     // ============================================================================
 
     const formattedText = XORenderer.renderMicroStory(story);
-    const storyText = XORenderer.extractStoryText(story.beats);
+const storyText = XORenderer.extractStoryText(story.beats, story.contract);  // Pass contract for brand handling
 
     const beatSheet = story.beats.map((beat: any, index: number) => ({
       beat: `Beat ${index + 1}`,

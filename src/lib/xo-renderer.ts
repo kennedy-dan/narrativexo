@@ -212,41 +212,59 @@ export class XOPhrasePicker {
 // ============================================================================
 
 export class XORenderer {
-  /**
-   * Render beats to formatted text with deterministic phrase selection
-   */
-  static renderMicroStory(story: MicroStory): string {
-    const { beats, contract } = story;
-    const markers = PATH_MARKERS[contract.entryPath] || PATH_MARKERS.scene;
+/**
+ * Render beats to formatted text with deterministic phrase selection
+ * FIXED: Brand appears AFTER last beat with full stop, not IN last beat
+ */
+static renderMicroStory(story: MicroStory): string {
+  const { beats, contract } = story;
+  const markers = PATH_MARKERS[contract.entryPath] || PATH_MARKERS.scene;
+  
+  let formatted = '';
+  
+  for (let i = 0; i < Math.min(beats.length, markers.length); i++) {
+    const beat = beats[i];
+    const marker = markers[i];
     
-    let formatted = '';
+    formatted += `${marker}\n`;
     
-    for (let i = 0; i < Math.min(beats.length, markers.length); i++) {
-      const beat = beats[i];
-      const marker = markers[i];
-      
-      formatted += `${marker}\n`;
-      
-      if (beat.lines.length === 0 || beat.lines.every(line => !line.trim())) {
-        const position = i === 0 ? 'opening' : i === beats.length - 1 ? 'close' : 'middle';
-        const placeholder = XOPhrasePicker.pickGentlePhrase(contract, position);
-        formatted += `${placeholder}\n`;
-      } else {
-        const lines = beat.lines.slice(0, contract.maxLinesPerBeat);
-        lines.forEach(line => {
-          if (line.trim()) {
-            formatted += `${line.trim()}\n`;
-          }
-        });
-      }
-      
-      if (i < beats.length - 1) {
-        formatted += '\n';
-      }
+    if (beat.lines.length === 0 || beat.lines.every(line => !line.trim())) {
+      const position = i === 0 ? 'opening' : i === beats.length - 1 ? 'close' : 'middle';
+      const placeholder = XOPhrasePicker.pickGentlePhrase(contract, position);
+      formatted += `${placeholder}\n`;
+    } else {
+      const lines = beat.lines.slice(0, contract.maxLinesPerBeat);
+      lines.forEach(line => {
+        if (line.trim()) {
+          formatted += `${line.trim()}\n`;
+        }
+      });
     }
     
-    return formatted.trim();
+    if (i < beats.length - 1) {
+      formatted += '\n';
+    }
   }
+  
+  // CRITICAL FIX: Add brand AFTER the story with a full stop
+  if (contract.brandMode !== 'NONE' && contract.brandName) {
+    // Ensure story ends with proper punctuation
+    const trimmedFormatted = formatted.trim();
+    const lastChar = trimmedFormatted[trimmedFormatted.length - 1];
+    
+    // If the story doesn't end with punctuation, add a full stop
+    if (lastChar && !'.!?'.includes(lastChar)) {
+      formatted = trimmedFormatted + '.\n\n';
+    } else {
+      formatted = trimmedFormatted + '\n\n';
+    }
+    
+    // Add the brand name
+    formatted += contract.brandName;
+  }
+  
+  return formatted.trim();
+}
   
   /**
    * Parse formatted text back to beats (for legacy compatibility)
@@ -295,15 +313,18 @@ export class XORenderer {
     return beats;
   }
   
-  /**
-   * Extract just the story text without markers
-   */
-  static extractStoryText(beats: MicroStoryBeat[]): string {
-    return beats
-      .map(beat => beat.lines.join('\n'))
-      .join('\n\n')
-      .trim();
-  }
+/**
+ * Extract just the story text without markers and without brand
+ */
+static extractStoryText(beats: MicroStoryBeat[], contract?: XOContract): string {
+  const storyText = beats
+    .map(beat => beat.lines.join('\n'))
+    .join('\n\n')
+    .trim();
+  
+  return storyText;
+}
+
   
   /**
    * Validate beats structure

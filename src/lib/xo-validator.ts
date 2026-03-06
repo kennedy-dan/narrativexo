@@ -609,53 +609,57 @@ export class XOValidator {
     };
   }
   
-  /**
-   * Validate brand placement
-   */
-  private validateBrandPlacement(beats: MicroStoryBeat[], contract: XOContract): ValidationResult {
-    if (contract.brandMode === 'NONE') {
-      return { passed: true };
-    }
-    
-    const errors: string[] = [];
-    const warnings: string[] = [];
-    const metadata: Record<string, any> = {
-      brandMode: contract.brandMode,
-      brandName: contract.brandName,
-      brandFoundInBeats: [],
-    };
-    
-    for (let i = 0; i < beats.length - 1; i++) {
-      const beat = beats[i];
-      const hasBrand = this.beatContainsBrand(beat, contract.brandName!);
-      
-      if (hasBrand) {
-        errors.push(`Brand found in beat ${i + 1}, should only be in last beat`);
-        metadata.brandFoundInBeats.push(i + 1);
-      }
-    }
-    
-    if (beats.length > 0) {
-      const lastBeat = beats[beats.length - 1];
-      const hasBrand = this.beatContainsBrand(lastBeat, contract.brandName!);
-      
-      if (contract.brandMode === 'EXPLICIT' && !hasBrand) {
-        errors.push(`Brand not found in last beat for EXPLICIT mode`);
-      } else if (contract.brandMode === 'IMPLICIT' && hasBrand) {
-        warnings.push(`Explicit brand found in IMPLICIT mode (last beat)`);
-        metadata.brandFoundInBeats.push(beats.length);
-      } else if (hasBrand) {
-        metadata.brandFoundInBeats.push(beats.length);
-      }
-    }
-    
-    return {
-      passed: errors.length === 0,
-      errors: errors.length > 0 ? errors : undefined,
-      warnings: warnings.length > 0 ? warnings : undefined,
-      metadata,
-    };
+/**
+ * Validate brand placement
+ * CRITICAL FIX: Brand should be AFTER last beat with a full stop, not IN last beat
+ */
+private validateBrandPlacement(beats: MicroStoryBeat[], contract: XOContract): ValidationResult {
+  if (contract.brandMode === 'NONE') {
+    return { passed: true };
   }
+  
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const metadata: Record<string, any> = {
+    brandMode: contract.brandMode,
+    brandName: contract.brandName,
+    brandFoundInBeats: [],
+    brandFoundAfterLastBeat: false
+  };
+  
+  // Check ALL beats - brand should NOT appear in any beat
+  for (let i = 0; i < beats.length; i++) {
+    const beat = beats[i];
+    const hasBrand = this.beatContainsBrand(beat, contract.brandName!);
+    
+    if (hasBrand) {
+      errors.push(`Brand found in beat ${i + 1}. Brand should NOT appear in any beat - it should be placed AFTER the last beat with a full stop.`);
+      metadata.brandFoundInBeats.push(i + 1);
+    }
+  }
+  
+  // Check if the story text ends with brand (this would require analyzing the formatted output)
+  // This is a soft check - we'll note it but not error since we can't easily check here
+  
+  if (beats.length > 0 && metadata.brandFoundInBeats.length === 0) {
+    // Brand not found in any beat - this is correct placement
+    metadata.brandFoundAfterLastBeat = true;
+  }
+  
+  // For EXPLICIT mode, we expect the brand to appear somewhere (in the final output)
+  if (contract.brandMode === 'EXPLICIT' && metadata.brandFoundInBeats.length === 0) {
+    // This is a warning, not an error, because we can't guarantee the brand will be added
+    // in the rendering step. The actual generation should ensure brand is added after.
+    warnings.push(`EXPLICIT mode: Brand "${contract.brandName}" should be added AFTER the last beat with a full stop.`);
+  }
+  
+  return {
+    passed: errors.length === 0,
+    errors: errors.length > 0 ? errors : undefined,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    metadata,
+  };
+}
   
   /**
    * Validate brand is removable

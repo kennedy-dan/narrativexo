@@ -518,14 +518,34 @@ private static buildSystemPrompt(
     : `MARKET: NEUTRAL - No regional specifics, slang, or cultural props. Keep it universally relatable.`;
   
   // Brand guidance
-  let brandGuidance = '';
-  if (brandMode === 'EXPLICIT' && brandName) {
-    brandGuidance = `BRAND: ${brandName} - Include naturally in the FINAL BEAT ONLY. The brand should feel like a meaningful resolution, not an advertisement.`;
-  } else if (brandMode === 'IMPLICIT' && brandName) {
-    brandGuidance = `BRAND: ${brandName} - Suggest implicitly through values, no direct mention. Let the story's resolution align with brand values.`;
-  } else {
-    brandGuidance = `NO BRAND - Focus purely on human experience. No commercial elements.`;
-  }
+// Brand guidance
+let brandGuidance = '';
+if (brandMode === 'EXPLICIT' && brandName) {
+  brandGuidance = `BRAND: ${brandName}
+
+⚠️ CRITICAL BRAND RULE - MUST FOLLOW EXACTLY:
+• The brand "${brandName}" MUST NEVER appear in ANY story beat
+• Do NOT write "${brandName}" into any beat's content
+• Do NOT use the brand in descriptions, actions, or dialogue
+• The brand will be added AFTER the story with a full stop by the system
+• Focus only on the human moment, emotion, and meaning
+• The brand's essence (refreshment, quality, etc.) can be present, but NOT the brand name itself
+
+Example of WRONG (brand in beat):
+STORY:
+He smiled and drank a refreshing Pepsi.
+
+Example of RIGHT (brand essence without name):
+STORY:
+He smiled, the cold drink refreshing him completely.
+
+Then the system adds: pepsi`;
+  
+} else if (brandMode === 'IMPLICIT' && brandName) {
+  brandGuidance = `BRAND: ${brandName} - Suggest implicitly through values, no direct mention. Let the story's resolution align with brand values. The brand name itself should never appear.`;
+} else {
+  brandGuidance = `NO BRAND - Focus purely on human experience. No commercial elements.`;
+}
   
   // Ontology enforcement
   const ontologySection = `
@@ -578,7 +598,7 @@ CRITICAL RULES:
 ❌ NEVER use phrases like "We see", "We notice", "We feel"
 ❌ NEVER add introductory or concluding text outside the beats
 ❌ NEVER use nouns outside the allowed list above
-
+❌ ${brandMode === 'EXPLICIT' && brandName ? `NEVER write "${brandName}" in any beat content - it will be added after the story` : ''}
 ✅ YOU MUST OUTPUT EXACTLY THIS FORMAT (${maxBeats} beats, ${maxLinesPerBeat} lines max per beat):
 
 ${markerExample}
@@ -591,7 +611,7 @@ CRITICAL FORMATTING RULES:
 1. Start EACH beat with its EXACT marker (${markers.slice(0, maxBeats).join(', ')})
 2. Each marker MUST be on its own line, followed by content
 3. Each beat should have 1-${maxLinesPerBeat} lines of content
-4. Each line should be 5-10 words (complete sentences)
+4. Each line should be 5-8 words (complete sentences)
 5. NO blank lines between marker and its content
 6. ONE blank line between beats
 7. NO extra text before the first marker or after the last marker
@@ -620,7 +640,6 @@ ${maxBeats === 3 ?
    entryPath === 'scene' ? 'The ordinary held unexpected beauty.' :
    'Some connections need no explanation.') :
   'What remained was simpler than expected.'}
-${brandMode !== 'NONE' && maxBeats === 3 ? `The ${brandName || 'brand'} became part of that understanding.` : ''}
 ${maxLinesPerBeat >= 2 && maxBeats === 3 ? 'And that was enough.' : ''}
 
 ${maxBeats > 3 ? `${markers[3]}\nThe turn revealed a deeper truth.\n${markers[4]}\nIn the end, peace arrived.\n` : ''}
@@ -646,7 +665,7 @@ ${eventConstraints}
 📏 STRUCTURE REQUIREMENTS:
 • Total beats: ${maxBeats}
 • Lines per beat: 1-${maxLinesPerBeat}
-• Words per line: 5-15 (complete sentences)
+• Words per line: 5-8 (complete sentences)
 • Total story length: ~${maxBeats * maxLinesPerBeat * 10} words
 
 ${formatRules}
@@ -742,26 +761,37 @@ Make each beat 1-2 lines. Use only the allowed nouns above.
     return beats.slice(0, contract.maxBeats);
   }
 
-  private static postProcessBeats(
-    beats: MicroStoryBeat[],
-    contract: XOContract,
-    context: GenerationContext
-  ): MicroStoryBeat[] {
-    return beats.map(beat => ({
-      ...beat,
-      lines: beat.lines.map(line => {
-        let cleanLine = line.trim();
-        
-        if (cleanLine.startsWith('SCENE_INPUT:') || 
-            cleanLine.startsWith('EMOTION_INPUT:') ||
-            cleanLine.startsWith('STORY:')) {
-          cleanLine = cleanLine.replace(/^(SCENE_INPUT|EMOTION_INPUT|STORY):\s*/i, '');
-        }
-        
-        return cleanLine;
-      })
-    }));
-  }
+private static postProcessBeats(
+  beats: MicroStoryBeat[],
+  contract: XOContract,
+  context: GenerationContext
+): MicroStoryBeat[] {
+  const brandLower = contract.brandName?.toLowerCase();
+  
+  return beats.map(beat => ({
+    ...beat,
+    lines: beat.lines.map(line => {
+      let cleanLine = line.trim();
+      
+      // Remove any marker prefixes
+      if (cleanLine.startsWith('SCENE_INPUT:') || 
+          cleanLine.startsWith('EMOTION_INPUT:') ||
+          cleanLine.startsWith('STORY:')) {
+        cleanLine = cleanLine.replace(/^(SCENE_INPUT|EMOTION_INPUT|STORY):\s*/i, '');
+      }
+      
+      // CRITICAL: Remove brand name if it appears in any beat
+      if (brandLower && cleanLine.toLowerCase().includes(brandLower)) {
+        console.log(`[XO Engine] Removing brand "${contract.brandName}" from beat line: "${cleanLine}"`);
+        cleanLine = cleanLine.replace(new RegExp(`\\b${brandLower}\\b`, 'gi'), '').trim();
+        // Clean up any resulting double spaces or punctuation issues
+        cleanLine = cleanLine.replace(/\s+/g, ' ').replace(/\s+([.,!?])/g, '$1');
+      }
+      
+      return cleanLine;
+    }).filter(line => line.length > 0) // Remove empty lines
+  }));
+}
 
   private static async validatePass(
     beats: MicroStoryBeat[],
