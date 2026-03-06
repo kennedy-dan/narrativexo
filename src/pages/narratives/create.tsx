@@ -1511,6 +1511,7 @@ export default function Create() {
                 </div>
               ))}
             </div>
+            {adaptedStory?.metadata?.brandName}
           </div>
 
           <div className="space-y-4">
